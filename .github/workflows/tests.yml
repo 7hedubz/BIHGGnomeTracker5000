@@ -15,4 +15,6 @@ jobs:
       - run: luajit tests/nearby.lua .
       - run: luajit tests/sounds.lua .
       - run: luajit tests/identity.lua .
+      - run: luajit tests/roster.lua .
+      - run: luajit tests/targeting.lua .
       - run: python3 tests/media_gain.py .

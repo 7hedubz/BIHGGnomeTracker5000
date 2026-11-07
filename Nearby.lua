@@ -1,5 +1,29 @@
 local _,A=...
 A.NEARBY_TTL=30;A.NEARBY_ROWS=8
+function A.TargetingLocked()
+ if type(InCombatLockdown)~='function'then return false end
+ local ok,value=pcall(InCombatLockdown)
+ return not ok or(A.Secret and A.Secret(value))or not not value
+end
+function A.TargetMacro(name)
+ if(A.Secret and A.Secret(name))or type(name)~='string'or #name>140 or name:match('^%s*$')or name:find('[%c|/;%[%]]')then return nil end
+ local names,seen={},{};local function add(n)if n and n~=''and not seen[n]then seen[n]=true;names[#names+1]=n end end
+ add(name)
+ local realm=A.Safe(GetNormalizedRealmName);local bare=name
+ if type(realm)=='string'and realm~=''and name:sub(-#realm-1)=='-'..realm then bare=name:sub(1,#name-#realm-1);add(bare)end
+ -- Forever reports a surname in UnitName's realm return. These are targeting
+ -- alternatives only, never a rewrite of stored identity or an alias merge.
+ local first,surname=bare:match('^([^%-]+)%-(.+)$');if first then add(first..' '..surname)end
+ local out={'/cleartarget'};for i,n in ipairs(names)do out[#out+1]='/targetexact '..(i>1 and'[noexists] 'or'')..n end
+ return table.concat(out,'\n')
+end
+function A.BindTargetButton(button,name)
+ if A.TargetingLocked()then return false end
+ name=(A.rosterTargetNames and A.rosterTargetNames[name])or name
+ local macro=A.TargetMacro(name)
+ button:SetAttribute('type1',macro and'macro'or nil);button:SetAttribute('macrotext1',macro)
+ return macro~=nil
+end
 local function secret(v)return A.Secret and A.Secret(v)end
 local function clock()return A.Safe(GetServerTime)or time()end
 function A.InitNearby()
@@ -53,6 +77,7 @@ end
 function A.RefreshNearby(now)
  if not A.nearbyFrame then return end
  local entries,gnomes=A.NearbyList(now);A.nearbyCount=#entries
+ if A.TargetingLocked()then A.nearbyHeaderText:SetText('Nearby | combat locked');return end
  local opts=A.db.options;local pages=math.max(1,math.ceil(#entries/A.NEARBY_ROWS));A.nearbyPage=math.max(1,math.min(A.nearbyPage or 1,pages))
  A.nearbyHeaderText:SetText('Nearby |cff00bfff'..#entries..'|r  G: |cffffb347'..gnomes..'|r')
  A.nearbyButtons.collapse:SetText(opts.nearbyCollapsed and '+'or'-')
@@ -64,6 +89,7 @@ function A.RefreshNearby(now)
  for i,row in ipairs(A.nearbyRows)do
   local e=not opts.nearbyCollapsed and entries[(A.nearbyPage-1)*A.NEARBY_ROWS+i]or nil
   row.data=e
+  A.BindTargetButton(row.frame,e and e.name)
   if e then
    local age=math.max(0,now-e.seen);local color=e.race=='Gnome'and '|cffffb347'or'|cffffffff'
    row.name:SetText(color..A.DisplayName(e.name)..'|r')
@@ -81,14 +107,14 @@ function A.ToggleNearby(force)
  A.RefreshNearby(clock());if A.RefreshUI then A.RefreshUI()end
 end
 function A.CreateNearbyUI()
- if A.nearbyFrame or not A.db then return end
+ if A.nearbyFrame or not A.db or A.TargetingLocked()then return end
  local w=CreateFrame('Frame','BIHGGKTNearby',UIParent,BackdropTemplateMixin and 'BackdropTemplate'or nil);A.nearbyFrame=w
  w:SetSize(340,24);w:SetPoint('TOPRIGHT',UIParent,'TOPRIGHT',-30,-190);w:SetFrameStrata('MEDIUM');w:SetClampedToScreen(true);w:SetMovable(true)
  w:SetBackdrop({bgFile='Interface\\Buttons\\WHITE8X8',edgeFile='Interface\\Buttons\\WHITE8X8',edgeSize=1});w:SetBackdropColor(0.02,0.025,0.03,0.93);w:SetBackdropBorderColor(0.65,0.70,0.75,1)
  local pos=A.db.options.nearbyPosition;if pos then w:ClearAllPoints();w:SetPoint(pos[1],UIParent,pos[2],pos[3],pos[4])end
  local head=CreateFrame('Frame',nil,w);head:SetPoint('TOPLEFT');head:SetSize(340,24);head:EnableMouse(true);head:RegisterForDrag('LeftButton')
- head:SetScript('OnDragStart',function()if not A.db.options.nearbyLocked then w:StartMoving()end end)
- head:SetScript('OnDragStop',function()w:StopMovingOrSizing();local point,_,relative,x,y=w:GetPoint();A.db.options.nearbyPosition={point,relative,x,y}end)
+ head:SetScript('OnDragStart',function()if not A.TargetingLocked()and not A.db.options.nearbyLocked then w:StartMoving()end end)
+ head:SetScript('OnDragStop',function()if A.TargetingLocked()then return end;w:StopMovingOrSizing();local point,_,relative,x,y=w:GetPoint();A.db.options.nearbyPosition={point,relative,x,y}end)
  head:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText('BIHG Nearby Alliance');GameTooltip:AddLine('Gnomes first. Readable visible/recent sightings expire after 30 seconds; this is not an exact-range radar.',0.85,0.9,0.95,true);GameTooltip:Show()end end)
  head:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
  A.nearbyHeader=head;A.nearbyHeaderText=label(head,8,-6,136);A.nearbyButtons={}
@@ -102,10 +128,10 @@ function A.CreateNearbyUI()
  b.close=tiny(head,'X',300,function()A.ToggleNearby(false)end,'Hide nearby window; restore with /gkt nearby or Settings');b.close.label:SetTextColor(1,0.35,0.3)
  A.nearbyRows={}
  for i=1,A.NEARBY_ROWS do
-  local row={};local f=CreateFrame('Frame',nil,w);row.frame=f;f:SetSize(332,21);f:SetPoint('TOPLEFT',4,-24-(i-1)*22);f:EnableMouse(true)
+  local row={};local f=CreateFrame('Button',nil,w,'SecureActionButtonTemplate');row.frame=f;f:SetSize(332,21);f:SetPoint('TOPLEFT',4,-24-(i-1)*22);f:RegisterForClicks('LeftButtonDown','LeftButtonUp')
   row.name=label(f,5,-5,206);row.detail=label(f,214,-5,112);row.detail:SetJustifyH('RIGHT')
   f:SetScript('OnEnter',function(self)
-   local e=row.data;if e and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_LEFT');GameTooltip:SetText(A.DisplayName(e.name));GameTooltip:AddLine((e.race or 'Unknown race')..(e.level and e.level>0 and(' | Level '..e.level)or''),1,0.75,0.35);GameTooltip:AddLine('Last seen '..math.max(0,clock()-e.seen)..'s ago. Recently observed, not a measured distance.',0.8,0.85,0.9,true);GameTooltip:Show()end
+   local e=row.data;if e and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_LEFT');GameTooltip:SetText(A.DisplayName(e.name));GameTooltip:AddLine((e.race or 'Unknown race')..(e.level and e.level>0 and(' | Level '..e.level)or''),1,0.75,0.35);GameTooltip:AddLine('Left-click: try targeting this character. List bindings freeze in combat.',0.8,0.9,1,true);GameTooltip:AddLine('Last seen '..math.max(0,clock()-e.seen)..'s ago. Recently observed, not a measured distance.',0.8,0.85,0.9,true);GameTooltip:Show()end
   end)
   f:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end);A.nearbyRows[i]=row
  end

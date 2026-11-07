@@ -31,16 +31,17 @@ local function unitName(unit)
 end
 function A.RefreshGroupActors()
  A.groupSources={};A.groupOwners={};A.groupUnits={}
- if not A.guildKey then return end
+ if not A.guildKey or A.guildUnverified then return end
  local function add(unit,pet)
   if not A.Safe(UnitExists,unit) then return end
   local guid=A.Safe(UnitGUID,unit);if not player(guid)then return end
-  local name=unitName(unit);if not name then return end
+  local name=unitName(unit);if not name then return end;local rawName=name
   if guid==A.Safe(UnitGUID,'player')then name=A.owner elseif A.CanonicalCharacterName then name=A.CanonicalCharacterName(name,guid)end
   local guild=A.Safe(GetGuildInfo,unit)
-  if guild and A.guildName and guild~=A.guildName then A.members[name]=nil;return end
-  if not A.members[name] and not (A.guildName and guild==A.guildName)then return end
-  A.members[name]=true
+  if guild and A.guildName and guild~=A.guildName then if A.ForgetGuildMember then A.ForgetGuildMember(name,guid)else A.members[name]=nil end;return end
+  if not(A.guildName and guild==A.guildName)and not(A.rosterSeen and A.rosterSeen[name])then return end
+  if A.ObserveGuildCharacter then name=A.ObserveGuildCharacter(rawName,guid,A.Safe(GetServerTime)or 0)end
+  if A.RememberGuildMember then A.RememberGuildMember(name,guid)else A.members[name]=true end
   local peers=A.PeerRecords()
   if name~=A.owner and not(A.account and A.account.characters[name])and not peers[name]then peers[name]=record();peers[name].observerOnly=true end
   if peers[name]then if peers[name].characterGUID and peers[name].characterGUID~=guid then return end;peers[name].characterGUID=guid end
@@ -80,6 +81,7 @@ function A.RebuildOwnGuildTotals(now)
  r.total=effective.total;r.deaths=effective.deaths;r.days=effective.days;r.deathDays=effective.deathDays
 end
 function A.AddGuildEvent(kind,name,actor,target,at,contribution,now)
+ if A.guildUnverified then return false end
  if A.CanonicalCharacterName then name=A.CanonicalCharacterName(name,actor)end
  if not A.guildKey or not A.members[name] or not player(actor)or not player(target)or(kind~='K'and kind~='D')then return false end
  at=math.floor(at);contribution=math.floor(contribution)

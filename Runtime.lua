@@ -100,23 +100,92 @@ function A.ScanVisible()
   if not next(keys) then A.auras[g]=nil end
  end
 end
-function A.Roster()
- local guild=A.Safe(GetGuildInfo,'player'); local old=A.guildKey
- A.guildName=type(guild)=='string'and guild or nil
- A.guildKey=type(guild)=='string' and guild..'-'..(A.Safe(GetNormalizedRealmName) or '') or nil
- local count=0
- A.members={}; if A.guildKey then
-  A.members[A.owner]=true
-  count=A.Safe(GetNumGuildMembers) or 0
-  for i=1,math.min(count,1000) do local name=A.Name(A.Safe(GetGuildRosterInfo,i)); if name then A.members[name]=true end end
+function A.GuildMembershipCache()
+ if not A.guildKey then return end
+ local r=A.account or A.db;r.guildMembership=r.guildMembership or {}
+ local c=r.guildMembership[A.guildKey]
+ if not c then
+  c={members={},guids={}};r.guildMembership[A.guildKey]=c
+  -- Old versions deleted observed rows on partial rosters. The witnessed
+  -- ledger still proves their last-known membership and reconstructs scores.
+  local peers=A.PeerRecords()
+  for n,p in pairs(peers)do c.members[n]=true;c.guids[n]=p.characterGUID end
+  local store=(r.guildObservations or {})[A.guildKey]
+  for _,e in pairs(store and store.events or {})do
+   local name=A.CanonicalCharacterName and A.CanonicalCharacterName(e.name,e.actor)or e.name
+   c.members[name]=true;c.guids[name]=e.actor
+   if not peers[name]and not(A.account and A.account.characters[name])then peers[name]={total=0,deaths=0,days={},deathDays={},observerOnly=true,characterGUID=e.actor}end
+  end
  end
- if old~=A.guildKey then A.outgoing=nil; A.request=true; A.rx={}; A.queries={}; A.lastRequest=nil; A.syncStatus=nil; A.QueueShare(true) end
+ return c
+end
+function A.RememberGuildMember(name,guid)
+ local c=A.GuildMembershipCache();if not c then return end
+ c.members[name]=true;if type(guid)=='string'then c.guids[name]=guid end
+ A.members[name]=true
+end
+function A.ForgetGuildMember(name,guid)
+ local c=A.GuildMembershipCache();if not c then return end
+ for n in pairs(c.members)do if n==name or(guid and c.guids[n]==guid)then
+  c.members[n]=false;A.members[n]=nil
+  if A.CanonicalCharacterName then A.members[A.CanonicalCharacterName(n,c.guids[n])]=nil end
+ end end
+ A.members[name]=nil
+end
+function A.Roster(confirmed)
+ local guild=A.Safe(GetGuildInfo,'player');local old=A.guildKey
+ local realm=A.Safe(GetNormalizedRealmName);local last=A.db.lastGuild
+ A.guildUnverified=false
+ if type(guild)=='string'and guild~=''and type(realm)=='string'and realm~=''then
+  A.guildName=guild;A.guildKey=guild..'-'..realm;A.db.lastGuild={name=guild,key=A.guildKey}
+ elseif A.Safe(IsInGuild)==true and last and type(last.name)=='string'and type(last.key)=='string'and(guild==nil or guild==last.name)then
+  A.guildName=last.name;A.guildKey=last.key;A.guildUnverified=true;confirmed=false
+ else A.guildName=nil;A.guildKey=nil end
+ A.members={};A.rosterSeen={}
+ if old~=A.guildKey then A.rosterCandidate=nil;A.rosterTargetNames={};A.outgoing=nil;A.request=true;A.rx={};A.queries={};A.lastRequest=nil;A.syncStatus=nil;A.QueueShare(true)end
+ if A.guildKey then
+  local c=A.GuildMembershipCache();local count=not A.guildUnverified and A.Safe(GetNumGuildMembers,true)or 0
+  if type(count)~='number'or count<0 then count=0 end
+  local complete=count>0 and count<=1000 and count==math.floor(count)and A.Safe(GetGuildRosterShowOffline)==true
+  local signature={};local rawNames={};local seenGUIDs={}
+  for i=1,math.min(math.floor(count),1000)do
+   local v=type(GetGuildRosterInfo)=='function'and{pcall(GetGuildRosterInfo,i)}or{}
+   local name=v[1]and not A.Secret(v[2])and A.Name(v[2]);local guid=v[1]and not A.Secret(v[18])and v[18]or nil
+   if type(guid)~='string'or not guid:match('^Player%-[%w%-]+$')then guid=nil;complete=false end
+   if not name or rawNames[name]or(guid and seenGUIDs[guid])then complete=false else
+    rawNames[name]=true;if guid then seenGUIDs[guid]=true end
+    signature[#signature+1]=name..':'..(type(guid)=='string'and guid or'')
+    local targetName=name;if A.ObserveGuildCharacter then name=A.ObserveGuildCharacter(name,guid,now())end
+    A.rosterTargetNames=A.rosterTargetNames or {};A.rosterTargetNames[name]=targetName
+    A.rosterSeen[name]=true;A.RememberGuildMember(name,guid)
+   end
+  end
+  complete=complete and A.rosterSeen[A.owner]==true
+  local accepted=false
+  if confirmed and complete then
+   table.sort(signature);local key=table.concat(signature,'\031');local pending=A.rosterCandidate
+   if pending and pending.key==key and now()-pending.time>=5 then
+    for n in pairs(c.members)do local canonical=A.CanonicalCharacterName and A.CanonicalCharacterName(n,c.guids[n])or n
+     if not A.rosterSeen[canonical]then c.members[n]=false end
+    end
+    accepted=true
+   elseif not pending or pending.key~=key then
+    A.rosterCandidate={key=key,time=now()}
+    if C_Timer and C_Timer.After then local expected=A.guildKey;C_Timer.After(5,function()
+     if A.guildKey==expected and C_GuildInfo and C_GuildInfo.GuildRoster then pcall(C_GuildInfo.GuildRoster)end
+    end)end
+   end
+  else A.rosterCandidate=nil end
+  A.rosterStatus=A.guildUnverified and'cached history: guild identity pending'or(accepted and'guild membership confirmed'or'last-verified guild membership (roster pending/filtered)')
+  A.members={}
+  for n,present in pairs(c.members)do if present then local canonical=A.CanonicalCharacterName and A.CanonicalCharacterName(n,c.guids[n])or n;A.members[canonical]=true end end
+  A.RememberGuildMember(A.owner,A.Safe(UnitGUID,'player'))
+ else A.rosterStatus='guild information unavailable'end
  if A.RefreshGroupActors then A.RefreshGroupActors()end
- local peers=A.PeerRecords()
  if A.ReconcileGuildMembership then A.ReconcileGuildMembership()end
- if count>0 then for name in pairs(peers) do if not A.members[name] then peers[name]=nil end end end
+ -- Membership controls presentation only: never delete persisted peer history.
  if A.RefreshGroupActors then if A.CarryOwnGuildHistory then A.CarryOwnGuildHistory(now())end;A.RebuildOwnGuildTotals(now())end
- if A.RefreshUI then A.RefreshUI() end
+ if A.RefreshUI then A.RefreshUI()end
 end
 function A.ReadCombatLog()
  if not CombatLogGetCurrentEventInfo then return end
@@ -205,7 +274,7 @@ local function handler(_,event,...)
  if not A.db then return end
  if event=='PLAYER_ENTERING_WORLD' then if A.ClearNearby then A.ClearNearby()end;A.Roster();A.QueueShare(true);A.ScanVisible()
  elseif event=='ZONE_CHANGED_NEW_AREA'then if A.ClearNearby then A.ClearNearby()end;A.ScanVisible()
- elseif event=='GUILD_ROSTER_UPDATE' or event=='PLAYER_GUILD_UPDATE' then A.Roster()
+ elseif event=='GUILD_ROSTER_UPDATE' or event=='PLAYER_GUILD_UPDATE' then A.Roster(event=='GUILD_ROSTER_UPDATE')
  elseif event=='GROUP_ROSTER_UPDATE'or event=='UNIT_PET'then if A.RefreshGroupActors then A.RefreshGroupActors()end
  elseif event=='NAME_PLATE_UNIT_ADDED' then if not A.Secret(arg1) and type(arg1)=='string' then A.plates[arg1]=true;A.Scan(arg1) end
  elseif event=='NAME_PLATE_UNIT_REMOVED' then if not A.Secret(arg1) then A.plates[arg1]=nil end
@@ -233,6 +302,9 @@ for _,event in ipairs({'PLAYER_LOGIN','PLAYER_ENTERING_WORLD','ZONE_CHANGED_NEW_
 local elapsed=0
 frame:SetScript('OnUpdate',function(_,dt)
  elapsed=elapsed+dt; if elapsed<0.5 or not A.db then return end;elapsed=0
- local ok,err=pcall(function() A.ScanVisible();A.Pump(now());if A.PumpTopPost then A.PumpTopPost(now()) end;if A.window and A.window:IsShown() then A.RefreshUI() end;if A.RefreshNearby then A.RefreshNearby(now())end;if A.PumpNearbySounds then A.PumpNearbySounds(now())end end)
+ local ok,err=pcall(function()
+  if A.TargetingLocked and not A.TargetingLocked()then if not A.window and A.CreateUI then A.CreateUI()end;if not A.nearbyFrame and A.CreateNearbyUI then A.CreateNearbyUI()end end
+  A.ScanVisible();A.Pump(now());if A.PumpTopPost then A.PumpTopPost(now())end;if A.window and A.window:IsShown()then A.RefreshUI()end;if A.RefreshNearby then A.RefreshNearby(now())end;if A.PumpNearbySounds then A.PumpNearbySounds(now())end
+ end)
  if not ok then A.lastError=tostring(err) end
 end)

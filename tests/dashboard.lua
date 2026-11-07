@@ -23,6 +23,9 @@ assert(#A.ActivityTrend('Lifetime',now)==30,'lifetime trend is labeled last thir
 local sent={};A.Safe=function(fn,...)return fn and fn(...)end;A.Secret=function()return false end
 IsInInstance=function()return false end
 SendChatMessage=function(msg,channel)sent[#sent+1]={msg,channel}end
+local guildRank='Member';GetGuildInfo=function()return'Guild',guildRank,3 end
+assert(not A.StartTopPost(lines,now),'ordinary members cannot post a guild report')
+guildRank='Council of BIHG'
 assert(A.StartTopPost(lines,now),'explicit post starts queue')
 assert(not A.StartTopPost(lines,now),'duplicate click cannot start second report')
 A.PumpTopPost(now);assert(#sent==1 and sent[1][2]=='GUILD','posts only to guild')
@@ -49,4 +52,16 @@ local today=A.KillsLine('Today',now,350,164)
 assert(#today.points==1 and today.points[1].x==175,'single-day view has centered point')
 local zero=A.KillsLine('Today',now+86400,350,164)
 assert(zero.peak==0 and zero.points[1].y==0 and zero.ceiling>0,'zero activity has a valid flat zero scale')
-print('PASS dashboard: top ten, UTF-safe bounded report lines, empty periods, account daily charts, guild-only manual posting, pacing/cooldown, blocked-send behavior, kill-line geometry')
+A.postJob=nil;A.db.options.lastTopPost=nil;guildRank='The BIHG Cheese'
+local restrictedSends=0;C_ChatInfo.SendChatMessage=function()restrictedSends=restrictedSends+1 end
+assert(A.StartTopPost(lines,now+300),'The BIHG Cheese rank can post')
+A.PumpTopPost(now+300);assert(restrictedSends==1,'second authorized rank can send its confirmed report')
+guildRank='Member';A.PumpTopPost(now+301);assert(not A.postJob and restrictedSends==1,'rank loss cancels remaining report without sending another line')
+guildRank='Guild Master';assert(not A.StartTopPost(lines,now+400),'no implicit guild-master or officer override')
+guildRank=nil;assert(not A.StartTopPost(lines,now+400),'unreadable rank fails closed')
+guildRank='Council of BIHG';A.guildUnverified=true;assert(not A.CanPostTopReport(),'cached unverified guild identity cannot authorize a public report');A.guildUnverified=nil
+guildRank='council of bihg';assert(not A.CanPostTopReport(),'rank matching is exact and case sensitive')
+GetGuildInfo=function()error('unavailable')end;assert(not A.CanPostTopReport(),'throwing rank API fails closed')
+local secret={};A.Secret=function(v)return v==secret end;GetGuildInfo=function()return'Guild',secret end
+assert(not A.CanPostTopReport(),'secret rank value fails closed before comparison')
+print('PASS dashboard: top ten, bounded UTF-safe reports, charts, exact allowed ranks, rank-loss cancellation, pacing/cooldown and chat API failures')

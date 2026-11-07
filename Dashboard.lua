@@ -42,8 +42,16 @@ function A.KillsLine(period,now,width,height)
  end
  return result
 end
+function A.CanPostTopReport()
+ if not A.guildKey or A.guildUnverified or (IsInGuild and A.Safe(IsInGuild)~=true)or type(GetGuildInfo)~='function'then return false end
+ local ok,guild,rank=pcall(GetGuildInfo,'player')
+ if not ok or A.Secret(guild)or A.Secret(rank)or type(guild)~='string'or guild==''or type(rank)~='string'then return false end
+ if A.guildName and guild~=A.guildName then return false end
+ return rank=='Council of BIHG'or rank=='The BIHG Cheese'
+end
 function A.StartTopPost(lines,now)
  if not A.guildKey or (IsInGuild and A.Safe(IsInGuild)~=true) then A.postStatus='Join a guild before posting.';return false end
+ if not A.CanPostTopReport()then A.postStatus='Guild reports are restricted to Council of BIHG and The BIHG Cheese.';return false end
  if A.Safe(IsInInstance)~=false then A.postStatus='Leave the instance before posting to guild.';return false end
  if A.postJob then A.postStatus='A guild report is already being sent.';return false end
  local last=A.db.options.lastTopPost
@@ -57,6 +65,7 @@ function A.StartTopPost(lines,now)
 end
 function A.PumpTopPost(now)
  local job=A.postJob;if not job or now<job.next then return end
+ if not A.CanPostTopReport()then A.postJob=nil;A.postStatus='Guild report stopped: authorized guild rank unavailable or changed.';return end
  if A.guildKey~=job.guild or A.Safe(IsInInstance)~=false or now-job.created>120 then A.postJob=nil;A.postStatus='Guild report stopped: guild/instance changed or report expired.';return end
  local send=SendChatMessage or (C_ChatInfo and C_ChatInfo.SendChatMessage)
  if type(send)~='function' then A.postJob=nil;A.postStatus='Guild report stopped: chat API unavailable.';return end

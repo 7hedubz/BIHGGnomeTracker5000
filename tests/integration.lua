@@ -1,12 +1,14 @@
 local root=arg[1] or '.'
 local now=1700000000
 local frames={}; local timers={}; local sent={}; local inside=false; local result=0
+local combat=false;function InCombatLockdown()return combat end
 local soundCalls={};function PlaySoundFile(file,channel)soundCalls[#soundCalls+1]={file,channel};return true,1 end
 function GetLocale()return'enUS'end
 function GetBuildInfo()return'1.60.1','70291','',16001 end
 function IsWindowsClient()return true end
 WOW_PROJECT_ID=1;WOW_PROJECT_MAINLINE=1;bit=require('bit')
 strmatch=string.match;function securecallfunction(fn,...)return fn(...)end
+local playerRank='Council of BIHG'
 local units={player={guid='Player-me',name='Tester',race='Orc',faction='Horde',hp=1000},target={guid='Player-gnome',name='Tiny',race='Gnome',faction='Alliance',hp=1000,enemy=true}}
 local noop=function()end
 local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)self.shown=false end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetText=function(self)return self.text end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
@@ -18,9 +20,12 @@ methods.SetEndPoint=function(self,...)self.finish={...}end
 methods.SetPoint=function(self,...)self.coords={...}end
 methods.SetValue=function(self,v)self.value=v end
 methods.SetMinMaxValues=function(self,low,high)self.low=low;self.high=high end
+methods.SetAttribute=function(self,k,v)assert(not combat,'protected attribute mutation during combat');self.attrs=rawget(self,'attrs')or {};self.attrs[k]=v end
+methods.RegisterForClicks=function(self,...)self.clickEvents={...}end
+methods.HookScript=function(self,k,fn)local old=self.scripts[k];self.scripts[k]=function(...)if old then old(...)end;fn(...)end end
 methods.SetHeight=function(self,h)self.height=h end
 methods.StartMoving=function(self)self.moves=(rawget(self,'moves')or 0)+1 end
-function CreateFrame(_,name)local o=obj();frames[#frames+1]=o;if name then _G[name]=o end;return o end
+function CreateFrame(_,name,parent,template)local o=obj();o.template=template;if template and template:find('SecureActionButtonTemplate',1,true)then o.scripts.OnClick=noop end;frames[#frames+1]=o;if name then _G[name]=o end;return o end
 UIParent=obj();Minimap=obj();UISpecialFrames={};SlashCmdList={};BackdropTemplateMixin={}
 DEFAULT_CHAT_FRAME={AddMessage=noop};C_Timer={After=function(delay,fn)timers[#timers+1]=fn end}
 function GetServerTime()return now end;function GetTime()return now end;date=os.date
@@ -39,7 +44,7 @@ UnitIsEnemy=UnitCanAttack
 function UnitIsUnit(a,b)return a==b end
 function GetNormalizedRealmName()return 'Realm' end
 function GetRealmName()return 'Realm' end
-function GetGuildInfo(u)return units[u or 'player']and(units[u or 'player'].guild or 'Guild')end
+function GetGuildInfo(u)return units[u or 'player']and(units[u or 'player'].guild or 'Guild'),playerRank,1 end
 function IsInGuild()return true end
 function GetNumGuildMembers()return units.party1 and 3 or 2 end
 function GetGuildRosterInfo(i)if i==1 then return 'Tester-Realm'elseif i==2 then return 'Friend-Realm'else return 'NoAddon-Realm'end end
@@ -68,6 +73,9 @@ assert(A.db and A.owner=='Tester-Realm','login initializes persistence')
 assert(A.account and A.account.alias=='Tester','account identity initializes with first toon')
 assert(A.nearbyFrame and A.nearbyFrame:IsShown()and not A.window:IsShown(),'independent Spy-style nearby widget is visible while dashboard is closed')
 assert(A.nearbyCount==1 and A.nearbyRows[1].data.race=='Gnome','readable target feeds nearby list')
+assert(A.nearbyRows[1].frame.template=='SecureActionButtonTemplate','nearby names use a secure hardware-click targeting button')
+assert(A.nearbyRows[1].frame.attrs.type1=='macro'and A.nearbyRows[1].frame.attrs.macrotext1:find('Tiny-Realm',1,true),'nearby click targets full real name rather than shortened display text')
+assert(A.rows[1].button.template=='SecureActionButtonTemplate'and A.rows[1].button.attrs.macrotext1:find('Tester-Realm',1,true),'single-character leaderboard header targets its character, not account alias')
 assert(#soundCalls==1 and soundCalls[1][1]==A.BundledNearbySounds[1].value,'actual OnUpdate sends the default short Alliance alarm once')
 assert(A.EncounterCount('Lifetime',now)==1,'visible Gnome stored uniquely')
 assert(A.db.seen['Player-gnome'],'Alliance player memory')
@@ -155,6 +163,7 @@ local collapsed=true
 for _,row in ipairs(A.rows) do if (row[1].text or ''):find('   Alt',1,true) then collapsed=false end end
 assert(collapsed,'clicking alias again collapses its characters')
 A.OpenView('Charts',false)
+assert(A.chartRows[1].button and A.chartRows[1].button.template=='SecureActionButtonTemplate','chart names also use real-character secure targeting buttons')
 assert(A.chartsPane:IsShown() and not A.tablePane:IsShown() and not A.settingsPane:IsShown(),'chart view has distinct content pane')
 assert(A.chartRows[1].bar.value==7,'native ranking bar uses actual cached alias kills')
 A.SelectPeriod('Today')
@@ -171,6 +180,13 @@ A.confirmPostButton.scripts.OnClick();assert(not A.preview:IsShown() and A.postJ
 for i=0,10 do tick()end
 assert(#chat==#A.previewLines and chat[1][2]=='GUILD','confirmed ranking posts only previewed lines to guild')
 assert(A.status.text:find('AUTO SYNC ON',1,true),'automatic sync status is explicit')
+playerRank='Member';A.RefreshUI();assert(not A.reportButton:IsShown(),'restricted rank hides report button')
+SlashCmdList.BIHGGKT('top');assert(not A.preview:IsShown()and not A.postJob,'slash command cannot bypass rank restriction')
+playerRank='The BIHG Cheese';A.RefreshUI();assert(A.reportButton:IsShown(),'second exact allowed rank sees report action')
+A.ShowTopPreview();assert(A.preview:IsShown());playerRank='Member';A.RefreshUI()
+assert(not A.preview:IsShown(),'rank loss closes an existing confirmation preview')
+A.confirmPostButton.scripts.OnClick();assert(not A.postJob and A.postStatus:find('restricted',1,true),'stale confirmation click cannot bypass authorization')
+playerRank='Council of BIHG'
 -- Party-only observation works without any addon message from the guildmate.
 units.party1={name='NoAddon',guid='Player-noaddon',race='Orc',faction='Horde',hp=1000,guild='Guild'}
 units.partypet1={guid='Pet-noaddon'}
@@ -198,6 +214,10 @@ UnitIsVisible=function(u)return units[u]and units[u].visible~=false end
 for i=1,5 do event('NAME_PLATE_UNIT_ADDED','nameplate'..i)end;tick()
 assert(A.nearbyCount==2 and A.nearbyRows[1].data.guid=='Player-near-gnome','nearby window lists visible Alliance only, Gnomes first')
 assert(not A.nearbyRows[1].name.text:find('-Realm',1,true),'nearby names hide realm suffix')
+local frozenName=A.nearbyRows[1].data.name;local frozenMacro=A.nearbyRows[1].frame.attrs.macrotext1
+combat=true;A.NearbyNotice('Player-combat-new','NewEnemy-Realm','Gnome','Alliance',now+5,false,true);A.RefreshNearby(now+5);A.RefreshUI()
+assert(A.nearbyRows[1].data.name==frozenName and A.nearbyRows[1].frame.attrs.macrotext1==frozenMacro,'combat cannot reorder displayed names away from protected click bindings')
+combat=false;A.ForgetNearby('Player-combat-new');A.RefreshNearby(now)
 local savedEncounter=A.db.seen['Player-near-gnome'];local savedKills=A.db.owners[A.owner].total
 local soundsBeforeClear=#soundCalls
 assert(A.nearbyButtons.clear,'Nearby needs an explicit Clear button')

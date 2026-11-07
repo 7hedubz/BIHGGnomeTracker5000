@@ -8,10 +8,10 @@ local function mergeCounts(t,s)
  t.total=math.max(t.total or 0,s.total or 0);t.deaths=math.max(t.deaths or 0,s.deaths or 0)
  for _,key in ipairs({'days','deathDays'})do t[key]=t[key]or {};for day,n in pairs(s[key]or {})do t[key][day]=math.max(t[key][day]or 0,n)end end
 end
-local function merge(t,s,now)
+local function merge(t,s,now,skipBaseline)
  if t==s then return end;mergeCounts(t,s)
- local baseline=s.guildBase
- if not baseline and not s.observerOnly and((s.total or 0)>0 or(s.deaths or 0)>0)then baseline={since=s.updated or now,total=s.total,deaths=s.deaths,days=clone(s.days),deathDays=clone(s.deathDays)}end
+ local baseline=not skipBaseline and s.guildBase or nil
+ if not skipBaseline and not baseline and not s.observerOnly and((s.total or 0)>0 or(s.deaths or 0)>0)then baseline={since=s.updated or now,total=s.total,deaths=s.deaths,days=clone(s.days),deathDays=clone(s.deathDays)}end
  if baseline then
   if not t.guildBase then t.guildBase=clone(baseline)else
    local a,b=t.guildBase,baseline
@@ -66,6 +66,7 @@ function A.BindLocalCharacter(guid,now)
  local aliases=rewriteEvents(r,guid,canonical)
  for name,record in pairs(A.db.owners)do if not record.characterGUID or record.characterGUID==guid then aliases[name]=true end end
  for name,record in pairs(r.characters)do if record.characterGUID==guid or r.characterGUIDs[name]==guid then aliases[name]=true end end
+ for _,s in pairs(r.guildIdentities or {})do for name,g in pairs(s.names or {})do if g==guid then aliases[name]=true end end end
  aliases[canonical]=true
  for name in pairs(aliases)do
   local own=r.characters[name]or A.db.owners[name]
@@ -76,7 +77,8 @@ function A.BindLocalCharacter(guid,now)
   for _,peers in pairs(r.guilds or {})do
    local peer=peers[name]
    if peer and(not peer.characterGUID or peer.characterGUID==guid)and(not peer.accountID or peer.accountID==r.id)then
-    if name~=canonical then archive(r,guid,name,peer);merge(target,peer,now);peers[name]=nil end
+    -- A received self-summary is not a new local historical baseline.
+    if name~=canonical then archive(r,guid,name,peer);merge(target,peer,now,true);peers[name]=nil end
     peers[canonical]=target;r.characterGUIDs[name]=guid
    end
   end
@@ -89,7 +91,32 @@ function A.BindLocalCharacter(guid,now)
 end
 function A.ReconcileGuildMembership()
  if not A.members then return end
- local s=scope();if s then for name,guid in pairs(s.names)do if A.members[name]then A.members[s.guids[guid]]=true end end end
+ local s=scope();if s then for name,guid in pairs(s.names)do if A.members[name]then A.members[A.CanonicalCharacterName(name,guid)]=true end end end
+end
+function A.ObserveGuildCharacter(name,guid,now)
+ if not player(guid)then return A.CanonicalCharacterName(name)end
+ local r,s=root(),scope();if not s then return name end
+ local peers=A.PeerRecords();local canonical=(r.characterNamesByGUID or {})[guid]or s.guids[guid]
+ if not canonical then for n,record in pairs(peers)do if record.characterGUID==guid and record.bindingDirect then canonical=n;break end end end
+ canonical=canonical or name
+ local target=(r.characters or {})[canonical]or peers[canonical]
+ if target and target.characterGUID and target.characterGUID~=guid then return name end
+ local aliases=rewriteEvents(r,guid,canonical,A.guildKey);aliases[name]=true
+ for n,g in pairs(s.names)do if g==guid then aliases[n]=true end end
+ for n,record in pairs(peers)do if record.characterGUID==guid then aliases[n]=true end end
+ for n in pairs(aliases)do
+  local old=peers[n]
+  if not old or(not old.characterGUID or old.characterGUID==guid)and(not target or not old.accountID or not target.accountID or old.accountID==target.accountID)then
+   if old then
+    target=target or old
+    if n~=canonical then archive(r,guid,n,old);merge(target,old,now,(r.characters or {})[canonical]~=nil);peers[n]=nil end
+   end
+   s.names[n]=guid
+  end
+ end
+ s.guids[guid]=canonical;s.names[canonical]=guid
+ if target then target.characterGUID=guid;peers[canonical]=target end
+ return canonical
 end
 function A.CharacterIdentityPacket()
  local r=A.account and A.account.characters[A.owner]

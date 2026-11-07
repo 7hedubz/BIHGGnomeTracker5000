@@ -11,6 +11,10 @@ function A.PeerRecords()
  return A.db.guilds[A.guildKey]
 end
 function A.Receive(msg,channel,sender,now)
+ if A.guildUnverified then return false end
+ if A.CanonicalCharacterName and A.guildKey and type(sender)=='string'then
+  local old=A.PeerRecords()[sender];sender=A.CanonicalCharacterName(sender,old and old.characterGUID)
+ end
  if channel~='GUILD' or not A.guildKey or not A.members or not A.members[sender] or sender==A.owner or type(msg)~='string' or #msg>255 then return false end
  A.rx=A.rx or {}; local limit=A.rx[sender]
  if not limit or now-limit.start>=60 then limit={start=now,n=0}; A.rx[sender]=limit end
@@ -80,7 +84,7 @@ function A.BuildPackets(full,now)
  return result
 end
 function A.SendPacket(packet)
- if not A.guildKey or A.Safe(IsInInstance)~=false then return false end
+ if not A.guildKey or A.guildUnverified or A.Safe(IsInInstance)~=false then return false end
  local fn=C_ChatInfo and C_ChatInfo.SendAddonMessage or SendAddonMessage
  if not fn then return false end
  local ok,result=pcall(fn,A.PREFIX,packet,'GUILD')
@@ -88,6 +92,7 @@ function A.SendPacket(packet)
  return result==nil or result==true or result==0 or (Enum and Enum.SendAddonMessageResult and result==Enum.SendAddonMessageResult.Success)
 end
 function A.Pump(now)
+ if A.guildUnverified then A.syncStatus='Guild identity pending; cached history only';return end
  if not A.guildKey or A.Safe(IsInInstance) then A.syncStatus='Queued until outside instance / in guild'; return end
  -- Fresh witnessed events should not sit behind a long historical replay.
  if A.PriorityGroupPacket and(A.groupPriorityBurst or 0)<4 then

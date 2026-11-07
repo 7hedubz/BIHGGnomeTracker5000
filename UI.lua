@@ -81,11 +81,14 @@ function A.SelectPeriod(period)
  A.period=period;A.page=1;A.RefreshUI()
 end
 function A.RenderCharts(now)
+ if A.TargetingLocked()then return end
  local top=A.TopKillers(A.period,now);local peak=top[1] and top[1].k or 1
  A.topChartSubtitle:SetText(A.period..' | cached guild aliases | kills')
  A.chartEmpty:SetText(#top==0 and 'No recorded kills for this period.' or '')
  for i,row in ipairs(A.chartRows) do
   local r=top[i]
+  row.data=r;A.BindTargetButton(row.button,r and #r.children==1 and r.children[1].name or nil)
+  if r then row.button:Show()else row.button:Hide()end
   if r then row.label:SetText(i..'. '..r.name);row.bar:SetMinMaxValues(0,math.max(1,peak));row.bar:SetValue(r.k);row.value:SetText(tostring(r.k));row.label:Show();row.bar:Show();row.value:Show()
   else row.label:Hide();row.bar:Hide();row.value:Hide() end
  end
@@ -109,25 +112,31 @@ function A.RenderCharts(now)
 end
 function A.RefreshUI()
  if not A.window or not A.db then return end
+ if A.TargetingLocked()then
+  if not A.CanPostTopReport()then A.reportButton:Hide();if A.preview then A.preview:Hide()end end
+  return
+ end
  local now=clock();local period=A.period or 'Lifetime';local me=A.db.owners[A.owner];local kills,deaths=0,0
  for name,r in pairs(A.account and A.account.characters or {[A.owner]=me}) do if A.members and A.members[name]then local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now)or r;kills=kills+A.Score(effective,period,now);deaths=deaths+A.Score(effective,period,now,'deaths')end end
  local values={tostring(kills),tostring(deaths),ratio(kills,deaths),tostring(A.AccountEncounterCount(period,now))}
  for i,v in ipairs(values) do A.statCards[i].value:SetText(v) end
- A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | current guild characters only; encounter identities deduplicated')
+ A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | known guild characters; encounter identities deduplicated')
  for label,b in pairs(A.navButtons) do style(b,A.mode==label) end
  for i,b in ipairs(A.periodButtons) do style(b,A.frames[i]==period) end
  local tabular=A.mode=='Leaderboard' or A.mode=='Encounters';local encounters=A.mode=='Encounters'
  if tabular then A.tablePane:Show();A.previousButton:Show();A.nextButton:Show() else A.tablePane:Hide();A.previousButton:Hide();A.nextButton:Hide() end
  if A.mode=='Charts' then A.chartsPane:Show() else A.chartsPane:Hide() end
  if A.mode=='Settings' then A.settingsPane:Show() else A.settingsPane:Hide() end
- if A.mode=='Leaderboard' or A.mode=='Charts' then A.reportButton:Show() else A.reportButton:Hide() end
+ local canPost=A.CanPostTopReport()
+ if canPost and(A.mode=='Leaderboard' or A.mode=='Charts')then A.reportButton:Show()else A.reportButton:Hide()end
+ if not canPost and A.preview then A.preview:Hide()end
  A.alertButton:SetText(A.db.options.alerts~=false and 'New-Gnome chat messages: ON' or 'New-Gnome chat messages: OFF')
  A.nearbyToggleButton:SetText(A.db.options.nearbyShown and'Nearby overlay: ON'or'Nearby overlay: OFF')
  if A.RefreshSoundSettings then A.RefreshSoundSettings()end
  local c=A.coverage or {}
  A.coverageLabel:SetText(c.log and 'Tracking: guild-only party/raid; readable combat log observed. Scores are client-reported.' or 'Tracking: guild-only party/raid debuff fallback. Exact damage and other players\' killers require readable combat-log data.')
  A.status:SetText((A.guildKey and 'AUTO SYNC ON | outside instances | every 1 min + score/profile changes | ' or 'NO GUILD | ')..(A.syncStatus or 'Waiting for peers'))
- A.postStatusLabel:SetText(A.postStatus or 'Guild chat reports are manual only. Refresh guild data never posts to chat.')
+ A.postStatusLabel:SetText(A.postStatus or('Manual reports: Council of BIHG / The BIHG Cheese only. | '..(A.rosterStatus or'Guild roster pending.')))
  if A.mode=='Charts' then
   A.heading:SetText('CHARTS | Guild ranking and your recorded daily activity');A.pageLabel:SetText('Recorded data only');A.RenderCharts(now);return
  elseif A.mode=='Settings' then
@@ -144,7 +153,7 @@ function A.RefreshUI()
   for guid,r in pairs(A.db.seen or {}) do
    local include=period=='Lifetime'
    for day in pairs(r.days or {}) do if day>=first and day<=A.Day(now) then include=true;break end end
-   if include then data[#data+1]={name=r.name or guid,race=r.race or '?',first=r.first,last=r.last} end
+   if include then data[#data+1]={name=r.name or guid,targetName=r.name,race=r.race or '?',first=r.first,last=r.last} end
   end
   table.sort(data,function(a,b)
    if A.sort=='name' then return a.name<b.name end
@@ -171,23 +180,29 @@ function A.RefreshUI()
    local color=(encounters and r.race=='Gnome') and '|cffffb347' or ((r.isOwn or r.name==A.owner) and '|cff66ddff' or '|cffffffff')
    local label=r.isGroup and ((A.expanded[r.id] and '[-] ' or '[+] ')..r.name..' ('..#r.children..')') or ((r.child and '   ' or '')..A.DisplayName(r.name))
    if r.observed then label=label..' [observed]'end
-   row[1]:SetText(color..label..'|r');row.button:Show();row.button:SetScript('OnClick',function()if r.isGroup then A.expanded[r.id]=not A.expanded[r.id];A.RefreshUI() end end)
+   row.data=r;local targetName
+   if encounters then targetName=r.targetName elseif r.isGroup then if #r.children==1 then targetName=r.children[1].name end else targetName=r.name end
+   A.BindTargetButton(row.button,targetName);row[1]:SetText(color..label..'|r');row.button:Show()
    if encounters then row[2]:SetText(color..r.race..'|r');row[3]:SetText(date('!%Y-%m-%d',r.first));row[4]:SetText(date('!%m-%d %H:%M',r.last));row[5]:SetText('')
    else row[2]:SetText(tostring(r.k));row[3]:SetText(tostring(r.d));row[4]:SetText(ratio(r.k,r.d));row[5]:SetText(r.encountered>=0 and tostring(r.encountered) or '-') end
-  else row.button:Hide();for _,cell in ipairs(row) do cell:SetText('') end end
+  else row.data=nil;A.BindTargetButton(row.button,nil);row.button:Hide();for _,cell in ipairs(row) do cell:SetText('') end end
  end
 end
 function A.ToggleUI()
+ if A.TargetingLocked()then return false end
  if not A.window then A.CreateUI() end
  if A.window:IsShown() then A.window:Hide() else A.window:Show();A.RefreshUI() end
 end
 function A.OpenView(mode,toggle)
+ if A.TargetingLocked()then return false end
  if not A.window then A.CreateUI() end
  if toggle and A.window:IsShown() and A.mode==mode then A.window:Hide();return end
  if A.mode~=mode then A.mode=mode;A.page=1;A.sort=mode=='Encounters' and 'last' or 'kills';A.ascending=false end
  A.window:Show();A.RefreshUI()
 end
 function A.ShowTopPreview()
+ if A.TargetingLocked()then A.postStatus='Leave combat before opening the report preview.';return false end
+ if not A.CanPostTopReport()then A.postStatus='Guild reports are restricted to Council of BIHG and The BIHG Cheese.';if A.preview then A.preview:Hide()end;A.RefreshUI();return false end
  if not A.window then A.CreateUI() end
  A.previewLines=A.BuildTopReport(A.period or 'Lifetime',clock())
  A.previewText:SetText(table.concat(A.previewLines,'\n\n'))
@@ -195,16 +210,16 @@ function A.ShowTopPreview()
  A.preview:Show()
 end
 function A.CreateUI()
- if A.window or not A.db then return end
+ if A.window or not A.db or A.TargetingLocked()then return end
  local w=panel(UIParent,0,0,960,710);A.window=w;_G.BIHGGKTWindow=w
  w:ClearAllPoints();w:SetPoint('CENTER');w:SetFrameStrata('DIALOG');w:SetClampedToScreen(true)
  w:SetScale(math.min(1,(UIParent:GetWidth()-30)/960,(UIParent:GetHeight()-30)/710));w:SetBackdropColor(0.025,0.035,0.048,0.99)
- w:EnableMouse(true);w:SetMovable(true);w:RegisterForDrag('LeftButton');w:SetScript('OnDragStart',function(self)self:StartMoving()end)
- w:SetScript('OnDragStop',function(self)self:StopMovingOrSizing();local point,_,relative,x,y=self:GetPoint();A.db.options.position={point,relative,x,y}end)
+ w:EnableMouse(true);w:SetMovable(true);w:RegisterForDrag('LeftButton');w:SetScript('OnDragStart',function(self)if not A.TargetingLocked()then self:StartMoving()end end)
+ w:SetScript('OnDragStop',function(self)if A.TargetingLocked()then return end;self:StopMovingOrSizing();local point,_,relative,x,y=self:GetPoint();A.db.options.position={point,relative,x,y}end)
  local pos=A.db.options.position;if pos then w:ClearAllPoints();w:SetPoint(pos[1],UIParent,pos[2],pos[3],pos[4])end
  UISpecialFrames[#UISpecialFrames+1]='BIHGGKTWindow'
  text(w,'large',18,-14,850):SetText('|cffffb347BIHG GnomeKillTracker 5000|r  |  DoHeal')
- button(w,'X',918,-10,24,function()w:Hide()end)
+ button(w,'X',918,-10,24,function()if not A.TargetingLocked()then w:Hide()end end)
  text(w,'small',20,-53,60):SetText('VIEW')
  A.navButtons={}
  local modes={{'Leaderboard','Guild leaderboard',85,170},{'Encounters','Alliance encounters',265,180},{'Charts','Charts',455,120},{'Settings','Settings',585,120}}
@@ -220,14 +235,17 @@ function A.CreateUI()
  A.rows={};A.expanded={}
  for i=1,12 do
   A.rows[i]={};for j=1,5 do A.rows[i][j]=text(A.tablePane,'small',xs[j]+5,-40-(i-1)*23,widths[j]-10)end
-  local hit=CreateFrame('Button',nil,A.tablePane);hit:SetPoint('TOPLEFT',0,-34-(i-1)*23);hit:SetSize(924,23);A.rows[i].button=hit
+  local row=A.rows[i];local hit=CreateFrame('Button',nil,A.tablePane,'SecureActionButtonTemplate');hit:SetPoint('TOPLEFT',0,-34-(i-1)*23);hit:SetSize(924,23);row.button=hit;hit:RegisterForClicks('LeftButtonDown','LeftButtonUp')
+  hit:HookScript('OnClick',function(_,_,down)local r=row.data;if not down and not A.TargetingLocked()and r and r.isGroup then A.expanded[r.id]=not A.expanded[r.id];A.RefreshUI()end end)
  end
  A.chartsPane=CreateFrame('Frame',nil,w);A.chartsPane:SetPoint('TOPLEFT',18,-276);A.chartsPane:SetSize(924,320)
  local top=panel(A.chartsPane,0,0,452,320);A.topChart=top
  text(top,'normal',14,-12,420):SetText('TOP 10 GNOME KILLERS');A.topChartSubtitle=text(top,'small',14,-34,420);A.chartEmpty=text(top,'small',14,-70,420);A.chartRows={}
  for i=1,10 do
   local y=-59-(i-1)*23;local bar=CreateFrame('StatusBar',nil,top);bar:SetPoint('TOPLEFT',162,y);bar:SetSize(218,13);bar:SetStatusBarTexture('Interface\\Buttons\\WHITE8X8');bar:SetStatusBarColor(0.94,0.62,0.20)
-  A.chartRows[i]={label=text(top,'small',14,y,142),bar=bar,value=text(top,'small',390,y,50)}
+  local row={label=text(top,'small',14,y,142),bar=bar,value=text(top,'small',390,y,50)};A.chartRows[i]=row
+  local hit=CreateFrame('Button',nil,top,'SecureActionButtonTemplate');row.button=hit;hit:SetPoint('TOPLEFT',14,y+4);hit:SetSize(142,21);hit:RegisterForClicks('LeftButtonDown','LeftButtonUp')
+  hit:HookScript('OnClick',function(_,_,down)local r=row.data;if not down and not A.TargetingLocked()and r and #r.children>1 then A.expanded[r.id]=true;A.OpenView('Leaderboard',false)end end)
  end
  local trend=panel(A.chartsPane,472,0,452,320);A.trendChart=trend
  text(trend,'normal',14,-12,420):SetText('KILLS OVER TIME');A.trendSubtitle=text(trend,'small',14,-34,420);A.trendPeak=text(trend,'small',14,-56,420)
@@ -298,7 +316,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.5.1 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.6.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

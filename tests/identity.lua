@@ -51,3 +51,18 @@ local profile={id='legacy-account',characters={[legacy]=early,[canonical]=ghost}
 D.Init({owners={[legacy]=early,[canonical]=ghost}},canonical,now);D.InitAccount(profile,'ignored',now);D.guildKey='Guild-Realm';D.members={[canonical]=true,[observed]=true}
 D.BindLocalCharacter('Player-self',now);D.InitGroupTracking(now);D.RebuildOwnGuildTotals(now)
 assert(D.db.owners[canonical].total==6,'pre-group legacy counters without a baseline survive newer empty variants and later witnessed kills')
+-- A delayed legacy summary may arrive after the GUID metadata already linked
+-- its transport spelling. It must not recreate a second identity.
+assert(B.Receive('2|S|1|0|'..day..'|1|0','GUILD',observed,now+1))
+assert(not B.PeerRecords()[observed],'late raw-name summary cannot resurrect a reconciled remote character')
+B.PeerRecords()[observed]={total=1,deaths=0,days={[day]=1},deathDays={},updated=now+2}
+B.ObserveGuildCharacter(canonical,'Player-self',now+2)
+assert(not B.PeerRecords()[observed],'roster reconciliation folds cached pre-upgrade aliases even when their late summary lacked a GUID')
+local transport='Hero Transport-Realm';account.guildIdentities=account.guildIdentities or {}
+account.guildIdentities['Guild-Realm']={names={[transport]='Player-self'},guids={['Player-self']=canonical}}
+account.guilds['Guild-Realm'][transport]={total=2,deaths=0,days={[day]=2},deathDays={},updated=now+100}
+-- Reload into the original real character, not its genuine mage alt.
+A.Init(db,canonical,now+100);A.InitAccount(account,'ignored',now+100);A.members={[canonical]=true,[transport]=true}
+A.BindLocalCharacter('Player-self',now+100);A.InitGroupTracking(now+100);A.RebuildOwnGuildTotals(now+100)
+assert(not A.PeerRecords()[transport]and A.db.owners[canonical].total==6,'persisted verified aliases remove cached self echoes without moving the authoritative baseline')
+assert(not A.Receive('2|S|2|0|'..day..'|2|0','GUILD',transport,now+100)and not A.PeerRecords()[transport],'own transport echo is ignored before it can recreate a peer')

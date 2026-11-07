@@ -70,6 +70,17 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Stable roster history and name targeting (1.6.0)
+
+- Partial, empty and offline-filtered guild lists no longer delete cached participant records. Last-verified membership is persisted per guild/realm and labeled as cached while the roster is unresolved. Where witnessed events remain, missing observed-character rows are rebuilt from those events; this does not invent lost or never-recorded counters.
+- Confirmed departures change active membership, not stored history. Absence needs two consistent, complete offline-inclusive roster updates with readable GUIDs, at least five seconds apart; a readable different guild on a live group unit excludes that character immediately. If the full roster cannot be read, last-verified membership remains visible rather than treating absence as proof of departure.
+- New group credit requires readable same-guild unit information or a positive roster entry from this session, not merely an old display-cache entry. When your own guild identity is temporarily unavailable, cached history can remain visible but new awards and sync are paused to avoid crossing guild namespaces.
+- Guild-roster and live-unit GUIDs link alternate name formats. Received sender names are resolved through established GUID links before creating records or filtering self echoes, so late legacy summaries cannot recreate a duplicate physical character. Local self-summary echoes never move the authoritative local history baseline.
+- Left-click names in Nearby, encounter history, character rows, or single-character chart entries to **attempt targeting the actual character**. A single-character alias header targets its child, not the alias string; multi-character aliases expand/open the character list instead of guessing an alt.
+- Targeting uses pre-bound secure hardware-click buttons and exact name alternatives for Forever's first/surname transport and known realm suffixes. This does not rewrite stored identities, use fuzzy first-name matching, cast spells, or start attacks. Unavailable/out-of-range characters may not resolve; the attempt clears the previous target before trying the exact alternatives.
+- Protected rows and their matching labels/layout freeze in combat; already-bound targets remain clickable, while new bindings and layout changes apply after combat. Nearby shows **combat locked**. Clear/collapse/hide changes to the protected nearby list may be visually deferred. Tracking/sounds continue. Opening/switching the main views is unavailable during combat.
+- Upgrading from 1.5.1 changes existing loaded Lua files only: use **`/reload` while out of combat**. Older versions that lack the 1.5.0 files/libraries still require a full client relaunch.
+
 ### Louder bundled alarms (1.5.1)
 
 The four bundled alarms are calibrated to approximately **150% of their original decoded RMS level**, with peak limiting to prevent file-level clipping. Clip durations remain below 0.6 seconds. This changes only BIHG audio assets, not global game volume or third-party sound files. Fully quit/relaunch to ensure cached native sound data is replaced. The Settings Preview buttons use the updated clips.
@@ -102,7 +113,9 @@ The line shows the latest **up to 30 UTC days within the selected period**; Life
 
 ### Send the Top 10 to guild chat
 
-On Guild leaderboard or Charts, select a period and click **Post Top 10 to Guild...** (or `/gkt top`). Review the exact report, then **Post to /guild** or Cancel. It ranks **aliases**, combining their guild characters, by kills regardless of the table's current sort/expansion state. Fewer than ten aliases with recorded kills produces a shorter list; an empty period is reported honestly.
+Only the exact current guild ranks **`Council of BIHG`** and **`The BIHG Cheese`** may see/use **Post Top 10 to Guild...**. There is no generic officer/guild-master override. Unreadable rank/guild data denies access. The preview/slash command, confirmation, and each queued send enforce authorization; losing eligibility stops the remaining report. Other members still receive normal automatic data synchronization. This is an addon UI/report restriction, not a server-side ban on manual guild chat; guildmates must install this version to receive the restriction.
+
+On Guild leaderboard or Charts, an eligible member selects a period and clicks **Post Top 10 to Guild...** (or `/gkt top`). Review the exact report, then **Post to /guild** or Cancel. It ranks **aliases**, combining their guild characters, by kills regardless of the table's current sort/expansion state. Fewer than ten aliases with recorded kills produces a shorter list; an empty period is reported honestly.
 
 The report uses cached addon scores, says so in its heading, and is readable in regular guild chat even without the addon. Posting is **never automatic**. Confirmed reports are paced at one chat line per second, limited to once per minute, and only sent outside instances. A guild/instance change, timeout or failed send stops the report rather than retrying potentially duplicate public messages. A successful API call only confirms handoff to the chat API, not server delivery. Legacy and namespaced chat APIs are supported.
 
@@ -168,14 +181,14 @@ Enable **BIHG GnomeKillTracker 5000** at character select. New addon folders and
 | `/gkt settings` | Open nickname and local notification settings |
 | `/gkt nearby` | Toggle/restore compact Nearby Alliance overlay |
 | `/gkt nearby clear` | Clear temporary nearby list, not history |
-| `/gkt top` | Preview Top 10 report; does not send until confirmed |
+| `/gkt top` | Authorized ranks only: preview Top 10; does not send until confirmed |
 | `/gkt sync` | Request/broadcast guild statistics outside instances |
 | `/gkt alerts` | Toggle new-Gnome chat alerts |
 | `/gkt debug` | Print coverage and last guarded error |
 
 ## Verification / development
 
-Lua 5.1-compatible; no embedded libraries/dependencies:
+Lua 5.1-compatible, with bundled LibStub/CallbackHandler/LibSharedMedia. Audio regression checks additionally require Python 3 and FFmpeg/ffprobe:
 
 ```sh
 luajit tests/run.lua .
@@ -185,7 +198,10 @@ luajit tests/group.lua .
 luajit tests/nearby.lua .
 luajit tests/sounds.lua .
 luajit tests/identity.lua .
+luajit tests/roster.lua .
+luajit tests/targeting.lua .
 luajit tests/integration.lua .
+python3 tests/media_gain.py .
 luac -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Identity.lua Runtime.lua Dashboard.lua Sounds.lua Nearby.lua UI.lua Libs/*.lua
 ```
 

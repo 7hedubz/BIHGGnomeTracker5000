@@ -70,6 +70,17 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Automatic party Alliance announcements (1.7.0)
+
+**Settings → Local notifications & Party alerts → Party Alliance alerts** defaults **ON**. Fresh readable Alliance-player contacts are announced to **PARTY**, independently of sound selection, local chat alerts, nearby visibility and guild-report ranks. This continues during combat even while protected target rows are frozen. Solo/raid contexts do not post; there is no guild, raid, instance-chat or channel fallback.
+
+Regular message: `[BIHG] Alliance detected: <name> - <readable level/race/class> - near me: <location>`.
+For Gnomes the message starts exactly **`GNOME DETECTED : `**, before the regular message. Names retain their surnames; only a known realm suffix is omitted. Unknown details are omitted. Zone/subzone and optional map coordinates describe **your position when the sighting was queued**, not a measured enemy location. Whole optional fields are dropped if needed to stay within the chat byte limit.
+
+Announcements are GUID-suppressed while continuously observed in an active party, with a new alert after **60 seconds unseen**. Suppression survives Clear and reload. A newly learned Gnome race can trigger its stronger notification. Gnomes are prioritized, the queue is bounded, sends are spaced by at least two seconds and stale/dead contacts are discarded. Leaving the party or switching the feature off cancels queued sends; failed sends are not automatically spam-retried. Suppression is **per client**: multiple addon users may announce independently, so turn off extra announcers if desired. Clear cancels the currently queued messages without deleting statistics.
+
+Upgrade from 1.6.0 with **`/reload` out of combat**; the TOC file load list is unchanged. Tests mock chat APIs and never send real party/guild messages. Native party-chat delivery still needs in-game validation.
+
 ### Stable roster history and name targeting (1.6.0)
 
 - Partial, empty and offline-filtered guild lists no longer delete cached participant records. Last-verified membership is persisted per guild/realm and labeled as cached while the roster is unresolved. Where witnessed events remain, missing observed-character rows are rebuilt from those events; this does not invent lost or never-recorded counters.
@@ -200,6 +211,7 @@ luajit tests/sounds.lua .
 luajit tests/identity.lua .
 luajit tests/roster.lua .
 luajit tests/targeting.lua .
+luajit tests/party.lua .
 luajit tests/integration.lua .
 python3 tests/media_gain.py .
 luac -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Identity.lua Runtime.lua Dashboard.lua Sounds.lua Nearby.lua UI.lua Libs/*.lua

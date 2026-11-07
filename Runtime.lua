@@ -45,7 +45,7 @@ function A.Scan(unit)
   -- Explicitly invisible units must not refresh the list; otherwise use the
   -- readable unit exposure, like Spy, without claiming an exact distance.
   local visible=A.Safe(UnitIsVisible,unit)~=false
-  A.NearbyNotice(g,name,race,faction,t,dead,visible,A.Safe(UnitLevel,unit))
+  A.NearbyNotice(g,name,race,faction,t,dead,visible,A.Safe(UnitLevel,unit),A.Safe(UnitClass,unit))
  end
  if faction=='Alliance' and g~=selfGUID and A.members and A.members[A.owner]then
   local fresh=A.Encounter(g,name,race,faction,t)
@@ -304,7 +304,7 @@ frame:SetScript('OnUpdate',function(_,dt)
  elapsed=elapsed+dt; if elapsed<0.5 or not A.db then return end;elapsed=0
  local ok,err=pcall(function()
   if A.TargetingLocked and not A.TargetingLocked()then if not A.window and A.CreateUI then A.CreateUI()end;if not A.nearbyFrame and A.CreateNearbyUI then A.CreateNearbyUI()end end
-  A.ScanVisible();A.Pump(now());if A.PumpTopPost then A.PumpTopPost(now())end;if A.window and A.window:IsShown()then A.RefreshUI()end;if A.RefreshNearby then A.RefreshNearby(now())end;if A.PumpNearbySounds then A.PumpNearbySounds(now())end
+  A.ScanVisible();A.Pump(now());if A.PumpTopPost then A.PumpTopPost(now())end;if A.window and A.window:IsShown()then A.RefreshUI()end;if A.RefreshNearby then A.RefreshNearby(now())end;if A.PumpNearbySounds then A.PumpNearbySounds(now())end;if A.PumpPartyAlerts then A.PumpPartyAlerts(now())end
  end)
  if not ok then A.lastError=tostring(err) end
 end)

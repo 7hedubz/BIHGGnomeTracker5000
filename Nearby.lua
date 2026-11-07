@@ -30,8 +30,9 @@ function A.InitNearby()
  A.nearbySeen={};A.nearbyPage=1
  if A.db.options.nearbyShown==nil then A.db.options.nearbyShown=true end
  if A.InitSoundAlerts then A.InitSoundAlerts()end
+ if A.InitPartyAlerts then A.InitPartyAlerts()end
 end
-function A.NearbyNotice(guid,name,race,faction,now,dead,visible,level)
+function A.NearbyNotice(guid,name,race,faction,now,dead,visible,level,class)
  if secret(guid)or type(guid)~='string'or not guid:match('^Player%-[%w%-]+$')or secret(now)or type(now)~='number'or now~=now or now==math.huge then return false end
  A.nearbySeen=A.nearbySeen or {}
  if not secret(dead)and dead==true then A.nearbySeen[guid]=nil;return false end
@@ -41,6 +42,8 @@ function A.NearbyNotice(guid,name,race,faction,now,dead,visible,level)
  if type(name)~='string'or name==''then if not old then return false end;name=old.name end
  local e=old or {guid=guid};e.name=name;e.race=type(race)=='string'and race or e.race;e.seen=now
  if not secret(level)and type(level)=='number'then e.level=level end
+ if not secret(class)and type(class)=='string'then e.class=class end
+ if A.NotePartyAlliance then A.NotePartyAlliance(e,now)end
  A.nearbySeen[guid]=e;if A.NoteNearbySound then A.NoteNearbySound(guid,e.race,now)end;return true
 end
 function A.NearbyList(now)
@@ -59,6 +62,7 @@ end
 function A.ClearNearby()
  A.nearbySeen={};A.nearbyPage=1
  A.audioPending={};A.audioExtraDue=nil
+ A.partyAlertPending={}
  if A.nearbyFrame then A.RefreshNearby(clock())end
 end
 function A.ForgetNearby(guid)

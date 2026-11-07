@@ -309,5 +309,15 @@ C_UnitAuras.GetAuraDataByIndex=function(unit,index)if unit=='target'and index==1
 tick();units.target.dead=true;tick()
 units.target.dead=false;tick();tick();tick();units.target.dead=true;tick()
 assert(A.db.owners[A.owner].total==beforeLives+2,'a new life can earn debuff credit again when aura instance/expiry fields are unavailable')
+-- Public party alerts run from the actual scan/update path even while secure
+-- nearby rows are frozen; they do not require the guild-report officer ranks.
+local partyMessages={};SendChatMessage=function(text,channel)partyMessages[#partyMessages+1]={text,channel}end
+A.partyAlertPending={};A.db.partyAlertContacts={};A.partyAlertNext=0
+units.target={guid='Player-party-detected',name='Detected',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+playerRank='Member';combat=true;tick()
+assert(#partyMessages==1 and partyMessages[1][2]=='PARTY'and partyMessages[1][1]:find('GNOME DETECTED : ',1,true)==1,'live scan/timer announces Gnomes to party during combat, independent of guild-report rank')
+tick();assert(#partyMessages==1,'actual scan repetition does not spam party')
+combat=false;A.OpenView('Settings',false);assert(A.partyAlertToggle.text:find('ON',1,true),'party announcement setting is discoverable')
+A.partyAlertToggle.scripts.OnClick();assert(not A.db.options.partyAllianceAlerts and not next(A.partyAlertPending),'UI switch disables and cancels queued party alerts')
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
-print('PASS actual TOC integration: lifecycle, visible CC, exact damage, confirmed deaths, encounters, five-column UI, guild sync, secret values, blocked/retry sends')
+print('PASS actual TOC integration: lifecycle, protected targeting, persistent scores, rank-gated guild reports, independent party detection chat, settings and guarded APIs')

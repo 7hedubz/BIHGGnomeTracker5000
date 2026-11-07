@@ -10,14 +10,10 @@ function A.BuildTopReport(period,now)
  local ranked=A.TopKillers(period,now)
  if #ranked==0 then return {'BIHG: No recorded Gnome kills for '..period..' (cached addon reports).'} end
  local lines={string.format('BIHG Top %d Gnome killers - %s (cached addon reports)',#ranked,period)}
- local current=''
  for i,g in ipairs(ranked) do
   local name=(g.name or 'Unknown'):gsub('[%c|]','')
-  local entry=string.format('#%d %s: %d kills',i,name,g.k)
-  if current~='' and (#current+#entry+3>240 or i%2==1) then lines[#lines+1]=current;current='' end
-  current=current=='' and entry or current..' ; '..entry
+  lines[#lines+1]=string.format('#%d %s: %d kills',i,name,g.k)
  end
- if current~='' then lines[#lines+1]=current end
  return lines
 end
 function A.ActivityTrend(period,now)

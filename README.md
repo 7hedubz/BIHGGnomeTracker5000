@@ -70,6 +70,10 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Readable guild reports (1.7.1)
+
+Public Top 10 reports and their preview now show **one person per line**, after the heading. A full Top 10 therefore contains eleven paced chat lines: one heading plus ten ranked people. Existing rank restrictions, confirmation, byte limits and one-second send pacing remain unchanged. Upgrade with `/reload` out of combat.
+
 ### Automatic party Alliance announcements (1.7.0)
 
 **Settings → Local notifications & Party alerts → Party Alliance alerts** defaults **ON**. Fresh readable Alliance-player contacts are announced to **PARTY**, independently of sound selection, local chat alerts, nearby visibility and guild-report ranks. This continues during combat even while protected target rows are frozen. Solo/raid contexts do not post; there is no guild, raid, instance-chat or channel fallback.

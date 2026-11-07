@@ -10,7 +10,8 @@ assert(#ranks==10 and ranks[1].k==12 and ranks[10].k==3,'top ten aliases sorted 
 peers['Peer12-Realm'].alias=string.rep('é',30)
 local lines=A.BuildTopReport('Lifetime',now)
 assert(lines[2]:find(string.rep('é',30),1,true),'report preserves complete UTF-8 nickname')
-assert(#lines<=7 and lines[1]:find('Lifetime',1,true) and lines[1]:find('cached',1,true),'bounded report identifies period and cached source')
+assert(#lines==11 and lines[1]:find('Lifetime',1,true)and lines[1]:find('cached',1,true),'header plus one dedicated line for each of ten people')
+for i=2,#lines do assert(lines[i]:match('^#'..(i-1)..' ')and not lines[i]:find(' ; ',1,true),'one ranked person per line, in order')end
 for _,line in ipairs(lines)do assert(#line<=255,'chat line exceeds byte budget');assert(not line:find('-Realm',1,true),'report leaks realm suffix')end
 local empty=A.BuildTopReport('Today',now+86400);assert(#empty==1 and empty[1]:find('No recorded',1,true),'empty period does not invent top ten')
 A.db.owners[A.owner].days[day]=2;A.db.owners[A.owner].deathDays[day]=1

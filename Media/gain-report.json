@@ -1,0 +1,51 @@
+{
+  "baseline_version": "1.5.0",
+  "target_rms_multiplier": 1.5,
+  "files": [
+    {
+      "path": "Media/alert-1.ogg",
+      "original_sha256": "46e67425d16339772e8d328fb36a49426c9467418686e11beeb71ff84b0f6433",
+      "original_rms": 0.1122908178896807,
+      "input_gain": 1.8814697265625,
+      "processed_rms": 0.1684346668490681,
+      "rms_multiplier": 1.499986107631218,
+      "decoded_peak": 0.9130898714065552,
+      "processed_sha256": "e3c79cd4fac587162d891b2fd1243014b350880dc07fc79c5c07deaf03a0c558",
+      "ffmpeg_filter": "volume=1.881469726562,alimiter=limit=0.9:attack=1:release=10:level=false:latency=true"
+    },
+    {
+      "path": "Media/alert-2.ogg",
+      "original_sha256": "76810ec365f41078fd0507101da5bb7b8730fe011dde43908329fdabd8575e79",
+      "original_rms": 0.1326473039649904,
+      "input_gain": 2.29345703125,
+      "processed_rms": 0.19897433860352975,
+      "rms_multiplier": 1.5000255011292583,
+      "decoded_peak": 0.9269161820411682,
+      "processed_sha256": "5e75bd27242eea38ef6f9becad8791071f1032d23297e24c5ddb55e0b1ff80c9",
+      "ffmpeg_filter": "volume=2.293457031250,alimiter=limit=0.9:attack=1:release=10:level=false:latency=true"
+    },
+    {
+      "path": "Media/alert-3.ogg",
+      "original_sha256": "885b28175c7b511118bcffab95675b48bbac9005cf6514656ebdad979276b3ab",
+      "original_rms": 0.09958230713506865,
+      "input_gain": 2.002685546875,
+      "processed_rms": 0.1493851621132508,
+      "rms_multiplier": 1.500117504916129,
+      "decoded_peak": 0.9171844124794006,
+      "processed_sha256": "2e32737e15a1b92c06d8a5055a4abd1ce8c8cbf736016f30453265cd66c5450f",
+      "ffmpeg_filter": "volume=2.002685546875,alimiter=limit=0.9:attack=1:release=10:level=false:latency=true"
+    },
+    {
+      "path": "Media/alert-4.ogg",
+      "original_sha256": "0b574cea597d96507e782ae9764f88482ce49f46e931e57054bf7150047f2d69",
+      "original_rms": 0.15180868158093355,
+      "input_gain": 1.8133544921875,
+      "processed_rms": 0.22771046854738186,
+      "rms_multiplier": 1.4999831773519678,
+      "decoded_peak": 0.9052832126617432,
+      "processed_sha256": "0d0509487d135c81b9d5617249b836f2d6dd3286b28e667a5c6cfa5a7ec51c30",
+      "ffmpeg_filter": "volume=1.813354492188,alimiter=limit=0.9:attack=1:release=10:level=false:latency=true"
+    }
+  ],
+  "processing": "Peak-limited Vorbis re-encode calibrated to 1.5x decoded RMS relative to original v1.5.0 assets; no global game volume changes."
+}

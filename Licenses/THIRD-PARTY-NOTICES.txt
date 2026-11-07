@@ -8,8 +8,10 @@ Media/alert-1.ogg = Audio/error_001.ogg
 Media/alert-2.ogg = Audio/error_002.ogg
 Media/alert-3.ogg = Audio/error_003.ogg
 Media/alert-4.ogg = Audio/error_004.ogg
-These are unmodified original Ogg Vorbis files, renamed only. No synthesis,
-trimming, normalization, or re-encoding was performed.
+These are derived from the downloaded original cues. Version 1.5.1 applies
+peak limiting and a Vorbis re-encode calibrated to approximately 1.5x original
+decoded RMS level, without trimming or synthesizing replacement sounds.
+See Media/gain-report.json for original hashes and processing measurements.
 License: Creative Commons Zero 1.0 Universal (CC0-1.0).
 See CC0-1.0.txt for the full legal code and Kenney-Interface-Sounds.txt for
 the original archive notice. Attribution is appreciated, not required.

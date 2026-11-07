@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y luajit lua5.1
+      - run: sudo apt-get update && sudo apt-get install -y luajit lua5.1 ffmpeg python3
       - run: luac5.1 -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Identity.lua Runtime.lua Dashboard.lua Sounds.lua Nearby.lua UI.lua Libs/*.lua
       - run: luajit tests/run.lua .
       - run: luajit tests/integration.lua .
@@ -15,3 +15,4 @@ jobs:
       - run: luajit tests/nearby.lua .
       - run: luajit tests/sounds.lua .
       - run: luajit tests/identity.lua .
+      - run: python3 tests/media_gain.py .

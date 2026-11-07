@@ -70,6 +70,10 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Louder bundled alarms (1.5.1)
+
+The four bundled alarms are calibrated to approximately **150% of their original decoded RMS level**, with peak limiting to prevent file-level clipping. Clip durations remain below 0.6 seconds. This changes only BIHG audio assets, not global game volume or third-party sound files. Fully quit/relaunch to ensure cached native sound data is replaced. The Settings Preview buttons use the updated clips.
+
 ### Sound alerts and Clear (1.5.0)
 
 **Settings → Local notifications** has independent Alliance and extra-Gnome sound toggles, separate sound selectors and Preview buttons, plus a sound-channel selector. General Alliance audio defaults ON; the extra Gnome sound defaults OFF. A new Gnome can play the general alarm followed by the optional extra sound, or use the Gnome sound alone if general audio is disabled.

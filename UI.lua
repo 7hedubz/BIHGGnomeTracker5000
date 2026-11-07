@@ -17,6 +17,13 @@ function A.RefreshUI()
  A.coverageLabel:SetText('Tracking: '..(c.log and 'readable combat log observed' or 'CC-only fallback; exact 10% damage unavailable without readable combat log')..'\nDeaths: confirmed Gnome killing blows only. Encounters: visible Alliance players. Dates: UTC.')
  A.status:SetText(A.syncStatus or 'Waiting for guild')
  local data={}
+ local encounters=A.mode=='Encounters'
+ if encounters then A.headers[5]:Hide() else A.headers[5]:Show() end
+ A.headers[4]:SetWidth(encounters and 270 or 130)
+ for _,row in ipairs(A.rows) do
+  row[4]:SetWidth(encounters and 262 or 122)
+  if encounters then row[5]:Hide() else row[5]:Show() end
+ end
  if A.mode=='Encounters' then
   A.heading:SetText('ALLIANCE ENCOUNTER LOG  |  Gnomes highlighted  |  unique characters seen in selected period')
   A.headers[1]:SetText('Player');A.headers[2]:SetText('Race');A.headers[3]:SetText('First seen');A.headers[4]:SetText('Last seen');A.headers[5]:SetText('')
@@ -64,6 +71,14 @@ function A.ToggleUI()
  if not A.window then A.CreateUI() end
  if A.window:IsShown() then A.window:Hide() else A.window:Show();A.RefreshUI() end
 end
+function A.OpenView(mode,toggle)
+ if not A.window then A.CreateUI() end
+ if toggle and A.window:IsShown() and A.mode==mode then A.window:Hide();return end
+ if A.mode~=mode then
+  A.mode=mode;A.page=1;A.sort=mode=='Encounters' and 'last' or 'kills';A.ascending=false
+ end
+ A.window:Show();A.RefreshUI()
+end
 function A.CreateUI()
  if A.window or not A.db then return end
  local w=CreateFrame('Frame','BIHGGKTWindow',UIParent,BackdropTemplateMixin and 'BackdropTemplate' or nil);A.window=w
@@ -105,7 +120,7 @@ function A.CreateUI()
  if Minimap then
   local m=CreateFrame('Button','BIHGGKTMinimap',Minimap);m:SetSize(30,30);m:SetPoint('TOPLEFT',Minimap,'TOPLEFT',-8,-12);m:SetFrameStrata('MEDIUM')
   local icon=m:CreateTexture(nil,'ARTWORK');icon:SetAllPoints();icon:SetTexture('Interface\\Icons\\INV_Misc_Gear_01')
-  m:RegisterForClicks('LeftButtonUp','RightButtonUp');m:SetScript('OnClick',function(_,which)A.ToggleUI();if which=='RightButton' then A.mode='Encounters';A.RefreshUI()end end)
+  m:RegisterForClicks('LeftButtonUp','RightButtonUp');m:SetScript('OnClick',function(_,which)A.OpenView(which=='RightButton' and 'Encounters' or 'Leaderboard',true)end)
   m:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_LEFT');GameTooltip:SetText('BIHG GnomeKillTracker 5000');GameTooltip:AddLine('Left: leaderboard | Right: Alliance encounters',1,1,1);GameTooltip:Show()end end)
   m:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
  end
@@ -114,7 +129,7 @@ SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
  if msg=='debug' then
-  local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.0.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+  local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.0.1 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);DEFAULT_CHAT_FRAME:AddMessage('BIHG Gnome alerts: '..(A.db.options.alerts and 'ON' or 'OFF'))
  elseif msg=='encounters' then if not A.window then A.CreateUI() end;A.window:Show();A.mode='Encounters';A.RefreshUI()

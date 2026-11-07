@@ -4,10 +4,10 @@ local frames={}; local timers={}; local sent={}; local inside=false; local resul
 local units={player={guid='Player-me',name='Tester',race='Orc',faction='Horde',hp=1000},target={guid='Player-gnome',name='Tiny',race='Gnome',faction='Alliance',hp=1000,enemy=true}}
 local noop=function()end
 local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)self.shown=false end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
-local function obj()return setmetatable({scripts={},events={}},{__index=function(_,k)return methods[k] or noop end})end
+local function obj()return setmetatable({scripts={},events={},shown=true},{__index=function(_,k)return methods[k] or noop end})end
 methods.CreateFontString=obj;methods.CreateTexture=obj
 function CreateFrame(_,name)local o=obj();frames[#frames+1]=o;if name then _G[name]=o end;return o end
-UIParent=obj();UISpecialFrames={};SlashCmdList={};BackdropTemplateMixin={}
+UIParent=obj();Minimap=obj();UISpecialFrames={};SlashCmdList={};BackdropTemplateMixin={}
 DEFAULT_CHAT_FRAME={AddMessage=noop};C_Timer={After=function(delay,fn)timers[#timers+1]=fn end}
 function GetServerTime()return now end;function GetTime()return now end;date=os.date
 function issecretvalue()return false end
@@ -95,5 +95,18 @@ A.headers[5].scripts.OnClick();assert(A.ascending,'reverse sort')
 for i=1,7 do A.periodButton.scripts.OnClick()end
 A.window.scripts.OnMouseWheel(nil,-1)
 SlashCmdList.BIHGGKT('alerts');SlashCmdList.BIHGGKT('encounters');assert(A.window:IsShown(),'encounter command opens')
+A.mode='Encounters';A.RefreshUI()
+assert(not A.headers[5]:IsShown(),'unused fifth header must be hidden in encounter log')
+A.mode='Leaderboard';A.RefreshUI()
+assert(A.headers[5]:IsShown(),'fifth header must return on leaderboard')
+local click=BIHGGKTMinimap.scripts.OnClick
+A.window:Hide();A.mode='Encounters';click(nil,'LeftButton')
+assert(A.window:IsShown() and A.mode=='Leaderboard','left click opens leaderboard regardless of previous tab')
+click(nil,'RightButton')
+assert(A.window:IsShown() and A.mode=='Encounters','right click switches open window to encounters')
+click(nil,'RightButton');assert(not A.window:IsShown(),'same-view minimap click toggles closed')
+click(nil,'RightButton');assert(A.window:IsShown() and A.mode=='Encounters','right click opens encounters from hidden')
+click(nil,'LeftButton');assert(A.window:IsShown() and A.mode=='Leaderboard','left click switches without closing')
+click(nil,'LeftButton');assert(not A.window:IsShown(),'left click toggles leaderboard closed')
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, visible CC, exact damage, confirmed deaths, encounters, five-column UI, guild sync, secret values, blocked/retry sends')

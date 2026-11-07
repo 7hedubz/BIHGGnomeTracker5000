@@ -23,6 +23,14 @@ The CC whitelist includes Vanilla ranks of polymorph, stuns, fear, sap, incapaci
 
 Open with **`/gkt`**, `/gnomekills`, `/bihg`, or the minimap gear button.
 
+Minimap **left-click** opens the guild leaderboard; **right-click** opens Alliance encounters. Clicking the other view switches the open window instead of closing it. Clicking the current view's shortcut again closes it.
+
+### 1.0.1 UI fixes
+
+- Hide the unused fifth header and cells in Alliance encounters; expand Last seen into the free space.
+- Make minimap left/right clicks consistently select the view named in their tooltip.
+- Regression tests cover header visibility when switching views and both minimap shortcuts.
+
 - Guild leaderboard columns: kills, deaths to Gnomes, K/D and unique Gnomes encountered. Click column headers to sort; click again to reverse.
 - Your own summary is always visible.
 - Lifetime, 7 days, 30 days, Today, This week, This month and This year filters.

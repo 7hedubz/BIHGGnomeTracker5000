@@ -61,6 +61,7 @@ function A.RecordReportRestriction(event,addon,func,now)
  if A.Secret(addon)or addon~='BIHGGnomeKillTracker5000'then return end
  local value={event=reportValue(event),func=reportValue(func),at=now}
  if A.db then reportDiagnostic().restriction=value else A.pendingReportRestriction=value end
+ if A.postJob and A.postJob.sending then A.postJob.blocked=value end
 end
 function A.ReportDebugLines()
  local d=reportDiagnostic();local job=A.postJob
@@ -71,7 +72,7 @@ function A.ReportDebugLines()
  local restriction=d.restriction
  return{
   'BIHG report status: '..reportValue(A.postStatus or'No request this login'),
-  'BIHG report requests='..reportValue(d.requests or 0)..' last='..reportValue(d.requestAt)..' queue='..(job and(job.index..'/'..#job.lines)or'none')..' pumps='..reportValue(d.pumps or 0),
+  'BIHG report requests='..reportValue(d.requests or 0)..' last='..reportValue(d.requestAt)..' queue=none active='..(job and(job.index..'/'..#job.lines)or'none')..' mode='..reportValue(d.mode or'not called'),
   'BIHG report allowed='..tostring(A.CanPostTopReport())..' combatPaused='..tostring(A.CommunicationBlocked())..' combatAPI='..type(InCombatLockdown)..' raw='..combatValue..' guildVerified='..tostring(A.guildKey~=nil and not A.guildUnverified),
   'BIHG guild='..guildValue..' rank='..rankValue..' IsInGuild='..reportValue(A.Safe(IsInGuild)),
   'BIHG chat APIs: global='..type(SendChatMessage)..' modern='..type(C_ChatInfo and C_ChatInfo.SendChatMessage)..' last='..reportValue(d.api or'not called'),
@@ -90,25 +91,28 @@ function A.StartTopPost(lines,now)
  if type(lines)~='table' or #lines<1 or #lines>11 then A.postStatus='Guild report rejected: invalid line count.';return false end
  local copy={}
  for i,line in ipairs(lines) do if type(line)~='string' or #line>255 or line:find('[\r\n]') then A.postStatus='Guild report rejected: invalid chat line '..i..'.';return false end;copy[i]=line end
- A.db.options.lastTopPost=now
- A.postJob={lines=copy,index=1,created=now,next=now,guild=A.guildKey};A.postStatus='Guild report queued: '..#copy..' lines.'
- return true
-end
-function A.PumpTopPost(now)
- local job=A.postJob;if not job then return end
- local diagnostic=reportDiagnostic();diagnostic.pumps=(diagnostic.pumps or 0)+1
- if now<job.next then return end
- if A.guildKey~=job.guild or now-job.created>120 then A.postJob=nil;A.postStatus='Guild report stopped: guild changed or report expired.';return end
- if A.CommunicationBlocked()then A.postStatus='Guild report paused until out of combat.';return end
- if not A.CanPostTopReport()then A.postJob=nil;A.postStatus='Guild report stopped: authorized guild rank unavailable or changed.';return end
  local send=SendChatMessage or (C_ChatInfo and C_ChatInfo.SendChatMessage)
  diagnostic.api=SendChatMessage and'SendChatMessage'or'C_ChatInfo.SendChatMessage'
- if type(send)~='function' then A.postJob=nil;A.postStatus='Guild report stopped: chat API unavailable.';return end
- diagnostic.sendCalls=(diagnostic.sendCalls or 0)+1;diagnostic.sendAt=now;diagnostic.line=job.index
- local ok,result=pcall(send,job.lines[job.index],'GUILD')
- diagnostic.result=ok and reportValue(result)or'threw';diagnostic.error=not ok and reportValue(result)or nil
- if not ok or A.Secret(result) or result==false or (type(result)=='number' and result~=0) then A.postJob=nil;A.postStatus='Guild report stopped: chat send failed; no automatic retries.';return end
- job.index=job.index+1;job.next=now+1
- A.postStatus='Guild report sending: '..(job.index-1)..'/'..#job.lines..' lines handed off.'
- if job.index>#job.lines then A.postStatus='Report handed to guild chat ('..#job.lines..' lines).';A.postJob=nil end
+ if type(send)~='function'then A.postStatus='Guild report stopped: chat API unavailable.';return false end
+ A.db.options.lastTopPost=now
+ -- Keep all native chat calls on the confirming click's call stack. This is
+ -- an in-flight/reentrancy marker, not a timer queue; nothing resumes later.
+ local job={lines=copy,index=1,guild=A.guildKey};A.postJob=job;diagnostic.mode='direct-click'
+ for i,line in ipairs(copy)do
+  if A.guildKey~=job.guild or A.CommunicationBlocked()or not A.CanPostTopReport()then
+   A.postJob=nil;A.postStatus='Guild report stopped: combat, guild or authorized rank changed; no automatic retries.';return false
+  end
+  job.index=i;diagnostic.sendCalls=(diagnostic.sendCalls or 0)+1;diagnostic.sendAt=now;diagnostic.line=i
+  job.sending=true;local ok,result=pcall(send,line,'GUILD');job.sending=nil
+  diagnostic.result=ok and reportValue(result)or'threw';diagnostic.error=not ok and reportValue(result)or nil
+  if job.blocked then
+   diagnostic.error='Native '..job.blocked.event..' '..job.blocked.func
+   A.postJob=nil;A.postStatus='Guild report stopped: client blocked chat; no automatic retries.';return false
+  end
+  if not ok or A.Secret(result)or result==false or(type(result)=='number'and result~=0)then
+   A.postJob=nil;A.postStatus='Guild report stopped: chat send failed; no automatic retries.';return false
+  end
+ end
+ A.postJob=nil;A.postStatus='Guild report send attempted directly ('..#copy..' lines); delivery unconfirmed.'
+ return true
 end

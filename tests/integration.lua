@@ -180,11 +180,15 @@ assert(A.lineSegments[6]:IsShown() and not A.lineSegments[7]:IsShown(),'seven da
 assert(A.lineSegments[1].start[3]==0 and A.lineSegments[6].finish[3]==350,'line runs from earliest to latest date')
 assert(A.lineYTicks[1].text=='0' and A.lineXAxis.text:find('Time',1,true),'numeric kill axis and date axis are labeled')
 A.OpenView('Leaderboard',false);assert(A.tablePane:IsShown() and not A.chartsPane:IsShown(),'returning from charts restores table')
-local chat={};SendChatMessage=function(msg,channel)chat[#chat+1]={msg,channel}end
+local chat={};local clicking=false;local outsideClick=0
+SendChatMessage=function(msg,channel)if channel=='GUILD'and not clicking then outsideClick=outsideClick+1;error('guild chat requires player action')end;chat[#chat+1]={msg,channel}end
 A.reportButton.scripts.OnClick();assert(A.preview:IsShown() and #chat==0 and not A.postJob,'preview never posts automatically')
-A.confirmPostButton.scripts.OnClick();assert(not A.preview:IsShown() and A.postJob,'explicit confirmation starts report queue')
+clicking=true;A.confirmPostButton.scripts.OnClick();clicking=false
+assert(#chat==#A.previewLines and not A.preview:IsShown()and not A.postJob,'confirmation sends every report line synchronously before the click handler returns')
+local clickCount=#chat
 for i=0,10 do tick()end
-assert(#chat==#A.previewLines and chat[1][2]=='GUILD','confirmed ranking posts only previewed lines to guild')
+assert(#chat==clickCount and outsideClick==0,'runtime updates never send or retry a public guild report')
+assert(chat[1][2]=='GUILD','confirmed ranking posts only previewed lines to guild')
 assert(A.status.text:find('AUTO SYNC ON',1,true),'automatic sync status is explicit')
 playerRank='Member';A.RefreshUI();assert(not A.reportButton:IsShown(),'restricted rank hides report button')
 SlashCmdList.BIHGGKT('top');assert(not A.preview:IsShown()and not A.postJob,'slash command cannot bypass rank restriction')

@@ -70,6 +70,16 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Send guild reports directly from confirmation (1.7.5)
+
+**Post to /guild now attempts all previewed lines synchronously in the confirmation button's click handler**, using a bounded loop (one heading plus up to ten separate ranking lines). There is no public-report timer queue, OnUpdate send, deferred combat resume or automatic retry. This supersedes the report pacing/queue behavior documented for earlier versions; silent addon-data sync is unchanged and remains paced/out-of-combat.
+
+Native diagnosis: the protected-action stack reached SendChatMessage from PumpTopPost/OnUpdate. A user-run direct `/run` guild-send test delivered; the same call delayed by C_Timer.After did not, even though both returned `pcall=true, result=nil`. Keep native guild sends in the confirming action's call stack rather than moving them to background callbacks. Native behavior of the full multi-line button send still needs an in-game check, including any server burst limits.
+
+Preview, exact Council of BIHG / The BIHG Cheese authorization, current guild/combat checks, line limits and 60-second cooldown remain. Authorization/combat/guild are checked again before each line. A readable API failure or a protected-action event captured during a send stops the remaining lines with no background resume. Diagnostics record `mode=direct-click`; the status says **delivery unconfirmed** because a nil/zero API result is not a server acknowledgement. A partially attempted report is never automatically retried.
+
+Regression tests invoke the actual confirmation handler with a mock that rejects guild sends outside that click's call stack, assert all previewed lines were attempted before return, then run actual update ticks and assert no extra sends. Other tests cover cooldown, ranks, in-burst rank/combat changes, API failure/fallback and native protection events. All public chat APIs are mocked in tests; no guild test messages are sent by the tooling. Apply with `/reload` out of combat; the TOC load list is unchanged. Combat-entry menu auto-close from 1.7.4 remains.
+
 ### Close the main menu on combat entry (1.7.4)
 
 The large dashboard/config window automatically closes when combat starts, including its report preview and sound-picker popup. It stays closed when combat ends; reopen with the minimap button or `/gkt`. The independent Nearby overlay, tracking and configured party detection alerts remain active, and outgoing guild queues retain their existing combat pause/resume policy.

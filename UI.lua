@@ -118,6 +118,7 @@ function A.RefreshUI()
   return
  end
  local now=clock();local period=A.period or 'Lifetime';local me=A.db.owners[A.owner];local kills,deaths=0,0
+ if A.RefreshTopPostControls then A.RefreshTopPostControls()end
  for name,r in pairs(A.account and A.account.characters or {[A.owner]=me}) do if A.members and A.members[name]then local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now)or r;kills=kills+A.Score(effective,period,now);deaths=deaths+A.Score(effective,period,now,'deaths')end end
  local values={tostring(kills),tostring(deaths),ratio(kills,deaths),tostring(A.AccountEncounterCount(period,now))}
  for i,v in ipairs(values) do A.statCards[i].value:SetText(v) end
@@ -201,13 +202,20 @@ function A.OpenView(mode,toggle)
  if A.mode~=mode then A.mode=mode;A.page=1;A.sort=mode=='Encounters' and 'last' or 'kills';A.ascending=false end
  A.window:Show();A.RefreshUI()
 end
+function A.RefreshTopPostControls()
+ if not A.confirmPostButton then return end
+ local job=A.postJob;local lines=job and job.lines or A.previewLines or{};local index=job and job.index or 1
+ local name=index==1 and'heading'or(lines[index]or'next line'):gsub(': %d+ kills$','')
+ A.confirmPostButton:SetText('Send '..name..' ('..index..'/'..#lines..')')
+ A.previewExplanation:SetText('One line per click. Wait for the previous line to appear in /guild before the next click. '..(index-1)..'/'..#lines..' attempted; cached totals.')
+end
 function A.ShowTopPreview()
  if A.TargetingLocked()then A.postStatus='Leave combat before opening the report preview.';return false end
  if not A.CanPostTopReport()then A.postStatus='Guild reports are restricted to Council of BIHG and The BIHG Cheese.';if A.preview then A.preview:Hide()end;A.RefreshUI();return false end
  if not A.window then A.CreateUI() end
- A.previewLines=A.BuildTopReport(A.period or 'Lifetime',clock())
+ A.previewLines=A.postJob and A.postJob.lines or A.BuildTopReport(A.period or 'Lifetime',clock())
  A.previewText:SetText(table.concat(A.previewLines,'\n\n'))
- A.previewExplanation:SetText('Sends '..#A.previewLines..' paced lines to /guild. Uses the selected period and cached alias totals. Not a fresh server query.')
+ A.RefreshTopPostControls()
  A.preview:Show()
 end
 function A.CreateUI()
@@ -302,8 +310,14 @@ function A.CreateUI()
  text(preview,'large',20,-18,610):SetText('PREVIEW GUILD REPORT')
  A.previewExplanation=text(preview,'small',20,-50,610);A.previewExplanation:SetWordWrap(true);A.previewExplanation:SetHeight(36)
  A.previewText=text(preview,'small',20,-103,610);A.previewText:SetWordWrap(true);A.previewText:SetHeight(210)
- A.confirmPostButton=button(preview,'Post to /guild',20,-344,180,function()local ok=A.StartTopPost(A.previewLines,clock());if ok then preview:Hide()end;DEFAULT_CHAT_FRAME:AddMessage('BIHG report: '..(A.postStatus or'No status; run /gkt debug.'));A.RefreshUI()end,'Attempts every previewed line directly from this click, limited to once per minute. No timer queue or automatic retries.')
- button(preview,'Cancel',450,-344,180,function()preview:Hide()end);UISpecialFrames[#UISpecialFrames+1]='BIHGGKTTopPreview';preview:Hide()
+ A.confirmPostButton=button(preview,'Send heading',20,-344,410,function()
+  local ok;if A.postJob then ok=A.SendNextTopPost(clock())else ok=A.StartTopPost(A.previewLines,clock())end
+  if ok and not A.postJob then preview:Hide()end
+  DEFAULT_CHAT_FRAME:AddMessage('BIHG report: '..(A.postStatus or'No status; run /gkt debug.'));A.RefreshUI()
+ end,'Sends exactly one previewed line per click. Wait for that line in guild chat before clicking again. One-second minimum between lines; no automatic sends or retries.')
+ A.confirmPostButton.label:SetWidth(390);A.confirmPostButton.label:SetWordWrap(false)
+ button(preview,'Cancel',450,-344,180,function()preview:Hide()end);UISpecialFrames[#UISpecialFrames+1]='BIHGGKTTopPreview'
+ preview:SetScript('OnHide',function()A.CancelTopPost()end);preview:Hide()
  w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)if A.mode=='Leaderboard' or A.mode=='Encounters' then A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end end)
  A.period='Lifetime';for _,p in ipairs(A.frames)do if p==A.db.options.period then A.period=p end end;A.mode='Leaderboard';A.sort='kills';A.page=1
  w:SetScript('OnHide',function()A.db.options.period=A.period;preview:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
@@ -324,7 +338,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.5 | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.6 | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

@@ -28,18 +28,24 @@ local combat=false;InCombatLockdown=function()return combat end
 local guildRank='Member';GetGuildInfo=function()return'Guild',guildRank,3 end
 assert(not A.StartTopPost(lines,now),'ordinary members cannot post a guild report')
 guildRank='Council of BIHG'
-assert(A.StartTopPost(lines,now),'explicit confirmation sends immediately')
-assert(#sent==#lines and sent[1][2]=='GUILD'and not A.postJob,'all lines sent synchronously, only to guild, without pending work')
-assert(not A.StartTopPost(lines,now),'duplicate click cannot start second report')
-assert(not A.StartTopPost(lines,now+10),'cooldown prevents spam')
+assert(A.StartTopPost(lines,now),'explicit confirmation attempts the heading immediately')
+assert(#sent==1 and sent[1][2]=='GUILD'and A.postJob.index==2,'one line per click; manual progress retained')
+assert(not A.StartTopPost(lines,now),'duplicate start cannot replace an active report')
+assert(not A.SendNextTopPost(now)and #sent==1,'rapid double-click cannot burst messages')
+local original=lines[2];lines[2]='changed after preview'
+assert(A.SendNextTopPost(now+1)and sent[2][1]==original,'manual session uses frozen preview lines');lines[2]=original
+for i=3,#lines do assert(A.SendNextTopPost(now+i))end
+assert(#sent==#lines and not A.postJob,'separate clicks attempt each ranked line exactly once and in order')
+assert(not A.StartTopPost(lines,now+10),'new-report cooldown still applies after completion')
 assert(A.PumpTopPost==nil,'public guild reports have no timer pump')
 IsInInstance=function()return true end
-assert(A.StartTopPost(lines,now+70),'dungeon allows an authorized out-of-combat report')
+assert(A.StartTopPost(lines,now+70),'dungeon allows an authorized out-of-combat heading');A.CancelTopPost()
 local beforeCombat=#sent
 A.db.options.lastTopPost=nil;combat=true;assert(not A.StartTopPost(lines,now+71),'new report cannot start in combat')
 assert(#sent==beforeCombat and not A.postJob,'combat rejection does not retain a deferred report');combat=false
 local interrupted=0;SendChatMessage=function()interrupted=interrupted+1;combat=true end
-assert(not A.StartTopPost(lines,now+72)and interrupted==1 and not A.postJob,'combat change stops remaining lines rather than deferring them')
+assert(A.StartTopPost(lines,now+72)and interrupted==1,'first line completes before combat change is rechecked')
+assert(not A.SendNextTopPost(now+73)and not A.postJob,'combat stops the next explicit send and clears progress')
 combat=false;assert(not A.postJob,'leaving combat cannot resume an interrupted public report')
 A.db.options.lastTopPost=now;IsInInstance=function()return false end
 SendChatMessage=function()error('blocked')end
@@ -48,7 +54,11 @@ assert(not A.postJob and A.postStatus:find('stopped',1,true),'failed chat send s
 SendChatMessage=nil;local modernSent=0
 C_ChatInfo={SendChatMessage=function(msg,channel)assert(channel=='GUILD');modernSent=modernSent+1 end}
 assert(A.StartTopPost(lines,now+140))
-assert(modernSent==#lines,'modern namespaced chat API sends the whole report synchronously')
+for i=2,#lines do assert(A.SendNextTopPost(now+140+i))end
+assert(modernSent==#lines,'modern namespaced API sends each line only on a separate explicit action')
+A.db.options.lastTopPost=nil;assert(A.StartTopPost(lines,now+200));A.guildKey='Different-Realm'
+assert(not A.SendNextTopPost(now+201)and not A.postJob,'guild change stops manual progress');A.guildKey='Guild-Realm'
+A.db.options.lastTopPost=nil;assert(A.StartTopPost(lines,now+210));assert(not A.SendNextTopPost(now+511)and not A.postJob,'old manual snapshots expire without sending')
 local line=A.KillsLine('7 days',now,350,164)
 assert(#line.points==7 and line.points[7].kills==6,'line uses account kill buckets, not deaths')
 assert(line.points[1].x==0 and line.points[7].x==350,'time increases from left to right')
@@ -61,10 +71,15 @@ assert(zero.peak==0 and zero.points[1].y==0 and zero.ceiling>0,'zero activity ha
 A.postJob=nil;A.db.options.lastTopPost=nil;guildRank='The BIHG Cheese'
 local restrictedSends=0;C_ChatInfo.SendChatMessage=function()restrictedSends=restrictedSends+1 end
 assert(A.StartTopPost(lines,now+300),'The BIHG Cheese rank can post')
-assert(restrictedSends==#lines,'second authorized rank can send its confirmed report')
+for i=2,#lines do assert(A.SendNextTopPost(now+300+i))end
+assert(restrictedSends==#lines,'second authorized rank can send its confirmed report using separate clicks')
 A.db.options.lastTopPost=nil;restrictedSends=0;C_ChatInfo.SendChatMessage=function()restrictedSends=restrictedSends+1;guildRank='Member'end
-assert(not A.StartTopPost(lines,now+301)and not A.postJob and restrictedSends==1,'rank loss cancels remaining lines without background retries')
-guildRank='Guild Master';assert(not A.StartTopPost(lines,now+400),'no implicit guild-master or officer override')
+assert(A.StartTopPost(lines,now+320));assert(not A.SendNextTopPost(now+321)and not A.postJob and restrictedSends==1,'rank loss cancels remaining lines without background retries')
+guildRank='Council of BIHG';A.db.options.lastTopPost=nil;local precise=0;GetTime=function()return precise end
+C_ChatInfo.SendChatMessage=function()end;assert(A.StartTopPost(lines,now+600))
+precise=0.2;assert(not A.SendNextTopPost(now+601),'crossing an integer server-second boundary cannot bypass minimum actual spacing')
+precise=1.2;assert(A.SendNextTopPost(now+601),'monotonic spacing permits next physical action after a full second');A.CancelTopPost();GetTime=nil
+guildRank='Guild Master';assert(not A.StartTopPost(lines,now+700),'no implicit guild-master or officer override')
 guildRank=nil;assert(not A.StartTopPost(lines,now+400),'unreadable rank fails closed')
 guildRank='Council of BIHG';A.guildUnverified=true;assert(not A.CanPostTopReport(),'cached unverified guild identity cannot authorize a public report');A.guildUnverified=nil
 guildRank='council of bihg';assert(not A.CanPostTopReport(),'rank matching is exact and case sensitive')

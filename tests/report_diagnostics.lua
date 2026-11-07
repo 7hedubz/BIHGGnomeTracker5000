@@ -19,7 +19,8 @@ SendChatMessage=nil;C_ChatInfo={SendChatMessage=function()return 0 end};A.db.opt
 assert(A.StartTopPost({'heading','one person'},now+61))
 assert(table.concat(A.ReportDebugLines(),' '):find('C_ChatInfo.SendChatMessage',1,true),'modern API selection visible')
 assert(A.db.reportDiagnostics.result=='0','actual numeric API result recorded')
-assert(not A.postJob and A.db.reportDiagnostics.mode=='direct-click','completed sends leave no queue and record their direct-click mode')
+assert(A.postJob and A.db.reportDiagnostics.mode=='one-line-per-click','diagnostics identify explicit manual progress, not background sends')
+assert(A.SendNextTopPost(now+62)and not A.postJob,'second explicit action completes the two-line report')
 assert(A.postStatus:find('unconfirmed',1,true),'a successful nil or zero return is not a delivery acknowledgement')
 local blockedCalls=0;SendChatMessage=function()blockedCalls=blockedCalls+1;A.RecordReportRestriction('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','UNKNOWN()',now+122)end
 assert(not A.StartTopPost({'heading','one person'},now+122),'native protected-action event stops report even if pcall returns successfully')

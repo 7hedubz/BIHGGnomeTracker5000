@@ -70,6 +70,16 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Ordered manual guild-report posting (1.7.6)
+
+**Send one line per physical click.** Open Post Top 10 to Guild, click **Send heading**, wait for that message to appear in guild chat, then use the same button to send **#1**, **#2**, and so on. The button shows the next ranked player and line position; the preview shows how many lines were attempted. There is a one-second minimum between attempts, using the monotonic GetTime clock when available, to prevent double-click bursts. Waiting for the prior line to actually appear is still the user's responsibility; the addon does not pretend to acknowledge delivery.
+
+The native 1.7.5 burst reached guild chat, but its separate messages displayed out of order. This replaces that burst with exactly one synchronous native send per explicit action. There is no timer/OnUpdate/chat-event sending or automatic retry. The report is frozen to the preview snapshot; receiving new stats or reopening the preview cannot reshuffle a report in progress. The final attempt closes the preview.
+
+Cancel, Escape/preview closure, and combat-entry menu auto-close discard remaining manual progress. Each next click rechecks combat, guild, exact authorized rank, and a five-minute snapshot expiry. New reports retain the 60-second cooldown; continuing an existing report does not restart it. API failures or captured native protection blocks stop the session. Closing/reloading never resumes unsent lines. Silent automatic addon-data sync is unchanged.
+
+Tests cover one header per first click, one ranked line per subsequent click, progress labels, duplicate-click spacing (including fractional GetTime across an integer server-time boundary), frozen snapshots, completion, manual/combat cancellation, expiry, guild/rank changes, API errors and native blocks. Actual-TOC tests reject sends outside click context and assert that idle update ticks never send. All public sends are mocked. Apply with **/reload out of combat**; the load list is unchanged. Native ordered display still requires the normal in-game check using the wait-for-visible-line workflow.
+
 ### Send guild reports directly from confirmation (1.7.5)
 
 **Post to /guild now attempts all previewed lines synchronously in the confirmation button's click handler**, using a bounded loop (one heading plus up to ten separate ranking lines). There is no public-report timer queue, OnUpdate send, deferred combat resume or automatic retry. This supersedes the report pacing/queue behavior documented for earlier versions; silent addon-data sync is unchanged and remains paced/out-of-combat.

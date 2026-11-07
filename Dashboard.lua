@@ -95,24 +95,38 @@ function A.StartTopPost(lines,now)
  diagnostic.api=SendChatMessage and'SendChatMessage'or'C_ChatInfo.SendChatMessage'
  if type(send)~='function'then A.postStatus='Guild report stopped: chat API unavailable.';return false end
  A.db.options.lastTopPost=now
- -- Keep all native chat calls on the confirming click's call stack. This is
- -- an in-flight/reentrancy marker, not a timer queue; nothing resumes later.
- local job={lines=copy,index=1,guild=A.guildKey};A.postJob=job;diagnostic.mode='direct-click'
- for i,line in ipairs(copy)do
-  if A.guildKey~=job.guild or A.CommunicationBlocked()or not A.CanPostTopReport()then
-   A.postJob=nil;A.postStatus='Guild report stopped: combat, guild or authorized rank changed; no automatic retries.';return false
-  end
-  job.index=i;diagnostic.sendCalls=(diagnostic.sendCalls or 0)+1;diagnostic.sendAt=now;diagnostic.line=i
-  job.sending=true;local ok,result=pcall(send,line,'GUILD');job.sending=nil
-  diagnostic.result=ok and reportValue(result)or'threw';diagnostic.error=not ok and reportValue(result)or nil
-  if job.blocked then
-   diagnostic.error='Native '..job.blocked.event..' '..job.blocked.func
-   A.postJob=nil;A.postStatus='Guild report stopped: client blocked chat; no automatic retries.';return false
-  end
-  if not ok or A.Secret(result)or result==false or(type(result)=='number'and result~=0)then
-   A.postJob=nil;A.postStatus='Guild report stopped: chat send failed; no automatic retries.';return false
-  end
+ -- A frozen manual snapshot, never a background send queue. Every call to
+ -- SendNextTopPost must come directly from a new confirming player action.
+ A.postJob={lines=copy,index=1,guild=A.guildKey,created=now};diagnostic.mode='one-line-per-click'
+ return A.SendNextTopPost(now)
+end
+function A.CancelTopPost()
+ if A.postJob then A.postJob=nil;A.postStatus='Guild report cancelled; remaining lines were not sent.'end
+end
+function A.SendNextTopPost(now)
+ local job=A.postJob;if not job then return false end
+ if job.sending then return false end
+ if A.guildKey~=job.guild or now-job.created>300 or A.CommunicationBlocked()or not A.CanPostTopReport()then
+  A.postJob=nil;A.postStatus='Guild report stopped: combat, guild, rank or expiry changed; no automatic retries.';return false
  end
- A.postJob=nil;A.postStatus='Guild report send attempted directly ('..#copy..' lines); delivery unconfirmed.'
+ local clickTime=A.Safe(GetTime);if A.Secret(clickTime)or type(clickTime)~='number'then clickTime=now end
+ if job.nextClick and clickTime<job.nextClick then A.postStatus='Wait at least one second and for the previous line to appear in /guild before clicking again.';return false end
+ local diagnostic=reportDiagnostic();local send=SendChatMessage or(C_ChatInfo and C_ChatInfo.SendChatMessage)
+ diagnostic.api=SendChatMessage and'SendChatMessage'or'C_ChatInfo.SendChatMessage'
+ if type(send)~='function'then A.postJob=nil;A.postStatus='Guild report stopped: chat API unavailable.';return false end
+ local i=job.index;diagnostic.sendCalls=(diagnostic.sendCalls or 0)+1;diagnostic.sendAt=now;diagnostic.line=i
+ job.sending=true;local ok,result=pcall(send,job.lines[i],'GUILD');job.sending=nil
+ diagnostic.result=ok and reportValue(result)or'threw';diagnostic.error=not ok and reportValue(result)or nil
+ if job.blocked then
+  diagnostic.error='Native '..job.blocked.event..' '..job.blocked.func
+  A.postJob=nil;A.postStatus='Guild report stopped: client blocked chat; no automatic retries.';return false
+ end
+ if not ok or A.Secret(result)or result==false or(type(result)=='number'and result~=0)then
+  A.postJob=nil;A.postStatus='Guild report stopped: chat send failed; no automatic retries.';return false
+ end
+ job.index=i+1;job.nextClick=clickTime+1
+ if job.index>#job.lines then
+  A.postJob=nil;A.postStatus='All '..#job.lines..' lines attempted by separate clicks; delivery unconfirmed.'
+ else A.postStatus='Line '..i..'/'..#job.lines..' attempted. Wait for it in /guild, then click to send the next line.'end
  return true
 end

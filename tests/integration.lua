@@ -184,11 +184,20 @@ local chat={};local clicking=false;local outsideClick=0
 SendChatMessage=function(msg,channel)if channel=='GUILD'and not clicking then outsideClick=outsideClick+1;error('guild chat requires player action')end;chat[#chat+1]={msg,channel}end
 A.reportButton.scripts.OnClick();assert(A.preview:IsShown() and #chat==0 and not A.postJob,'preview never posts automatically')
 clicking=true;A.confirmPostButton.scripts.OnClick();clicking=false
-assert(#chat==#A.previewLines and not A.preview:IsShown()and not A.postJob,'confirmation sends every report line synchronously before the click handler returns')
-local clickCount=#chat
+assert(#chat==1 and chat[1][1]==A.previewLines[1]and A.preview:IsShown()and A.postJob,'first confirmation sends only the heading and keeps progress visible')
+assert(A.confirmPostButton:GetText():find('Send #1',1,true),'same button labels the next ranked player')
+clicking=true;A.confirmPostButton.scripts.OnClick();clicking=false;assert(#chat==1,'rapid duplicate click cannot burst the next line')
 for i=0,10 do tick()end
-assert(#chat==clickCount and outsideClick==0,'runtime updates never send or retry a public guild report')
-assert(chat[1][2]=='GUILD','confirmed ranking posts only previewed lines to guild')
+assert(#chat==1 and outsideClick==0,'runtime updates never send or retry a public guild report')
+for i=2,#A.previewLines do
+ clicking=true;A.confirmPostButton.scripts.OnClick();clicking=false
+ assert(#chat==i and chat[i][1]==A.previewLines[i]and chat[i][2]=='GUILD','one explicit click attempts exactly the next previewed line in order');tick()
+end
+assert(not A.preview:IsShown()and not A.postJob,'final line closes the completed preview')
+A.db.options.lastTopPost=nil;A.ShowTopPreview();clicking=true;A.confirmPostButton.scripts.OnClick();clicking=false
+assert(A.postJob,'a partially posted report holds manual progress')
+local beforeCancel=#chat;A.preview:Hide();assert(not A.postJob,'closing the report preview cancels unsent lines')
+for i=1,3 do tick()end;assert(#chat==beforeCancel,'cancelled lines are never sent by update callbacks')
 assert(A.status.text:find('AUTO SYNC ON',1,true),'automatic sync status is explicit')
 playerRank='Member';A.RefreshUI();assert(not A.reportButton:IsShown(),'restricted rank hides report button')
 SlashCmdList.BIHGGKT('top');assert(not A.preview:IsShown()and not A.postJob,'slash command cannot bypass rank restriction')
@@ -339,10 +348,12 @@ assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is loc
 DEFAULT_CHAT_FRAME.AddMessage=originalLocalMessage
 assert(A.window.template:find('SecureHandlerStateTemplate',1,true)and stateDrivers[A.window],'main config window installs secure combat state handling')
 A.OpenView('Settings',false);A.OpenSoundPicker('alliance');A.preview:Show()
+playerRank='Council of BIHG';A.db.options.lastTopPost=nil;assert(A.StartTopPost({'heading','ranked person'},now),'manual progress exists before combat auto-close')
 assert(A.window:IsShown()and A.soundPicker:IsShown(),'settings and picker open before combat')
 local secureSnippet=assert(loadstring(A.window.attrs['_onstate-'..stateDrivers[A.window].id]))
 combat=true;setfenv(secureSnippet,{self=A.window,newstate='closed'});secureSnippet()
 assert(not A.window:IsShown()and not A.preview:IsShown()and not A.soundPicker:IsShown(),'entering combat securely closes dashboard, report preview and config picker')
+assert(not A.postJob,'combat auto-close cancels remaining manual report lines without deferral')
 assert(A.nearbyFrame:IsShown(),'combat auto-close leaves independent Nearby overlay available')
 combat=false;setfenv(secureSnippet,{self=A.window,newstate='available'});secureSnippet();tick()
 assert(not A.window:IsShown(),'leaving combat does not reopen config automatically')

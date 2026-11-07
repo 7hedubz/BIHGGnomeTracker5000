@@ -15,6 +15,12 @@ function A.Receive(msg,channel,sender,now)
  A.rx=A.rx or {}; local limit=A.rx[sender]
  if not limit or now-limit.start>=60 then limit={start=now,n=0}; A.rx[sender]=limit end
  limit.n=limit.n+1; if limit.n>450 then return false end
+ if msg:sub(1,4)=='4|R|' then return A.ReceiveAlt and A.ReceiveAlt(msg,sender,now) or false end
+ if msg:sub(1,2)=='3|' then
+  local ok=A.ReceiveAccount and A.ReceiveAccount(msg,sender,now) or false
+  if ok and A.RefreshUI then A.RefreshUI() end
+  return ok
+ end
  if msg=='2|Q' then
   A.queries=A.queries or {}
   if not A.queries[sender] or now-A.queries[sender]>=60 then
@@ -59,11 +65,12 @@ function A.BuildPackets(full,now)
   for day in pairs(r.deathDays or {}) do if day>=today-A.RETENTION+1 then days[day]=true end end
  end
  local sorted={}; for day in pairs(days) do sorted[#sorted+1]=day end; table.sort(sorted,function(a,b)return a>b end)
- local result={}
+ local result=A.AccountPackets and A.AccountPackets(now) or {}
  local encounter={'2','E',tostring(now)}
  for _,label in ipairs(A.frames) do encounter[#encounter+1]=tostring(A.EncounterCount(label,now)) end
  result[#result+1]=table.concat(encounter,'|')
  for _,day in ipairs(sorted) do result[#result+1]=string.format('2|S|%d|%d|%d|%d|%d',r.total,r.deaths or 0,day,r.days[day] or 0,(r.deathDays or {})[day] or 0) end
+ if full and A.AltPackets then for _,packet in ipairs(A.AltPackets(now)) do result[#result+1]=packet end end
  return result
 end
 function A.SendPacket(packet)

@@ -154,6 +154,7 @@ function A.Recap()
  end
 end
 function A.Changed()
+ if A.account then A.SnapshotAccount(now()) end
  A.QueueShare(false)
  if A.RefreshUI then A.RefreshUI() end
 end
@@ -162,6 +163,9 @@ local function login()
  if A.db then return end
  local name=A.Safe(UnitName,'player'); if not name then return end
  BIHGGKTDB=BIHGGKTDB or {}; A.Init(BIHGGKTDB,A.Name(name),now())
+ BIHGGKTAccountDB=BIHGGKTAccountDB or {}
+ local identity=A.Safe(UnitGUID,'player') or A.owner:gsub('[^%w_%-]',''):sub(1,50)
+ A.InitAccount(BIHGGKTAccountDB,identity..'-'..now(),now())
  A.plates={};A.auras={};A.coverage={};A.syncStatus='Waiting for guild roster'
  if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then pcall(C_ChatInfo.RegisterAddonMessagePrefix,A.PREFIX) end
  A.Roster();A.QueueShare(true);A.request=true

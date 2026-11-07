@@ -11,7 +11,9 @@ local function ratio(k,d)if d==0 then return '-' end;return string.format('%.2f'
 function A.RefreshUI()
  if not A.window or not A.db then return end
  local t=A.Safe(GetServerTime) or time(); local period=A.period or 'Lifetime'; local me=A.db.owners[A.owner]
- A.summary:SetText(string.format('You: %d kills   |   %d deaths to Gnomes   |   K/D %s   |   %d Gnomes encountered (unique)',A.Score(me,period,t),A.Score(me,period,t,'deaths'),ratio(A.Score(me,period,t),A.Score(me,period,t,'deaths')),A.EncounterCount(period,t)))
+ local kills,deaths=0,0
+ for _,r in pairs(A.account and A.account.characters or {me}) do kills=kills+A.Score(r,period,t);deaths=deaths+A.Score(r,period,t,'deaths') end
+ A.summary:SetText(string.format('You (%s): %d kills | %d deaths to Gnomes | K/D %s | %d Gnomes encountered (unique)',A.account and A.account.alias or A.DisplayName(A.owner),kills,deaths,ratio(kills,deaths),A.AccountEncounterCount(period,t)))
  A.periodButton:SetText(period..'  >')
  local c=A.coverage or {}
  A.coverageLabel:SetText('Tracking: '..(c.log and 'readable combat log observed' or 'CC-only fallback; exact 10% damage unavailable without readable combat log')..'\nDeaths: confirmed Gnome killing blows only. Encounters: visible Alliance players. Dates: UTC.')
@@ -39,32 +41,37 @@ function A.RefreshUI()
    if a.last~=b.last then return a.last>b.last end;return a.name<b.name
   end)
  else
-  A.heading:SetText('GUILD LEADERBOARD  |  current members with this addon  |  client-reported, not server-verified')
-  A.headers[1]:SetText('Player');A.headers[2]:SetText('Kills');A.headers[3]:SetText('Deaths');A.headers[4]:SetText('K/D');A.headers[5]:SetText('Encountered')
-  local records={[A.owner]=me}
-  for name,r in pairs(A.PeerRecords()) do if A.members[name] then records[name]=r end end
-  for name,r in pairs(records) do
-   local k=A.Score(r,period,t); local d=A.Score(r,period,t,'deaths')
-   local encounters=name==A.owner and A.EncounterCount(period,t) or A.EncounterScore(r,period,t)
-   data[#data+1]={name=name,k=k,d=d,kd=d>0 and k/d or (k>0 and math.huge or 0),encountered=encounters or -1}
-  end
+  A.heading:SetText('GUILD LEADERBOARD | Click an alias to expand characters | client-reported, not server-verified')
+  A.headers[1]:SetText('Alias / character');A.headers[2]:SetText('Kills');A.headers[3]:SetText('Deaths');A.headers[4]:SetText('K/D');A.headers[5]:SetText('Encountered')
+  data=A.LeaderboardGroups(period,t)
   table.sort(data,function(a,b)
-   if A.sort=='name' then return a.name<b.name end
+   if A.sort=='name' then if a.name~=b.name then return a.name<b.name end;return a.id<b.id end
    local key=A.sort=='deaths' and 'd' or (A.sort=='ratio' and 'kd' or (A.sort=='encounters' and 'encountered' or 'k'))
-   if a[key]~=b[key] then return a[key]>b[key] end;return a.name<b.name
+   if a[key]~=b[key] then return a[key]>b[key] end;if a.name~=b.name then return a.name<b.name end;return a.id<b.id
   end)
  end
  if A.ascending then local reversed={};for i=#data,1,-1 do reversed[#reversed+1]=data[i] end;data=reversed end
+ local groupCount=#data
+ if A.mode~='Encounters' then
+  local flat={}
+  for _,group in ipairs(data) do
+   flat[#flat+1]=group
+   if A.expanded[group.id] then for _,child in ipairs(group.children) do child.child=true;flat[#flat+1]=child end end
+  end
+  data=flat
+ end
  local pages=math.max(1,math.ceil(#data/12));A.page=math.max(1,math.min(A.page or 1,pages))
- A.pageLabel:SetText(string.format('Page %d / %d   (%d players)',A.page,pages,#data))
+ A.pageLabel:SetText(string.format('Page %d / %d (%d %s)',A.page,pages,groupCount,A.mode=='Encounters' and 'players' or 'aliases'))
  for i,row in ipairs(A.rows) do
   local r=data[(A.page-1)*12+i]
   if r then
-   local color=(A.mode=='Encounters' and r.race=='Gnome') and '|cffffb347' or (r.name==A.owner and '|cff66ddff' or '|cffffffff')
-   row[1]:SetText(color..A.DisplayName(r.name)..'|r')
+   local color=(A.mode=='Encounters' and r.race=='Gnome') and '|cffffb347' or ((r.isOwn or r.name==A.owner) and '|cff66ddff' or '|cffffffff')
+   local label=r.isGroup and ((A.expanded[r.id] and '[-] ' or '[+] ')..r.name..' ('..#r.children..')') or ((r.child and '   ' or '')..A.DisplayName(r.name))
+   row[1]:SetText(color..label..'|r')
+   row.button:Show();row.button:SetScript('OnClick',function()if r.isGroup then A.expanded[r.id]=not A.expanded[r.id];A.RefreshUI() end end)
    if A.mode=='Encounters' then row[2]:SetText(color..r.race..'|r');row[3]:SetText(date('!%Y-%m-%d',r.first));row[4]:SetText(date('!%m-%d %H:%M',r.last));row[5]:SetText('')
    else row[2]:SetText(tostring(r.k));row[3]:SetText(tostring(r.d));row[4]:SetText(ratio(r.k,r.d));row[5]:SetText(r.encountered>=0 and tostring(r.encountered) or '-') end
-  else for _,cell in ipairs(row) do cell:SetText('') end end
+  else row.button:Hide();for _,cell in ipairs(row) do cell:SetText('') end end
  end
 end
 function A.ToggleUI()
@@ -107,12 +114,24 @@ function A.CreateUI()
  local xs={18,315,415,540,675};local widths={290,95,120,130,135};local sorts={'name','kills','deaths','ratio','encounters'}
  for i=1,5 do local idx=i;A.headers[i]=button(w,'',xs[i],-184,widths[i],function()if A.sort==sorts[idx] then A.ascending=not A.ascending else A.sort=sorts[idx];A.ascending=false end;A.page=1;A.RefreshUI()end)end
  A.rows={}
+ A.expanded={}
  for i=1,12 do
   A.rows[i]={};for j=1,5 do A.rows[i][j]=text(w,'small',xs[j]+4,-220-(i-1)*23,widths[j]-8)end
+  local hit=CreateFrame('Button',nil,w);hit:SetPoint('TOPLEFT',18,-214-(i-1)*23);hit:SetSize(795,23);A.rows[i].button=hit
  end
  button(w,'< Previous',18,-512,105,function()A.page=(A.page or 1)-1;A.RefreshUI()end)
  button(w,'Next >',132,-512,85,function()A.page=(A.page or 1)+1;A.RefreshUI()end)
- A.pageLabel=text(w,'small',236,-519,350)
+ A.pageLabel=text(w,'small',236,-519,190)
+ text(w,'small',430,-519,50):SetText('Alias:')
+ local input=CreateFrame('EditBox',nil,w,'InputBoxTemplate');A.aliasInput=input
+ input:SetSize(180,24);input:SetPoint('TOPLEFT',480,-512);input:SetAutoFocus(false);input:SetMaxLetters(32);input:SetText(A.account.alias)
+ local function saveAlias()
+  if A.SetAlias(input:GetText(),A.Safe(GetServerTime) or time()) then input:SetText(A.account.alias);input:ClearFocus()
+  else DEFAULT_CHAT_FRAME:AddMessage('BIHG: Alias must be 1-64 bytes, without control characters or |.') end
+ end
+ A.aliasSave=button(w,'Save alias',674,-512,125,saveAlias)
+ input:SetScript('OnEnterPressed',saveAlias)
+ input:SetScript('OnEscapePressed',function()input:SetText(A.account.alias);input:ClearFocus()end)
  A.status=text(w,'small',18,-552,795)
  w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end)
  A.period=A.db.options.period or 'Lifetime';A.mode='Leaderboard';A.sort='kills';A.page=1
@@ -129,7 +148,7 @@ SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
  if msg=='debug' then
-  local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.0.2 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+  local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.1.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);DEFAULT_CHAT_FRAME:AddMessage('BIHG Gnome alerts: '..(A.db.options.alerts and 'ON' or 'OFF'))
  elseif msg=='encounters' then if not A.window then A.CreateUI() end;A.window:Show();A.mode='Encounters';A.RefreshUI()

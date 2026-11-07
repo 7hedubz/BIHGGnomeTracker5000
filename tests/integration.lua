@@ -3,7 +3,7 @@ local now=1700000000
 local frames={}; local timers={}; local sent={}; local inside=false; local result=0
 local units={player={guid='Player-me',name='Tester',race='Orc',faction='Horde',hp=1000},target={guid='Player-gnome',name='Tiny',race='Gnome',faction='Alliance',hp=1000,enemy=true}}
 local noop=function()end
-local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)self.shown=false end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
+local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)self.shown=false end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetText=function(self)return self.text end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
 local function obj()return setmetatable({scripts={},events={},shown=true},{__index=function(_,k)return methods[k] or noop end})end
 methods.CreateFontString=obj;methods.CreateTexture=obj
 function CreateFrame(_,name)local o=obj();frames[#frames+1]=o;if name then _G[name]=o end;return o end
@@ -48,6 +48,7 @@ end
 local function delayed()local t=timers;timers={};for _,fn in ipairs(t)do fn()end end
 event('ADDON_LOADED','BIHGGnomeKillTracker5000');event('PLAYER_LOGIN');event('PLAYER_ENTERING_WORLD');tick()
 assert(A.db and A.owner=='Tester-Realm','login initializes persistence')
+assert(A.account and A.account.alias=='Tester','account identity initializes with first toon')
 assert(A.EncounterCount('Lifetime',now)==1,'visible Gnome stored uniquely')
 assert(A.db.seen['Player-gnome'],'Alliance player memory')
 units.target.dead=true;event('UNIT_HEALTH','target');tick()
@@ -116,5 +117,21 @@ for _,row in ipairs(A.rows) do assert(not (row[1].text or ''):find('-Realm',1,tr
 A.mode='Encounters';A.RefreshUI()
 for _,row in ipairs(A.rows) do assert(not (row[1].text or ''):find('-Realm',1,true),'encounter log displays character names only') end
 assert(A.db.seen['Player-gnome'].name=='Tiny-Realm','saved encounter identity remains intact')
+A.aliasInput:SetText('Raid Leader');A.aliasSave.scripts.OnClick()
+assert(A.account.alias=='Raid Leader','nickname can be changed inside addon UI')
+A.account.characters['Alt-Realm']={total=5,deaths=1,days={[A.Day(now)]=5},deathDays={[A.Day(now)]=1},seen={}}
+A.members['Alt-Realm']=true;A.mode='Leaderboard';A.sort='name';A.ascending=false;A.page=1;A.RefreshUI()
+local groupRow
+for _,row in ipairs(A.rows) do if (row[1].text or ''):find('Raid Leader',1,true) then groupRow=row;break end end
+assert(groupRow and groupRow.button,'alias row is clickable')
+assert(groupRow[2].text=='7','alias adds both character kill totals')
+groupRow.button.scripts.OnClick()
+local child=false
+for _,row in ipairs(A.rows) do if (row[1].text or ''):find('Alt',1,true) then child=true end end
+assert(child,'clicking alias expands character breakdown')
+groupRow.button.scripts.OnClick()
+local collapsed=true
+for _,row in ipairs(A.rows) do if (row[1].text or ''):find('   Alt',1,true) then collapsed=false end end
+assert(collapsed,'clicking alias again collapses its characters')
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, visible CC, exact damage, confirmed deaths, encounters, five-column UI, guild sync, secret values, blocked/retry sends')

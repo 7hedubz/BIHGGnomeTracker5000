@@ -127,17 +127,18 @@ function A.GroupDamage(g,amount,overkill,source,now)
  local p=participant(g,source,now);if not p then return false end
  p.damage=p.damage+math.max(0,amount-math.max(0,tonumber(overkill)or 0));return true
 end
-function A.GroupCC(g,spell,source,now)
- if not A.CCSpells[spell]then return false end
+function A.GroupCC(g,spell,source,now,harmful)
+ if type(spell)~='number'or spell<1 or spell%1~=0 or harmful==false or(not A.CCSpells[spell]and harmful~=true)then return false end
  local p=participant(g,source,now);if not p then return false end;p.cc=true;return true
 end
 function A.GroupDeath(g,now)
  if not player(g)then return false end
  local e=A.groupTargets[g];A.groupTargets[g]=nil
  if not e or A.db.dead[g]then return false end
+ if A.auras then A.auras[g]=nil end
  A.db.dead[g]=now;local awarded=false
  for _,p in pairs(e.actors)do
-  if now-p.last<=A.WINDOW and(p.cc or(e.hp and p.damage>=e.hp*0.1))then if A.AddGuildEvent('K',p.name,p.guid,g,now,p.last,now)then awarded=true end end
+  if now-p.last<=A.WINDOW and(p.cc or(e.hp and p.damage>=e.hp*A.DAMAGE_FRACTION))then if A.AddGuildEvent('K',p.name,p.guid,g,now,p.last,now)then awarded=true end end
  end
  return awarded
 end
@@ -165,7 +166,7 @@ function A.GroupCombat(v,now)
    A.groupLethal[target]=nil
    if player(source)and A.Race(source)=='Gnome'and type(overkill)=='number'and overkill>=0 then A.groupLethal[target]={killer=source,time=now}end
   end
- elseif event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'then A.GroupCC(target,v[12],source,now)
+ elseif event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'or event=='SPELL_AURA_APPLIED_DOSE'then if v[15]=='DEBUFF'then A.GroupCC(target,v[12],source,now,true)end
  elseif event:find('DAMAGE',1,true)and A.groupOwners[target]then A.groupLethal[target]=nil end
 end
 local function eventPacket(e)return table.concat({'5','E',e.kind,A.EncodeAlias(e.name),e.actor,e.target,e.time,e.contribution},'|')end

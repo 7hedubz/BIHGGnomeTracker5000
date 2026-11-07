@@ -12,6 +12,8 @@ methods.SetEndPoint=function(self,...)self.finish={...}end
 methods.SetPoint=function(self,...)self.coords={...}end
 methods.SetValue=function(self,v)self.value=v end
 methods.SetMinMaxValues=function(self,low,high)self.low=low;self.high=high end
+methods.SetHeight=function(self,h)self.height=h end
+methods.StartMoving=function(self)self.moves=(rawget(self,'moves')or 0)+1 end
 function CreateFrame(_,name)local o=obj();frames[#frames+1]=o;if name then _G[name]=o end;return o end
 UIParent=obj();Minimap=obj();UISpecialFrames={};SlashCmdList={};BackdropTemplateMixin={}
 DEFAULT_CHAT_FRAME={AddMessage=noop};C_Timer={After=function(delay,fn)timers[#timers+1]=fn end}
@@ -58,6 +60,8 @@ local function delayed()local t=timers;timers={};for _,fn in ipairs(t)do fn()end
 event('ADDON_LOADED','BIHGGnomeKillTracker5000');event('PLAYER_LOGIN');event('PLAYER_ENTERING_WORLD');tick()
 assert(A.db and A.owner=='Tester-Realm','login initializes persistence')
 assert(A.account and A.account.alias=='Tester','account identity initializes with first toon')
+assert(A.nearbyFrame and A.nearbyFrame:IsShown()and not A.window:IsShown(),'independent Spy-style nearby widget is visible while dashboard is closed')
+assert(A.nearbyCount==1 and A.nearbyRows[1].data.race=='Gnome','readable target feeds nearby list')
 assert(A.EncounterCount('Lifetime',now)==1,'visible Gnome stored uniquely')
 assert(A.db.seen['Player-gnome'],'Alliance player memory')
 units.target.dead=true;event('UNIT_HEALTH','target');tick()
@@ -76,11 +80,11 @@ A.RefreshUI();assert(A.PeerRecords()['Friend-Realm'].total==7,'guild peer record
 C_UnitAuras.GetAuraDataByIndex=function()return nil end
 units.target={guid='Player-damage',name='Other',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 A.Scan('target')
-CombatLogGetCurrentEventInfo=function()return now,'SPELL_DAMAGE',false,'Player-me','Tester',0,0,'Player-damage','Other',0,0,133,'Fireball',4,100,0 end
+CombatLogGetCurrentEventInfo=function()return now,'SPELL_DAMAGE',false,'Player-me','Tester',0,0,'Player-damage','Other',0,0,133,'Fireball',4,20,0 end
 A.ReadCombatLog()
-assert(A.groupTargets['Player-damage'] and A.groupTargets['Player-damage'].actors['Player-me'].damage==100,'own contribution damage parsed into group tracker')
+assert(A.groupTargets['Player-damage'] and A.groupTargets['Player-damage'].actors['Player-me'].damage==20,'own contribution damage parsed into group tracker')
 CombatLogGetCurrentEventInfo=function()return now,'UNIT_DIED',false,nil,nil,0,0,'Player-damage','Other',0,0 end
-A.ReadCombatLog();assert(A.db.owners[A.owner].total==2,'readable log exact 10% damage path; total='..A.db.owners[A.owner].total..' encounter='..tostring(A.encounters['Player-damage'])..' dead='..tostring(A.db.dead['Player-damage']))
+A.ReadCombatLog();assert(A.db.owners[A.owner].total==2,'readable log exact 2% damage path; total='..A.db.owners[A.owner].total..' encounter='..tostring(A.encounters['Player-damage'])..' dead='..tostring(A.db.dead['Player-damage']))
 -- A cast-success packet must not qualify as landed crowd control.
 units.target={guid='Player-miss',name='Missed',race='Gnome',faction='Alliance',hp=1000,enemy=true};A.Scan('target')
 CombatLogGetCurrentEventInfo=function()return now,'SPELL_CAST_SUCCESS',false,'Player-me','Tester',0,0,'Player-miss','Missed',0,0,118,'Polymorph',64 end
@@ -177,5 +181,73 @@ assert(not A.PeerRecords()['Guest-Realm'],'non-guild party CC is never tallied')
 A.OpenView('Leaderboard',false);local shown=false
 for _,row in ipairs(A.rows)do if(row[1].text or ''):find('NoAddon',1,true)then shown=(row[1].text or ''):find('[observed]',1,true)~=nil end end
 assert(shown,'non-addon guildmate is visibly marked as observed')
+A.ClearNearby()
+units.nameplate1={guid='Player-near-human',name='Tall',race='Human',faction='Alliance',hp=1000,enemy=true}
+units.nameplate2={guid='Player-near-gnome',name='Short',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+units.nameplate3={guid='Creature-npc',name='NPC',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+units.nameplate4={guid='Player-near-horde',name='Orc',race='Orc',faction='Horde',hp=1000}
+units.nameplate5={guid='Player-far',name='Far',race='Gnome',faction='Alliance',hp=1000,enemy=true,visible=false}
+UnitIsVisible=function(u)return units[u]and units[u].visible~=false end
+for i=1,5 do event('NAME_PLATE_UNIT_ADDED','nameplate'..i)end;tick()
+assert(A.nearbyCount==2 and A.nearbyRows[1].data.guid=='Player-near-gnome','nearby window lists visible Alliance only, Gnomes first')
+assert(not A.nearbyRows[1].name.text:find('-Realm',1,true),'nearby names hide realm suffix')
+A.nearbyButtons.collapse.scripts.OnClick()
+assert(A.nearbyFrame:IsShown()and A.nearbyFrame.height==24 and not A.nearbyRows[1].frame:IsShown(),'collapse retains compact counted header')
+A.nearbyButtons.collapse.scripts.OnClick();assert(A.nearbyRows[1].frame:IsShown(),'expand restores list')
+A.nearbyButtons.lock.scripts.OnClick();A.nearbyHeader.scripts.OnDragStart();assert(not rawget(A.nearbyFrame,'moves'),'locked widget cannot drag')
+A.nearbyButtons.lock.scripts.OnClick();A.nearbyHeader.scripts.OnDragStart();A.nearbyHeader.scripts.OnDragStop();assert(A.nearbyFrame.moves==1 and A.db.options.nearbyPosition,'drag position persists independently')
+A.nearbyButtons.close.scripts.OnClick();assert(not A.nearbyFrame:IsShown(),'close hides nearby widget')
+SlashCmdList.BIHGGKT('nearby');assert(A.nearbyFrame:IsShown(),'slash command restores widget')
+A.window:Hide();A.nearbyButtons.history.scripts.OnClick();assert(A.window:IsShown()and A.mode=='Encounters','history control opens separate encounter log')
+A.OpenView('Settings',false);A.nearbyToggleButton.scripts.OnClick();assert(not A.nearbyFrame:IsShown(),'settings can hide overlay without hiding the dashboard')
+A.nearbyToggleButton.scripts.OnClick();assert(A.nearbyFrame:IsShown(),'settings can restore overlay')
+for i=1,10 do A.NearbyNotice('Player-page-'..i,'Extra'..i..'-Realm',i<=3 and'Gnome'or'Human','Alliance',now,false,true)end
+A.RefreshNearby(now);local all=A.NearbyList(now)
+assert(A.nearbyButtons.next:IsShown()and A.nearbyCount==12,'long nearby list exposes paging controls')
+A.nearbyButtons.next.scripts.OnClick();assert(A.nearbyPage==2 and A.nearbyRows[1].data.guid==all[9].guid,'next page follows Gnome-first ordering without duplicate rows')
+A.nearbyButtons.previous.scripts.OnClick();assert(A.nearbyPage==1,'previous page restores first entries')
+for i=1,5 do event('NAME_PLATE_UNIT_REMOVED','nameplate'..i);units['nameplate'..i]=nil end
+for i=1,31 do tick()end
+assert(A.nearbyCount==0 and A.nearbyFrame.height==24,'expired sightings leave only the Spy-style header')
+assert(A.db.seen['Player-near-gnome'],'nearby expiration never deletes historical encounters')
+A.NearbyNotice('Player-zone-old','Old zone','Gnome','Alliance',now,false,true)
+event('ZONE_CHANGED_NEW_AREA');A.RefreshNearby(now)
+assert(A.nearbyCount==0,'changing area clears previous-zone nearby sightings')
+local beforeFaerie=A.db.owners[A.owner].total
+units.target={guid='Player-faerie-live',name='FaerieVictim',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)if unit=='target'and index==1 then return {spellId=770,sourceUnit='player'}end end
+tick();units.target.dead=true;tick()
+assert(A.db.owners[A.owner].total==beforeFaerie+1,'landed own Faerie Fire aura qualifies with zero damage')
+units.target={guid='Player-faerie-miss',name='MissedFaerie',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+C_UnitAuras.GetAuraDataByIndex=function()end;tick()
+CombatLogGetCurrentEventInfo=function()return now,'SPELL_CAST_SUCCESS',false,UnitGUID('player'),'Tester',0,0,units.target.guid,'MissedFaerie',0,0,770 end
+A.ReadCombatLog();units.target.dead=true;tick()
+assert(A.db.owners[A.owner].total==beforeFaerie+1,'Faerie Fire cast success without a landed aura does not qualify')
+units.target={guid='Player-faerie-guild',name='GuildFaerie',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)if unit=='target'and index==1 then return {spellId=16857,sourceUnit='party1'}end end
+tick();units.target.dead=true;tick()
+assert(A.GuildEffectiveRecord('NoAddon-Realm',A.PeerRecords()['NoAddon-Realm'],now).total==2,'guildmate Feral Faerie Fire aura qualifies without addon or damage')
+local beforeDebuffs=A.db.owners[A.owner].total
+units.target={guid='Player-curse',name='Cursed',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+C_UnitAuras.GetAuraDataByIndex=function(unit,index,filter)assert(filter=='HARMFUL','visible fallback must query harmful auras only');if unit=='target'and index==1 then return {spellId=702,sourceUnit='player',isHarmful=true}end end
+tick();units.target.dead=true;tick()
+assert(A.db.owners[A.owner].total==beforeDebuffs+1,'own landed curse with zero damage qualifies')
+units.target={guid='Player-helpful',name='Buffed',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)if unit=='target'and index==1 then return {spellId=118,sourceUnit='player',isHelpful=true,isHarmful=false}end end
+tick();units.target.dead=true;tick()
+assert(A.db.owners[A.owner].total==beforeDebuffs+1,'explicit helpful aura cannot qualify')
+C_UnitAuras.GetAuraDataByIndex=function()end
+for _,kind in ipairs({'BUFF','UNKNOWN','DEBUFF','DOSE'})do
+ local guid='Player-log-'..kind;units.target={guid=guid,name='AuraTarget',race='Gnome',faction='Alliance',hp=1000,enemy=true};tick()
+ CombatLogGetCurrentEventInfo=function()return now,kind=='DOSE'and'SPELL_AURA_APPLIED_DOSE'or'SPELL_AURA_APPLIED',false,UnitGUID('party1'),'NoAddon',0,0,guid,'AuraTarget',0,0,702,'Curse',32,kind=='DOSE'and'DEBUFF'or kind end
+ A.ReadCombatLog();units.target.dead=true;tick()
+end
+assert(A.GuildEffectiveRecord('NoAddon-Realm',A.PeerRecords()['NoAddon-Realm'],now).total==4,'only explicit DEBUFF combat-log applications, including added stacks, grant guildmate credit')
+local beforeLives=A.db.owners[A.owner].total
+units.target={guid='Player-debuff-lives',name='Again',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+C_UnitAuras.GetAuraDataByIndex=function(unit,index)if unit=='target'and index==1 then return {spellId=702,sourceUnit='player'}end end
+tick();units.target.dead=true;tick()
+units.target.dead=false;tick();tick();tick();units.target.dead=true;tick()
+assert(A.db.owners[A.owner].total==beforeLives+2,'a new life can earn debuff credit again when aura instance/expiry fields are unavailable')
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, visible CC, exact damage, confirmed deaths, encounters, five-column UI, guild sync, secret values, blocked/retry sends')

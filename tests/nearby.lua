@@ -1,0 +1,28 @@
+local root=arg[1]or'.';local A={}
+A.db={options={},owners={Me={total=3}},seen={['Player-old']={name='Old',race='Gnome',last=0}}}
+A.Secret=function()return false end
+local f=io.open(root..'/Nearby.lua');assert(f,'Spy-style nearby list not implemented');f:close();assert(loadfile(root..'/Nearby.lua'))('BIHGGnomeKillTracker5000',A)
+A.InitNearby();assert(#A.NearbyList(10)==0,'nearby list must not be populated from historical SavedVariables')
+A.NearbyNotice('Player-human','Tall-CAMWOWUS2Realm8PvP','Human','Alliance',10,false,true,60)
+A.NearbyNotice('Player-gnome','Tiny-Realm','Gnome','Alliance',9,false,true,60)
+A.NearbyNotice('Player-dwarf','Stout-Realm','Dwarf','Alliance',11,false,true,55)
+A.NearbyNotice('Player-human','Tall-CAMWOWUS2Realm8PvP','Human','Alliance',12,false,true,60)
+local rows,gnomes=A.NearbyList(12)
+assert(#rows==3 and gnomes==1 and rows[1].race=='Gnome','deduplicated Alliance players with Gnomes pinned first')
+assert(rows[2].name=='Tall-CAMWOWUS2Realm8PvP','recent non-Gnomes sort after Gnomes')
+assert(not A.NearbyNotice('Creature-1','NPC','Gnome','Alliance',12,false,true),'NPC Gnomes are excluded')
+assert(not A.NearbyNotice('Player-horde','Orc','Orc','Horde',12,false,true),'Horde excluded')
+A.NearbyNotice('Player-human','Tall','Human','Horde',12,false,true)
+assert(#A.NearbyList(12)==2,'explicit faction change removes an old Alliance entry')
+assert(not A.NearbyNotice('Player-far','Distant','Gnome','Alliance',12,false,false),'explicitly invisible unit does not create nearby entry')
+A.NearbyNotice('Player-gnome','Tiny-Realm','Gnome','Alliance',13,true,true)
+assert(select(2,A.NearbyList(13))==0,'confirmed dead player removed')
+A.NearbyNotice('Player-dwarf','Stout-Realm','Dwarf','Alliance',39,false,false)
+assert(#A.NearbyList(43)==0,'unseen players expire; cached invisible target cannot refresh TTL')
+A.NearbyNotice('Player-new','New','Gnome','Alliance',44,false,true)
+A.ClearNearby();assert(#A.NearbyList(44)==0,'zone/clear reset affects nearby list')
+assert(A.db.owners.Me.total==3 and A.db.seen['Player-old'],'nearby widget cannot write kill totals or clear encounter history')
+local secret={};A.Secret=function(v)return v==secret end
+assert(not A.NearbyNotice(secret,'Secret','Gnome','Alliance',45,false,true),'secret GUID skipped')
+assert(not A.NearbyNotice('Player-secret',secret,'Gnome','Alliance',45,false,true),'secret name skipped')
+print('PASS nearby: ephemeral visible Alliance detection, Gnome priority, GUID dedup, NPC/Horde filtering, death/TTL removal, visibility/secret guards, no statistics mutation')

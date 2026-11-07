@@ -40,7 +40,14 @@ function A.Scan(unit)
   name=A.Name(name)
  end
  local t=now()
- if faction=='Alliance' and A.members and A.members[A.owner]then
+ local dead=A.Safe(UnitIsDeadOrGhost,unit);local selfGUID=A.Safe(UnitGUID,'player')
+ if A.NearbyNotice and g~=selfGUID then
+  -- Explicitly invisible units must not refresh the list; otherwise use the
+  -- readable unit exposure, like Spy, without claiming an exact distance.
+  local visible=A.Safe(UnitIsVisible,unit)~=false
+  A.NearbyNotice(g,name,race,faction,t,dead,visible,A.Safe(UnitLevel,unit))
+ end
+ if faction=='Alliance' and g~=selfGUID and A.members and A.members[A.owner]then
   local fresh=A.Encounter(g,name,race,faction,t)
   if fresh then
    A.QueueShare(true)
@@ -48,7 +55,6 @@ function A.Scan(unit)
   end
  end
  local hostile=A.Safe(UnitCanAttack,'player',unit)
- local dead=A.Safe(UnitIsDeadOrGhost,unit)
  local hp=A.Safe(UnitHealthMax,unit)
  if A.GroupObserve then A.GroupObserve(g,race,hostile,hp,t,dead)else A.Observe(g,race,hostile,hp,t,dead)end
  -- Corpses and mind-controlled targets may no longer be attackable. Preserve
@@ -65,11 +71,16 @@ function A.Scan(unit)
     local instance=readable(a.auraInstanceID); local expires=readable(a.expirationTime)
     local sourceGUID=type(source)=='string'and A.Safe(UnitGUID,source)
     local eligible=A.GroupCC and sourceGUID and A.groupSources[sourceGUID]or(not A.GroupCC and own(source))
-    if type(id)=='number' and A.CCSpells[id] and type(source)=='string' and eligible then
+    local helpful=a.isHelpful;local harmful=a.isHarmful
+    local explicitBuff=(not A.Secret(helpful)and helpful==true)or(not A.Secret(harmful)and harmful==false)
+    if type(id)=='number'and id>0 and not explicitBuff and type(source)=='string' and eligible then
      -- Re-observing the same aura is not another successful application.
      local key=tostring(id)..':'..tostring(sourceGUID or '')..':'..tostring(instance or '')..':'..tostring(expires or '')
      A.auras[g]=A.auras[g] or {}
-     if not A.auras[g][key] then A.auras[g][key]=t;if A.GroupCC then A.GroupCC(g,id,sourceGUID,t)else A.CC(g,id,true,t)end end
+     if not A.auras[g][key]then
+      local accepted;if A.GroupCC then accepted=A.GroupCC(g,id,sourceGUID,t,true)else accepted=A.CC(g,id,true,t,true)end
+      if accepted then A.auras[g][key]=t end
+     end
      A.coverage.cc=true
     end
    end
@@ -123,6 +134,7 @@ function A.ReadCombatLog()
  if type(event)~='string' then return end
  A.coverage.log=true
  local t=now()
+ if(event=='UNIT_DIED'or event=='UNIT_DESTROYED')and A.ForgetNearby then A.ForgetNearby(dst)end
  if A.GroupCombat then A.GroupCombat(v,t);return end
  if event=='UNIT_DIED' or event=='UNIT_DESTROYED' then A.Death(dst,t);return end
  local mine=src and (src==A.Safe(UnitGUID,'player') or src==A.Safe(UnitGUID,'pet'))
@@ -135,7 +147,7 @@ function A.ReadCombatLog()
  end
  if event=='SWING_DAMAGE' then A.Damage(dst,v[12],v[13],true,t)
  elseif event=='SPELL_DAMAGE' or event=='SPELL_PERIODIC_DAMAGE' or event=='RANGE_DAMAGE' or event=='DAMAGE_SHIELD' then A.Damage(dst,v[15],v[16],true,t)
- elseif event=='SPELL_AURA_APPLIED' or event=='SPELL_AURA_REFRESH' then A.CC(dst,v[12],true,t) end
+ elseif(event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'or event=='SPELL_AURA_APPLIED_DOSE')and v[15]=='DEBUFF'then A.CC(dst,v[12],true,t,true)end
 end
 function A.Recap()
  if not A.pendingDeath then return end
@@ -177,17 +189,20 @@ local function login()
  local identity=A.Safe(UnitGUID,'player') or A.owner:gsub('[^%w_%-]',''):sub(1,50)
  A.InitAccount(BIHGGKTAccountDB,identity..'-'..now(),now())
  if A.InitGroupTracking then A.InitGroupTracking(now())end
+ if A.InitNearby then A.InitNearby()end
  A.plates={};A.auras={};A.coverage={};A.syncStatus='Waiting for guild roster'
  if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then pcall(C_ChatInfo.RegisterAddonMessagePrefix,A.PREFIX) end
  A.Roster();A.QueueShare(true);A.request=true
  if C_GuildInfo and C_GuildInfo.GuildRoster then pcall(C_GuildInfo.GuildRoster) end
  if A.CreateUI then A.CreateUI() end
+ if A.CreateNearbyUI then A.CreateNearbyUI()end
 end
 local function handler(_,event,...)
  local arg1,arg2,arg3,arg4=...
  if event=='PLAYER_LOGIN' or event=='PLAYER_ENTERING_WORLD' then login() end
  if not A.db then return end
- if event=='PLAYER_ENTERING_WORLD' then A.Roster();A.QueueShare(true);A.ScanVisible()
+ if event=='PLAYER_ENTERING_WORLD' then if A.ClearNearby then A.ClearNearby()end;A.Roster();A.QueueShare(true);A.ScanVisible()
+ elseif event=='ZONE_CHANGED_NEW_AREA'then if A.ClearNearby then A.ClearNearby()end;A.ScanVisible()
  elseif event=='GUILD_ROSTER_UPDATE' or event=='PLAYER_GUILD_UPDATE' then A.Roster()
  elseif event=='GROUP_ROSTER_UPDATE'or event=='UNIT_PET'then if A.RefreshGroupActors then A.RefreshGroupActors()end
  elseif event=='NAME_PLATE_UNIT_ADDED' then if not A.Secret(arg1) and type(arg1)=='string' then A.plates[arg1]=true;A.Scan(arg1) end
@@ -197,7 +212,7 @@ local function handler(_,event,...)
  elseif event=='UPDATE_MOUSEOVER_UNIT' then A.Scan('mouseover')
  elseif event=='PLAYER_FOCUS_CHANGED' then A.Scan('focus')
  elseif event=='COMBAT_LOG_EVENT_UNFILTERED' then A.ReadCombatLog()
- elseif event=='PARTY_KILL' then if not A.Secret(arg2)then if A.GroupDeath then A.GroupDeath(arg2,now())else A.Death(arg2,now())end end
+ elseif event=='PARTY_KILL' then if not A.Secret(arg2)then if A.ForgetNearby then A.ForgetNearby(arg2)end;if A.GroupDeath then A.GroupDeath(arg2,now())else A.Death(arg2,now())end end
  elseif event=='PLAYER_DEAD' then
   if A.deathActive then return end
   A.deathActive=true;A.pendingDeath={time=now()}
@@ -212,10 +227,10 @@ frame:SetScript('OnEvent',function(...)
  local ok,err=pcall(handler,...)
  if not ok then A.lastError=tostring(err); if not A.errorShown and DEFAULT_CHAT_FRAME then A.errorShown=true;DEFAULT_CHAT_FRAME:AddMessage('|cffff5555BIHG error:|r '..A.lastError..' (/gkt debug)') end end
 end)
-for _,event in ipairs({'PLAYER_LOGIN','PLAYER_ENTERING_WORLD','GUILD_ROSTER_UPDATE','PLAYER_GUILD_UPDATE','GROUP_ROSTER_UPDATE','UNIT_PET','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','UNIT_AURA','UNIT_HEALTH','UNIT_FLAGS','PLAYER_TARGET_CHANGED','UPDATE_MOUSEOVER_UNIT','PLAYER_FOCUS_CHANGED','COMBAT_LOG_EVENT_UNFILTERED','PARTY_KILL','PLAYER_DEAD','PLAYER_ALIVE','PLAYER_UNGHOST','CHAT_MSG_ADDON'}) do pcall(frame.RegisterEvent,frame,event) end
+for _,event in ipairs({'PLAYER_LOGIN','PLAYER_ENTERING_WORLD','ZONE_CHANGED_NEW_AREA','GUILD_ROSTER_UPDATE','PLAYER_GUILD_UPDATE','GROUP_ROSTER_UPDATE','UNIT_PET','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','UNIT_AURA','UNIT_HEALTH','UNIT_FLAGS','PLAYER_TARGET_CHANGED','UPDATE_MOUSEOVER_UNIT','PLAYER_FOCUS_CHANGED','COMBAT_LOG_EVENT_UNFILTERED','PARTY_KILL','PLAYER_DEAD','PLAYER_ALIVE','PLAYER_UNGHOST','CHAT_MSG_ADDON'}) do pcall(frame.RegisterEvent,frame,event) end
 local elapsed=0
 frame:SetScript('OnUpdate',function(_,dt)
  elapsed=elapsed+dt; if elapsed<0.5 or not A.db then return end;elapsed=0
- local ok,err=pcall(function() A.ScanVisible();A.Pump(now());if A.PumpTopPost then A.PumpTopPost(now()) end;if A.window and A.window:IsShown() then A.RefreshUI() end end)
+ local ok,err=pcall(function() A.ScanVisible();A.Pump(now());if A.PumpTopPost then A.PumpTopPost(now()) end;if A.window and A.window:IsShown() then A.RefreshUI() end;if A.RefreshNearby then A.RefreshNearby(now())end end)
  if not ok then A.lastError=tostring(err) end
 end)

@@ -1,5 +1,6 @@
 local _, A = ...
 A.RETENTION = 400
+A.DAMAGE_FRACTION = 0.02
 A.frames = {'Lifetime','7 days','30 days','Today','This week','This month','This year'}
 function A.Day(t) return math.floor(t / 86400) end
 function A.Init(db, owner, now)
@@ -69,11 +70,12 @@ end
 function A.Death(g,now)
  local e=A.encounters[g]; A.encounters[g]=nil
  if not e or A.db.dead[g] or not e.last or now-e.last>A.WINDOW then return false end
+ if A.auras then A.auras[g]=nil end
  A.db.dead[g]=now
- if e.cc or (e.hp and e.damage>=e.hp*0.1) then A.Award(now); return true end
+ if e.cc or (e.hp and e.damage>=e.hp*A.DAMAGE_FRACTION) then A.Award(now); return true end
  return false
 end
--- Vanilla ranks and common Forever crowd control aura IDs. Damage debuffs are not CC.
+-- Legacy known-effect helper; live parsers may confirm any harmful aura.
 A.CCSpells={}
 for _,id in ipairs({118,12824,12825,12826,28271,28272,61305,61721,61780,20066,
 853,5588,5589,10308,408,8643,1833,1776,1777,8629,11285,11286,2094,
@@ -83,10 +85,11 @@ for _,id in ipairs({118,12824,12825,12826,28271,28272,61305,61721,61780,20066,
 339,1062,5195,5196,9852,9853,2637,18657,18658,5211,6798,8983,
 9005,9823,9827,22570,18469,15487,24259,19244,19647,1330,
 122,865,6131,10230,12494,33395,16979,20253,20614,20615,11578,7922,
-5246,20549,12355,12809}) do A.CCSpells[id]=true end
-function A.CC(g,id,own,now)
+5246,20549,12355,12809,
+770,778,9749,9907,16857,17390,17391,17392}) do A.CCSpells[id]=true end
+function A.CC(g,id,own,now,harmful)
  local e=A.encounters[g]
- if not e or not own or not A.CCSpells[id] then return false end
+ if not e or not own or type(id)~='number'or id<1 or id%1~=0 or harmful==false or(not A.CCSpells[id]and harmful~=true)then return false end
  if e.last and now-e.last>A.WINDOW then e.damage=0 end
  e.cc=true; e.last=now; return true
 end

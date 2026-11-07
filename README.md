@@ -4,13 +4,17 @@
 
 Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and automatic guild leaderboards.
 
+## Current qualification (1.4.0)
+
+Each guild participant independently needs **at least 2% effective attributed damage OR any successfully applied harmful debuff**, followed by a confirmed hostile Gnome-player death within the participation window. This includes Faerie Fire and curses. The lowered threshold and expanded debuff rule apply to new observations; previously unrecorded participation cannot be backfilled. Existing statistics are preserved.
+
 ## Guild-only group observation (1.3.0)
 
 - Track **yourself and fellow guildmates in your party/raid**, including controlled pets, even when those guildmates do not have the addon. Verified group guildmates are discovered automatically and appear as individual **[observed]** character entries.
 - **Only current guildmates are tallied.** Non-guild party/raid players receive no credit. An unguilded player is not tallied either. The leaderboard, Top 10, personal cards and account kill-time chart filter out non-guild characters. Old saved history is retained rather than deleted.
-- Each participant must independently qualify: at least 10% of the Gnome's observed peak maximum health in effective attributed damage **or** a confirmed supported CC aura, followed by a confirmed death within the participation window. Merely grouping with a killer, casting CC, or seeing health drop is not enough.
+- Each participant must independently qualify: at least 2% of the Gnome's observed peak maximum health in effective attributed damage **or** any confirmed harmful debuff (including CC), followed by a confirmed death within the participation window. Merely grouping with a killer, casting CC, or seeing health drop is not enough.
 - Enemy nameplates, your target/focus/mouseover, and guild group members' target tokens provide observable targets. Aura source GUIDs resolve to guild characters/pet owners. Combat information that is secret or unavailable is skipped.
-- **Forever's closed log still matters:** readable own/party CC can be observed, but damage-only participation cannot be reconstructed without readable combat-log data. Other players' deaths to Gnomes require a readable Gnome lethal hit followed by confirmed death; another player's corpse alone does not identify its killer. Your own fresh death recap remains supported. A non-addon player's encounter count is unknown (`-`), not invented.
+- **Forever's closed log still matters:** readable own/party debuffs can be observed, but damage-only participation cannot be reconstructed without readable combat-log data. Other players' deaths to Gnomes require a readable Gnome lethal hit followed by confirmed death; another player's corpse alone does not identify its killer. Your own fresh death recap remains supported. A non-addon player's encounter count is unknown (`-`), not invented.
 - Different non-addon characters stay separate. Once they install the addon and initialize their characters, alias metadata groups those same character keys; witnessed history follows them instead of creating duplicate character rows.
 - Observations synchronize through guild addon messages outside instances, including to members who were not present. Multiple witnesses share event-level records rather than summing witness totals. Duplicate/replayed reports are suppressed using participant/opponent GUIDs and a **three-second death-correlation window**, with contribution timing distinguishing later lives. Without a server-issued kill ID this is best-effort: extreme latency or very rapid repeat deaths can remain ambiguous.
 - Upgrade baselines preserve legacy totals. Before a character's upgrade boundary, potentially overlapping legacy and witnessed daily counts merge conservatively by maximum rather than addition; disjoint pre-upgrade activity cannot be reconstructed exactly. New event-era records merge by event identity. Adoption of a previously non-addon character retains its witnessed events.
@@ -30,22 +34,35 @@ Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and aut
 
 ## Important Forever limitation
 
-Forever's installed Spy integration documents a closed combat-log stream. **Exact personal damage attribution cannot be reconstructed from enemy health changes.** The 10% damage rule is implemented when readable combat-log data exists; on a restricted client, damage-only kills cannot be awarded.
+Forever's installed Spy integration documents a closed combat-log stream. **Exact personal damage attribution cannot be reconstructed from enemy health changes.** The 2% damage rule is implemented when readable combat-log data exists; on a restricted client, damage-only kills cannot be awarded.
 
-The fallback counts **confirmed own CC aura + confirmed enemy death** when readable unit/aura APIs expose that information. Unknown/secret data is skipped, never guessed. Out-of-sight auras/deaths cannot reliably be recovered. UI coverage text and `/gkt debug` report coverage. Live-client rendering and real multi-client PvP synchronization still require in-game validation.
+The fallback counts **confirmed guild-character/pet debuff + confirmed enemy death** when readable unit/aura APIs expose that information. Unknown/secret data is skipped, never guessed. Out-of-sight auras/deaths cannot reliably be recovered. UI coverage text and `/gkt debug` report coverage. Live-client rendering and real multi-client PvP synchronization still require in-game validation.
 
 ## Statistics
 
-- **Gnome kills:** a hostile Gnome player dies within 120 seconds of your last contribution, after you dealt at least 10% of its observed peak maximum health in effective damage or successfully applied supported CC. Current player/pet damage and CC qualify; overkill is excluded. Cast-success, misses/resists, unrelated debuffs, and nearby deaths alone do not qualify.
+- **Gnome kills:** a hostile Gnome player dies within 120 seconds of your last contribution, after you dealt at least 2% of its observed peak maximum health in effective damage or successfully applied any harmful debuff. Current guild player/pet damage and debuffs qualify; overkill is excluded. Cast-success, misses/resists, other players' debuffs and nearby deaths alone do not qualify.
 - **Deaths to Gnomes:** a Gnome player is confirmed as the killing-blow source by a fresh readable death recap or readable lethal combat-log damage. Nearby/targeting suspects, hidden/stale/untimed recaps, unknown killers, and unestablished pet owners are not guessed.
 - **Gnomes encountered:** unique Gnome player GUIDs, not scan count. Repeated sightings count once per selected period; lifetime remains unique across reloads and sessions.
 - **Alliance log:** saves GUID, name, race, first/last seen, and encounter dates. Gnomes are highlighted and ordered first by default. Detection uses nameplates, target, focus, and mouseover, not radar for units the client has not exposed. Enable enemy nameplates for better coverage. Newly discovered Gnomes optionally trigger chat alerts.
 
-CC includes whitelisted Vanilla ranks of polymorph, stuns, fear, sap, incapacitate/disorient, roots, silence, mind control, sleep, and relevant pet control. Only successful aura applications/refreshes qualify. Ordinary slows and interrupts without a control aura are not included. Custom Forever spell IDs may need adding to `A.CCSpells` in Core.lua.
+Debuff qualification is **not limited to a spell whitelist**: confirmed harmful effects include CC, Faerie Fire, curses, DoTs, bleeds, slows and other debuffs. Attribution must identify the contributing guild character or their current pet. Readable `DEBUFF` combat-log applications/refreshes/added stacks or source-attributed `HARMFUL` unit auras provide confirmation. Buffs, unknown aura types and cast-success alone do not qualify. An interrupt without an applied harmful aura does not satisfy the debuff branch.
 
 ## UI
 
 Open **`/gkt`**, `/gnomekills`, `/bihg`, or use the minimap gear.
+
+### Spy-style Nearby Alliance window (1.4.0)
+
+A separate compact overlay is enabled by default, independently of the dashboard. Its header shows **Nearby count** and **Gnome count**; when empty/collapsed it remains a small header like Spy's Nearby bar.
+
+- Lists readable **Alliance players**, with **Gnomes always first** and highlighted gold. Other races follow by recency. Repeated target/nameplate detections share one GUID entry; NPCs, pets, Horde and your own character are excluded.
+- Uses the existing nameplate, target/focus/mouseover and group-target scans. Explicitly invisible units do not refresh their sighting. This is a **readable/recent sighting list, not a range radar** or proof that an enemy is still present. Entries fade after five seconds without refresh and expire after 30 seconds. Confirmed deaths are removed; world/area changes clear the nearby cache.
+- Names omit internal realm suffixes. Rows show race and last-seen age; hover for known level and sighting details. Up to eight rows are displayed per page, with paging controls for longer lists.
+- Drag the header to move it; **L/U** locks/unlocks its position. **-/+** collapses/expands, **H** opens the separate historical Alliance encounter log, **< / >** pages, and **X** hides it. Position, lock, collapse and visibility are remembered per character.
+- Restore/toggle with **`/gkt nearby`** or **Settings → Nearby overlay**. **`/gkt nearby clear`** clears only this temporary list; persistent encounter history is untouched. Hiding the overlay does not stop tracking or guild sync.
+- The overlay is a display/hover list; it does not implement protected click-to-target or automated targeting/casting. It has no dependency on Spy and does not modify Spy's files/settings.
+
+Nearby opponents are not leaderboard participants. The guild-only qualification/tally rules remain unchanged. Nearby cache contents themselves are not broadcast or rehydrated from historical SavedVariables.
 
 ### Dashboard layout (1.2.0)
 
@@ -90,7 +107,7 @@ At least one observer must run the addon to witness grouped guildmates. Guildmat
 
 `BIHGGKTDB` remains per-character. New **`BIHGGKTAccountDB`** is account-wide and retains nickname, stable grouping ID, known character records, and shared guild caches. Existing totals migrate by cumulative maximum, not addition, and remain after renaming. Lifetime totals and unique identities persist; dated history is retained for 400 days. Activity before addon installation cannot be reconstructed. Do not edit live SavedVariables while WoW is running.
 
-**For 1.3.0, fully quit and relaunch Forever**: `GroupTracker.lua` was added to the TOC. Upgrading from before 1.1.0 also adds account-wide data; log each existing alt once to import it. No statistics reset is needed.
+**For 1.4.0, fully quit and relaunch Forever**: `Nearby.lua` was added to the TOC. Upgrading from before 1.1.0 also adds account-wide data; log each existing alt once to import it. No statistics reset is needed.
 
 ## Install
 
@@ -106,6 +123,7 @@ World of Warcraft/_forever_/Interface/AddOns/
     GroupTracker.lua
     Runtime.lua
     Dashboard.lua
+    Nearby.lua
     UI.lua
 ```
 
@@ -119,6 +137,8 @@ Enable **BIHG GnomeKillTracker 5000** at character select. New addon folders and
 | `/gkt encounters` | Open Alliance encounter log |
 | `/gkt charts` | Open ranking and daily activity charts |
 | `/gkt settings` | Open nickname and local notification settings |
+| `/gkt nearby` | Toggle/restore compact Nearby Alliance overlay |
+| `/gkt nearby clear` | Clear temporary nearby list, not history |
 | `/gkt top` | Preview Top 10 report; does not send until confirmed |
 | `/gkt sync` | Request/broadcast guild statistics outside instances |
 | `/gkt alerts` | Toggle new-Gnome chat alerts |
@@ -133,8 +153,9 @@ luajit tests/run.lua .
 luajit tests/accounts.lua .
 luajit tests/dashboard.lua .
 luajit tests/group.lua .
+luajit tests/nearby.lua .
 luajit tests/integration.lua .
-luac -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Runtime.lua Dashboard.lua UI.lua
+luac -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Runtime.lua Dashboard.lua Nearby.lua UI.lua
 ```
 
 Regression tests cover qualification, attribution, duplicate deaths, UTC periods, bounded packets, cumulative sync, account initialization/alt migration, nickname changes/collisions, cross-character encounter uniqueness, and identity exchange. The actual-TOC integration harness covers mocked lifecycle, own-CC/death detection, exact-damage parsing, recap attribution, account profile UI/editing/expansion, view transitions, secret values, and failed/instance-blocked sends. Mocks validate logic and API usage, **not actual client rendering or API visibility**. Tests never write live SavedVariables.

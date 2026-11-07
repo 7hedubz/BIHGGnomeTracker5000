@@ -74,8 +74,9 @@ function A.RefreshUI()
  if A.mode=='Settings' then A.settingsPane:Show() else A.settingsPane:Hide() end
  if A.mode=='Leaderboard' or A.mode=='Charts' then A.reportButton:Show() else A.reportButton:Hide() end
  A.alertButton:SetText(A.db.options.alerts~=false and 'Gnome discovery alerts: ON' or 'Gnome discovery alerts: OFF')
+ A.nearbyToggleButton:SetText(A.db.options.nearbyShown and'Nearby overlay: ON'or'Nearby overlay: OFF')
  local c=A.coverage or {}
- A.coverageLabel:SetText(c.log and 'Tracking: guild-only party/raid; readable combat log observed. Scores are client-reported.' or 'Tracking: guild-only party/raid CC fallback. Exact damage and other players\' killers require readable combat-log data.')
+ A.coverageLabel:SetText(c.log and 'Tracking: guild-only party/raid; readable combat log observed. Scores are client-reported.' or 'Tracking: guild-only party/raid debuff fallback. Exact damage and other players\' killers require readable combat-log data.')
  A.status:SetText((A.guildKey and 'AUTO SYNC ON | outside instances | every 15 min + score/profile changes | ' or 'NO GUILD | ')..(A.syncStatus or 'Waiting for peers'))
  A.postStatusLabel:SetText(A.postStatus or 'Guild chat reports are manual only. Refresh guild data never posts to chat.')
  if A.mode=='Charts' then
@@ -207,7 +208,9 @@ function A.CreateUI()
  input:SetScript('OnEnterPressed',saveAlias);input:SetScript('OnEscapePressed',function()input:SetText(A.account.alias);input:ClearFocus()end)
  text(A.settingsPane,'normal',20,-148,880):SetText('LOCAL NOTIFICATIONS')
  A.alertButton=button(A.settingsPane,'Gnome discovery alerts',20,-177,290,function()A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()end,'Only toggles your local new-Gnome chat notification; tracking and guild sync remain active.')
+ A.nearbyToggleButton=button(A.settingsPane,'Nearby overlay: ON',330,-177,250,function()A.ToggleNearby()end,'Show/hide the separate Spy-style Nearby Alliance window. Hiding it does not disable detection, statistics or guild synchronization.')
  text(A.settingsPane,'small',20,-223,880):SetText('Upgrade note: log each old alt in once to import its history. Enemy nameplates improve visible-unit detection.')
+ text(A.settingsPane,'small',20,-248,880):SetText('Nearby overlay: Gnomes first, 30-second recent sightings. /gkt nearby restores it after closing.')
  A.previousButton=button(w,'< Previous',18,-617,105,function()A.page=(A.page or 1)-1;A.RefreshUI()end)
  A.nextButton=button(w,'Next >',133,-617,85,function()A.page=(A.page or 1)+1;A.RefreshUI()end)
  A.pageLabel=text(w,'small',232,-625,255)
@@ -234,12 +237,14 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.3.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.4.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()
  elseif msg=='encounters' then A.OpenView('Encounters',false)
  elseif msg=='charts' then A.OpenView('Charts',false)
  elseif msg=='settings' then A.OpenView('Settings',false)
+ elseif msg=='nearby'then A.ToggleNearby()
+ elseif msg=='nearby clear'then A.ClearNearby()
  else A.ToggleUI()end
 end

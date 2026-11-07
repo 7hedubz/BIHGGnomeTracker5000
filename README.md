@@ -70,6 +70,14 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Report-send diagnostics and event safety (1.7.3)
+
+This is a **diagnostic update, not a confirmed fix for missing native guild delivery**. The old `/gkt debug` coverage flags described combat log/CC/recap data and could not diagnose chat. Confirmation now prints a **local-only** queued/rejected status, and `/gkt debug` additionally prints report request/send counters, queue progress, current rank/guild/combat gates, selected global/modern chat API, its actual return or caught error, and BIHG protected-action events. Diagnostics persist in the per-character database; no report text or test message is sent by the debug command. A nil/success API return is not server delivery confirmation.
+
+Native error records identified a forbidden call from BIHG's event-registration loop. Stop registering `COMBAT_LOG_EVENT_UNFILTERED` on this Forever client; wrapping registration in `pcall` does not prevent `ADDON_ACTION_FORBIDDEN`. The optional combat-log parser remains for explicitly supplied/synthetic data. Readable harmful-aura participation and native death/recap handling remain active; unavailable damage attribution is not reconstructed from health loss. Removing this known startup error is **not proof it caused the guild-send symptom**.
+
+To capture the actual send issue: `/reload` out of combat, click **Post to /guild** once, wait a few seconds, then run `/gkt debug` and collect **all** BIHG lines. Do not reload again before collecting the current queue/status. Cooldown and rank rules are unchanged. No live public chat was posted during the regression tests.
+
 ### Anywhere out-of-combat communication (1.7.2)
 
 The addon no longer blocks outgoing guild data or manually confirmed guild reports solely because you are inside an instance. Both may send **anywhere while out of combat**. Outgoing sync and remaining public-report lines pause in combat and resume afterward without skipping queued data. Incoming data can still be received; PvP tracking and the separately configured party sighting alerts continue during combat. Missing, unreadable or throwing combat-state APIs fail closed.
@@ -222,6 +230,7 @@ luajit tests/identity.lua .
 luajit tests/roster.lua .
 luajit tests/targeting.lua .
 luajit tests/party.lua .
+luajit tests/report_diagnostics.lua .
 luajit tests/integration.lua .
 python3 tests/media_gain.py .
 luac -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Identity.lua Runtime.lua Dashboard.lua Sounds.lua Nearby.lua UI.lua Libs/*.lua

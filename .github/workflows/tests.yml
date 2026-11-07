@@ -18,4 +18,5 @@ jobs:
       - run: luajit tests/roster.lua .
       - run: luajit tests/targeting.lua .
       - run: luajit tests/party.lua .
+      - run: luajit tests/report_diagnostics.lua .
       - run: python3 tests/media_gain.py .

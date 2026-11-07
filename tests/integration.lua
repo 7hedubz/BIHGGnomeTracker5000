@@ -1,6 +1,6 @@
 local root=arg[1] or '.'
 local now=1700000000
-local frames={}; local timers={}; local sent={}; local inside=false; local result=0
+local frames={}; local timers={}; local sent={}; local inside=false; local result=0;local forbiddenRegistrations=0
 local combat=false;function InCombatLockdown()return combat end
 local soundCalls={};function PlaySoundFile(file,channel)soundCalls[#soundCalls+1]={file,channel};return true,1 end
 function GetLocale()return'enUS'end
@@ -12,6 +12,8 @@ local playerRank='Council of BIHG'
 local units={player={guid='Player-me',name='Tester',race='Orc',faction='Horde',hp=1000},target={guid='Player-gnome',name='Tiny',race='Gnome',faction='Alliance',hp=1000,enemy=true}}
 local noop=function()end
 local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)self.shown=false end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetText=function(self)return self.text end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
+local originalRegister=methods.RegisterEvent
+methods.RegisterEvent=function(self,e)if e=='COMBAT_LOG_EVENT_UNFILTERED'then forbiddenRegistrations=forbiddenRegistrations+1;error('forbidden native CLEU registration')end;originalRegister(self,e)end
 local function obj()return setmetatable({scripts={},events={},shown=true},{__index=function(_,k)return methods[k] or noop end})end
 methods.CreateFontString=obj;methods.CreateTexture=obj
 methods.CreateLine=obj
@@ -60,6 +62,7 @@ C_DeathRecap={GetRecapLink=function()return '|Hdeath:9|h' end,GetRecapEvents=fun
 local A={}
 local toc=assert(io.open(root..'/BIHGGnomeKillTracker5000.toc'))
 for line in toc:lines()do if line:match('%.lua$')then assert(loadfile(root..'/'..line))('BIHGGnomeKillTracker5000',A)end end;toc:close()
+assert(forbiddenRegistrations==0,'must not attempt native combat-log registration that generates ADDON_ACTION_FORBIDDEN on Forever')
 local function event(e,...)
  for _,f in ipairs(frames)do if f.events[e] and f.scripts.OnEvent then f.scripts.OnEvent(f,e,...)end end
 end
@@ -321,5 +324,13 @@ assert(#partyMessages==1 and partyMessages[1][2]=='PARTY'and partyMessages[1][1]
 tick();assert(#partyMessages==1,'actual scan repetition does not spam party')
 combat=false;A.OpenView('Settings',false);assert(A.partyAlertToggle.text:find('ON',1,true),'party announcement setting is discoverable')
 A.partyAlertToggle.scripts.OnClick();assert(not A.db.options.partyAllianceAlerts and not next(A.partyAlertPending),'UI switch disables and cancels queued party alerts')
+local debugOutput={};local originalLocalMessage=DEFAULT_CHAT_FRAME.AddMessage
+DEFAULT_CHAT_FRAME.AddMessage=function(_,text)debugOutput[#debugOutput+1]=text end
+local publicBefore=#partyMessages;local addonBefore=#sent
+event('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','SendChatMessage()');SlashCmdList.BIHGGKT('debug')
+local debugText=table.concat(debugOutput,' ')
+assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
+assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')
+DEFAULT_CHAT_FRAME.AddMessage=originalLocalMessage
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
-print('PASS actual TOC integration: lifecycle, protected targeting, persistent scores, rank-gated guild reports, independent party detection chat, settings and guarded APIs')
+print('PASS actual TOC integration: lifecycle, protected targeting, persistent scores, rank-gated guild reports, independent party detection chat, local-only report diagnostics and guarded APIs')

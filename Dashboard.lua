@@ -45,28 +45,68 @@ function A.CanPostTopReport()
  if A.guildName and guild~=A.guildName then return false end
  return rank=='Council of BIHG'or rank=='The BIHG Cheese'
 end
+local function reportDiagnostic()
+ if not A.db then return {}end
+ A.db.reportDiagnostics=type(A.db.reportDiagnostics)=='table'and A.db.reportDiagnostics or {}
+ return A.db.reportDiagnostics
+end
+local function reportValue(value)
+ if A.Secret(value)then return '<secret>'end
+ local kind=type(value)
+ if kind=='string'then return value:gsub('[%c|]',' '):sub(1,180)end
+ if kind=='nil'or kind=='boolean'or kind=='number'then return tostring(value)end
+ return '<'..kind..'>'
+end
+function A.RecordReportRestriction(event,addon,func,now)
+ if A.Secret(addon)or addon~='BIHGGnomeKillTracker5000'then return end
+ local value={event=reportValue(event),func=reportValue(func),at=now}
+ if A.db then reportDiagnostic().restriction=value else A.pendingReportRestriction=value end
+end
+function A.ReportDebugLines()
+ local d=reportDiagnostic();local job=A.postJob
+ local combatValue='unavailable';if type(InCombatLockdown)=='function'then local ok,v=pcall(InCombatLockdown);combatValue=(ok and''or'error: ')..reportValue(v)end
+ local guildValue,rankValue='unavailable','unavailable'
+ if type(GetGuildInfo)=='function'then local ok,g,r=pcall(GetGuildInfo,'player');guildValue=reportValue(g);rankValue=ok and reportValue(r)or'API error'end
+ if A.pendingReportRestriction then d.restriction=A.pendingReportRestriction;A.pendingReportRestriction=nil end
+ local restriction=d.restriction
+ return{
+  'BIHG report status: '..reportValue(A.postStatus or'No request this login'),
+  'BIHG report requests='..reportValue(d.requests or 0)..' last='..reportValue(d.requestAt)..' queue='..(job and(job.index..'/'..#job.lines)or'none')..' pumps='..reportValue(d.pumps or 0),
+  'BIHG report allowed='..tostring(A.CanPostTopReport())..' combatPaused='..tostring(A.CommunicationBlocked())..' combatAPI='..type(InCombatLockdown)..' raw='..combatValue..' guildVerified='..tostring(A.guildKey~=nil and not A.guildUnverified),
+  'BIHG guild='..guildValue..' rank='..rankValue..' IsInGuild='..reportValue(A.Safe(IsInGuild)),
+  'BIHG chat APIs: global='..type(SendChatMessage)..' modern='..type(C_ChatInfo and C_ChatInfo.SendChatMessage)..' last='..reportValue(d.api or'not called'),
+  'BIHG send calls='..reportValue(d.sendCalls or 0)..' last='..reportValue(d.sendAt)..' line='..reportValue(d.line)..' result='..reportValue(d.result)..' error='..reportValue(d.error),
+  'BIHG protected action: '..(restriction and(restriction.event..' '..restriction.func..' at '..reportValue(restriction.at))or'none captured'),
+ }
+end
 function A.StartTopPost(lines,now)
+ local diagnostic=reportDiagnostic();diagnostic.requests=(diagnostic.requests or 0)+1;diagnostic.requestAt=now
  if not A.guildKey or (IsInGuild and A.Safe(IsInGuild)~=true) then A.postStatus='Join a guild before posting.';return false end
  if not A.CanPostTopReport()then A.postStatus='Guild reports are restricted to Council of BIHG and The BIHG Cheese.';return false end
  if A.CommunicationBlocked()then A.postStatus='Leave combat before posting to guild.';return false end
  if A.postJob then A.postStatus='A guild report is already being sent.';return false end
  local last=A.db.options.lastTopPost
  if last and now-last<60 then A.postStatus='Please wait 60 seconds between guild reports.';return false end
- if type(lines)~='table' or #lines<1 or #lines>11 then return false end
+ if type(lines)~='table' or #lines<1 or #lines>11 then A.postStatus='Guild report rejected: invalid line count.';return false end
  local copy={}
- for i,line in ipairs(lines) do if type(line)~='string' or #line>255 or line:find('[\r\n]') then return false end;copy[i]=line end
+ for i,line in ipairs(lines) do if type(line)~='string' or #line>255 or line:find('[\r\n]') then A.postStatus='Guild report rejected: invalid chat line '..i..'.';return false end;copy[i]=line end
  A.db.options.lastTopPost=now
  A.postJob={lines=copy,index=1,created=now,next=now,guild=A.guildKey};A.postStatus='Guild report queued: '..#copy..' lines.'
  return true
 end
 function A.PumpTopPost(now)
- local job=A.postJob;if not job or now<job.next then return end
+ local job=A.postJob;if not job then return end
+ local diagnostic=reportDiagnostic();diagnostic.pumps=(diagnostic.pumps or 0)+1
+ if now<job.next then return end
  if A.guildKey~=job.guild or now-job.created>120 then A.postJob=nil;A.postStatus='Guild report stopped: guild changed or report expired.';return end
  if A.CommunicationBlocked()then A.postStatus='Guild report paused until out of combat.';return end
  if not A.CanPostTopReport()then A.postJob=nil;A.postStatus='Guild report stopped: authorized guild rank unavailable or changed.';return end
  local send=SendChatMessage or (C_ChatInfo and C_ChatInfo.SendChatMessage)
+ diagnostic.api=SendChatMessage and'SendChatMessage'or'C_ChatInfo.SendChatMessage'
  if type(send)~='function' then A.postJob=nil;A.postStatus='Guild report stopped: chat API unavailable.';return end
+ diagnostic.sendCalls=(diagnostic.sendCalls or 0)+1;diagnostic.sendAt=now;diagnostic.line=job.index
  local ok,result=pcall(send,job.lines[job.index],'GUILD')
+ diagnostic.result=ok and reportValue(result)or'threw';diagnostic.error=not ok and reportValue(result)or nil
  if not ok or A.Secret(result) or result==false or (type(result)=='number' and result~=0) then A.postJob=nil;A.postStatus='Guild report stopped: chat send failed; no automatic retries.';return end
  job.index=job.index+1;job.next=now+1
  A.postStatus='Guild report sending: '..(job.index-1)..'/'..#job.lines..' lines handed off.'

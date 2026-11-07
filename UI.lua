@@ -301,7 +301,7 @@ function A.CreateUI()
  text(preview,'large',20,-18,610):SetText('PREVIEW GUILD REPORT')
  A.previewExplanation=text(preview,'small',20,-50,610);A.previewExplanation:SetWordWrap(true);A.previewExplanation:SetHeight(36)
  A.previewText=text(preview,'small',20,-103,610);A.previewText:SetWordWrap(true);A.previewText:SetHeight(210)
- A.confirmPostButton=button(preview,'Post to /guild',20,-344,180,function()local ok=A.StartTopPost(A.previewLines,clock());if ok then preview:Hide()end;A.RefreshUI()end,'Explicitly sends the previewed report to guild chat, paced and limited to once per minute.')
+ A.confirmPostButton=button(preview,'Post to /guild',20,-344,180,function()local ok=A.StartTopPost(A.previewLines,clock());if ok then preview:Hide()end;DEFAULT_CHAT_FRAME:AddMessage('BIHG report: '..(A.postStatus or'No status; run /gkt debug.'));A.RefreshUI()end,'Explicitly sends the previewed report to guild chat, paced and limited to once per minute.')
  button(preview,'Cancel',450,-344,180,function()preview:Hide()end);UISpecialFrames[#UISpecialFrames+1]='BIHGGKTTopPreview';preview:Hide()
  w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)if A.mode=='Leaderboard' or A.mode=='Encounters' then A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end end)
  A.period='Lifetime';for _,p in ipairs(A.frames)do if p==A.db.options.period then A.period=p end end;A.mode='Leaderboard';A.sort='kills';A.page=1
@@ -317,7 +317,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.2 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.3 | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

@@ -108,5 +108,13 @@ click(nil,'RightButton');assert(not A.window:IsShown(),'same-view minimap click 
 click(nil,'RightButton');assert(A.window:IsShown() and A.mode=='Encounters','right click opens encounters from hidden')
 click(nil,'LeftButton');assert(A.window:IsShown() and A.mode=='Leaderboard','left click switches without closing')
 click(nil,'LeftButton');assert(not A.window:IsShown(),'left click toggles leaderboard closed')
+assert(A.DisplayName('DoHeal-CAMWOWUS2Realm8PvP')=='DoHeal','hide internal realm suffix')
+assert(A.DisplayName('DoHeal')=='DoHeal','preserve bare character names')
+assert(A.owner=='Tester-Realm','internal owner key stays realm qualified')
+A.mode='Leaderboard';A.RefreshUI()
+for _,row in ipairs(A.rows) do assert(not (row[1].text or ''):find('-Realm',1,true),'leaderboard displays character names only') end
+A.mode='Encounters';A.RefreshUI()
+for _,row in ipairs(A.rows) do assert(not (row[1].text or ''):find('-Realm',1,true),'encounter log displays character names only') end
+assert(A.db.seen['Player-gnome'].name=='Tiny-Realm','saved encounter identity remains intact')
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, visible CC, exact damage, confirmed deaths, encounters, five-column UI, guild sync, secret values, blocked/retry sends')

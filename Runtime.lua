@@ -6,6 +6,10 @@ function A.Safe(fn,...)
 end
 local function now()return A.Safe(GetServerTime) or time() end
 local function readable(v)if not A.Secret(v) then return v end end
+function A.DisplayName(name)
+ if A.Secret(name) or type(name)~='string' or name=='' then return 'Unknown' end
+ return name:match('^([^-]+)') or name
+end
 function A.Name(name)
  if type(name)~='string' or A.Secret(name) or name=='' then return nil end
  if not name:find('-',1,true) then name=name..'-'..(A.Safe(GetNormalizedRealmName) or (A.Safe(GetRealmName) or ''):gsub('%s','')) end
@@ -39,7 +43,7 @@ function A.Scan(unit)
   local fresh=A.Encounter(g,name,race,faction,t)
   if fresh then
    A.QueueShare(true)
-   if A.db.options.alerts~=false and DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage('|cffffb347BIHG: Gnome encountered:|r '..(name or g)) end
+   if A.db.options.alerts~=false and DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage('|cffffb347BIHG: Gnome encountered:|r '..A.DisplayName(name)) end
   end
  end
  local hostile=A.Safe(UnitCanAttack,'player',unit)

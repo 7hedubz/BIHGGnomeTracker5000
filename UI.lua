@@ -61,7 +61,7 @@ function A.RefreshUI()
   local r=data[(A.page-1)*12+i]
   if r then
    local color=(A.mode=='Encounters' and r.race=='Gnome') and '|cffffb347' or (r.name==A.owner and '|cff66ddff' or '|cffffffff')
-   row[1]:SetText(color..r.name..'|r')
+   row[1]:SetText(color..A.DisplayName(r.name)..'|r')
    if A.mode=='Encounters' then row[2]:SetText(color..r.race..'|r');row[3]:SetText(date('!%Y-%m-%d',r.first));row[4]:SetText(date('!%m-%d %H:%M',r.last));row[5]:SetText('')
    else row[2]:SetText(tostring(r.k));row[3]:SetText(tostring(r.d));row[4]:SetText(ratio(r.k,r.d));row[5]:SetText(r.encountered>=0 and tostring(r.encountered) or '-') end
   else for _,cell in ipairs(row) do cell:SetText('') end end
@@ -129,7 +129,7 @@ SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
  if msg=='debug' then
-  local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.0.1 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+  local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.0.2 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);DEFAULT_CHAT_FRAME:AddMessage('BIHG Gnome alerts: '..(A.db.options.alerts and 'ON' or 'OFF'))
  elseif msg=='encounters' then if not A.window then A.CreateUI() end;A.window:Show();A.mode='Encounters';A.RefreshUI()

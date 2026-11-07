@@ -26,6 +26,8 @@ Open with **`/gkt`**, `/gnomekills`, `/bihg`, or the minimap gear button.
 Minimap **left-click** opens the guild leaderboard; **right-click** opens Alliance encounters. Clicking the other view switches the open window instead of closing it. Clicking the current view's shortcut again closes it.
 
 ### 1.0.1 UI fixes
+ 
+Version 1.0.2 additionally displays character names without realm suffixes in both tables and Gnome encounter alerts. Full identity keys remain unchanged in saved data and guild synchronization.
 
 - Hide the unused fifth header and cells in Alliance encounters; expand Last seen into the free space.
 - Make minimap left/right clicks consistently select the view named in their tooltip.

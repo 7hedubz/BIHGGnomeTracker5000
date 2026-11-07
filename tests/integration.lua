@@ -2,6 +2,7 @@ local root=arg[1] or '.'
 local now=1700000000
 local frames={}; local timers={}; local sent={}; local inside=false; local result=0;local forbiddenRegistrations=0
 local combat=false;function InCombatLockdown()return combat end
+local stateDrivers={};function RegisterStateDriver(frame,id,condition)stateDrivers[frame]={id=id,condition=condition}end
 local soundCalls={};function PlaySoundFile(file,channel)soundCalls[#soundCalls+1]={file,channel};return true,1 end
 function GetLocale()return'enUS'end
 function GetBuildInfo()return'1.60.1','70291','',16001 end
@@ -11,7 +12,7 @@ strmatch=string.match;function securecallfunction(fn,...)return fn(...)end
 local playerRank='Council of BIHG'
 local units={player={guid='Player-me',name='Tester',race='Orc',faction='Horde',hp=1000},target={guid='Player-gnome',name='Tiny',race='Gnome',faction='Alliance',hp=1000,enemy=true}}
 local noop=function()end
-local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)self.shown=false end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetText=function(self)return self.text end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
+local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)local was=self.shown;self.shown=false;if was and self.scripts.OnHide then self.scripts.OnHide(self)end end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetText=function(self)return self.text end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
 local originalRegister=methods.RegisterEvent
 methods.RegisterEvent=function(self,e)if e=='COMBAT_LOG_EVENT_UNFILTERED'then forbiddenRegistrations=forbiddenRegistrations+1;error('forbidden native CLEU registration')end;originalRegister(self,e)end
 local function obj()return setmetatable({scripts={},events={},shown=true},{__index=function(_,k)return methods[k] or noop end})end
@@ -332,5 +333,15 @@ local debugText=table.concat(debugOutput,' ')
 assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
 assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')
 DEFAULT_CHAT_FRAME.AddMessage=originalLocalMessage
+assert(A.window.template:find('SecureHandlerStateTemplate',1,true)and stateDrivers[A.window],'main config window installs secure combat state handling')
+A.OpenView('Settings',false);A.OpenSoundPicker('alliance');A.preview:Show()
+assert(A.window:IsShown()and A.soundPicker:IsShown(),'settings and picker open before combat')
+local secureSnippet=assert(loadstring(A.window.attrs['_onstate-'..stateDrivers[A.window].id]))
+combat=true;setfenv(secureSnippet,{self=A.window,newstate='closed'});secureSnippet()
+assert(not A.window:IsShown()and not A.preview:IsShown()and not A.soundPicker:IsShown(),'entering combat securely closes dashboard, report preview and config picker')
+assert(A.nearbyFrame:IsShown(),'combat auto-close leaves independent Nearby overlay available')
+combat=false;setfenv(secureSnippet,{self=A.window,newstate='available'});secureSnippet();tick()
+assert(not A.window:IsShown(),'leaving combat does not reopen config automatically')
+A.OpenView('Settings',false);assert(A.window:IsShown(),'user can reopen normally after combat')
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, protected targeting, persistent scores, rank-gated guild reports, independent party detection chat, local-only report diagnostics and guarded APIs')

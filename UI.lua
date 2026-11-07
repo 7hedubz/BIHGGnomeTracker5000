@@ -5,8 +5,9 @@ local function text(parent,size,x,y,width)
  f:SetPoint('TOPLEFT',x,y);f:SetJustifyH('LEFT');f:SetWordWrap(false);if width then f:SetWidth(width) end
  return f
 end
-local function panel(parent,x,y,w,h)
- local f=CreateFrame('Frame',nil,parent,BackdropTemplateMixin and 'BackdropTemplate' or nil)
+local function panel(parent,x,y,w,h,template)
+ if BackdropTemplateMixin then template=template and(template..',BackdropTemplate')or'BackdropTemplate'end
+ local f=CreateFrame('Frame',nil,parent,template)
  f:SetPoint('TOPLEFT',x,y);f:SetSize(w,h)
  f:SetBackdrop({bgFile='Interface\\Buttons\\WHITE8X8',edgeFile='Interface\\Buttons\\WHITE8X8',edgeSize=1})
  f:SetBackdropColor(0.065,0.08,0.10,0.98);f:SetBackdropBorderColor(0.19,0.23,0.28,1);return f
@@ -211,7 +212,7 @@ function A.ShowTopPreview()
 end
 function A.CreateUI()
  if A.window or not A.db or A.TargetingLocked()then return end
- local w=panel(UIParent,0,0,960,710);A.window=w;_G.BIHGGKTWindow=w
+ local w=panel(UIParent,0,0,960,710,'SecureHandlerStateTemplate');A.window=w;_G.BIHGGKTWindow=w
  w:ClearAllPoints();w:SetPoint('CENTER');w:SetFrameStrata('DIALOG');w:SetClampedToScreen(true)
  w:SetScale(math.min(1,(UIParent:GetWidth()-30)/960,(UIParent:GetHeight()-30)/710));w:SetBackdropColor(0.025,0.035,0.048,0.99)
  w:EnableMouse(true);w:SetMovable(true);w:RegisterForDrag('LeftButton');w:SetScript('OnDragStart',function(self)if not A.TargetingLocked()then self:StartMoving()end end)
@@ -306,6 +307,12 @@ function A.CreateUI()
  w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)if A.mode=='Leaderboard' or A.mode=='Encounters' then A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end end)
  A.period='Lifetime';for _,p in ipairs(A.frames)do if p==A.db.options.period then A.period=p end end;A.mode='Leaderboard';A.sort='kills';A.page=1
  w:SetScript('OnHide',function()A.db.options.period=A.period;preview:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
+ -- Secure state transitions can hide a window containing protected target
+ -- buttons during lockdown; an insecure PLAYER_REGEN_DISABLED Hide cannot.
+ if type(RegisterStateDriver)=='function'then
+  w:SetAttribute('_onstate-bihgmenu',[[if newstate == 'closed' then self:Hide() end]])
+  RegisterStateDriver(w,'bihgmenu','[combat] closed; available')
+ end
  if Minimap then
   local m=CreateFrame('Button','BIHGGKTMinimap',Minimap);m:SetSize(30,30);m:SetPoint('TOPLEFT',Minimap,'TOPLEFT',-8,-12);m:SetFrameStrata('MEDIUM')
   local icon=m:CreateTexture(nil,'ARTWORK');icon:SetAllPoints();icon:SetTexture('Interface\\Icons\\INV_Misc_Gear_01')
@@ -317,7 +324,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.3 | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.4 | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

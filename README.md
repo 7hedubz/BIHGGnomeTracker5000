@@ -70,6 +70,12 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Close the main menu on combat entry (1.7.4)
+
+The large dashboard/config window automatically closes when combat starts, including its report preview and sound-picker popup. It stays closed when combat ends; reopen with the minimap button or `/gkt`. The independent Nearby overlay, tracking and configured party detection alerts remain active, and outgoing guild queues retain their existing combat pause/resume policy.
+
+The window uses **SecureHandlerStateTemplate** with a pre-registered custom combat state driver that only hides on entry. This avoids an insecure Hide call on a protected target-button ancestor during lockdown, and unlike a hide/show visibility driver it does not force the menu open after combat. Apply with `/reload` out of combat. Native client behavior still needs an in-game check; mocked state transitions and popup cleanup are regression-tested. This change is not a guild-message-delivery fix.
+
 ### Report-send diagnostics and event safety (1.7.3)
 
 This is a **diagnostic update, not a confirmed fix for missing native guild delivery**. The old `/gkt debug` coverage flags described combat log/CC/recap data and could not diagnose chat. Confirmation now prints a **local-only** queued/rejected status, and `/gkt debug` additionally prints report request/send counters, queue progress, current rank/guild/combat gates, selected global/modern chat API, its actual return or caught error, and BIHG protected-action events. Diagnostics persist in the per-character database; no report text or test message is sent by the debug command. A nil/success API return is not server delivery confirmation.

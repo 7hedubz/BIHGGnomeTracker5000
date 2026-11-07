@@ -24,7 +24,8 @@ function A.Award(now)
  r.total=r.total+1; r.days[d]=(r.days[d] or 0)+1
  if A.Changed then A.Changed() end
 end
-function A.PlayerDeath(id,race,now)
+function A.PlayerDeath(id,race,now,killer)
+ if A.GroupOwnDeath then return A.GroupOwnDeath(id,race,now,killer)end
  if race~='Gnome' or type(id)~='string' then return false end
  A.db.recaps=A.db.recaps or {}
  if A.db.recaps[id] then return false end

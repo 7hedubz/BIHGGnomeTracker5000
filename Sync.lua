@@ -15,6 +15,7 @@ function A.Receive(msg,channel,sender,now)
  A.rx=A.rx or {}; local limit=A.rx[sender]
  if not limit or now-limit.start>=60 then limit={start=now,n=0}; A.rx[sender]=limit end
  limit.n=limit.n+1; if limit.n>450 then return false end
+ if msg:sub(1,2)=='5|'then return A.ReceiveGroup and A.ReceiveGroup(msg,sender,now)or false end
  if msg:sub(1,4)=='4|R|' then return A.ReceiveAlt and A.ReceiveAlt(msg,sender,now) or false end
  if msg:sub(1,2)=='3|' then
   local ok=A.ReceiveAccount and A.ReceiveAccount(msg,sender,now) or false
@@ -44,7 +45,7 @@ function A.Receive(msg,channel,sender,now)
  k=integer(k,1000000000); d=integer(d,1000000000); day=integer(day,1000000); dk=integer(dk,1000000000); dd=integer(dd,1000000000)
  if not k or not d or not day or not dk or not dd or dk>k or dd>d or day>A.Day(now) or day<A.Day(now)-A.RETENTION+1 then return false end
  local peers=A.PeerRecords(); local r=peers[sender] or {total=0,deaths=0,days={},deathDays={}}
- peers[sender]=r; r.total=math.max(r.total,k); r.deaths=math.max(r.deaths,d)
+ peers[sender]=r;r.observerOnly=false; r.total=math.max(r.total,k); r.deaths=math.max(r.deaths,d)
  r.days[day]=math.max(r.days[day] or 0,dk); r.deathDays[day]=math.max(r.deathDays[day] or 0,dd); r.updated=now
  if A.RefreshUI then A.RefreshUI() end
  return true
@@ -71,6 +72,7 @@ function A.BuildPackets(full,now)
  result[#result+1]=table.concat(encounter,'|')
  for _,day in ipairs(sorted) do result[#result+1]=string.format('2|S|%d|%d|%d|%d|%d',r.total,r.deaths or 0,day,r.days[day] or 0,(r.deathDays or {})[day] or 0) end
  if full and A.AltPackets then for _,packet in ipairs(A.AltPackets(now)) do result[#result+1]=packet end end
+ if A.GroupPackets then for _,packet in ipairs(A.GroupPackets(full,now))do result[#result+1]=packet end end
  return result
 end
 function A.SendPacket(packet)
@@ -83,6 +85,16 @@ function A.SendPacket(packet)
 end
 function A.Pump(now)
  if not A.guildKey or A.Safe(IsInInstance) then A.syncStatus='Queued until outside instance / in guild'; return end
+ -- Fresh witnessed events should not sit behind a long historical replay.
+ if A.PriorityGroupPacket and(A.groupPriorityBurst or 0)<4 then
+  local packet,id=A.PriorityGroupPacket()
+  if packet then
+   if A.SendPacket(packet)then A.MarkGroupSent(id);A.groupPriorityBurst=(A.groupPriorityBurst or 0)+1;A.syncStatus='Witnessed guild event shared'
+   else A.syncStatus='Witnessed event waiting / retrying'end
+   return
+  end
+ end
+ A.groupPriorityBurst=0
  if not A.lastRequest or now-A.lastRequest>=900 then A.request=true; A.fullShare=true; A.dirty=true; A.lastRequest=now end
  if A.request then
   if A.SendPacket('2|Q') then A.request=false else A.syncStatus='Sync request waiting / retrying'; return end

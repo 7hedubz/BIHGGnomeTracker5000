@@ -62,10 +62,10 @@ end
 function A.RefreshUI()
  if not A.window or not A.db then return end
  local now=clock();local period=A.period or 'Lifetime';local me=A.db.owners[A.owner];local kills,deaths=0,0
- for _,r in pairs(A.account and A.account.characters or {me}) do kills=kills+A.Score(r,period,now);deaths=deaths+A.Score(r,period,now,'deaths') end
+ for name,r in pairs(A.account and A.account.characters or {[A.owner]=me}) do if A.members and A.members[name]then local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now)or r;kills=kills+A.Score(effective,period,now);deaths=deaths+A.Score(effective,period,now,'deaths')end end
  local values={tostring(kills),tostring(deaths),ratio(kills,deaths),tostring(A.AccountEncounterCount(period,now))}
  for i,v in ipairs(values) do A.statCards[i].value:SetText(v) end
- A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | all known characters; encounter identities deduplicated')
+ A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | current guild characters only; encounter identities deduplicated')
  for label,b in pairs(A.navButtons) do style(b,A.mode==label) end
  for i,b in ipairs(A.periodButtons) do style(b,A.frames[i]==period) end
  local tabular=A.mode=='Leaderboard' or A.mode=='Encounters';local encounters=A.mode=='Encounters'
@@ -75,7 +75,7 @@ function A.RefreshUI()
  if A.mode=='Leaderboard' or A.mode=='Charts' then A.reportButton:Show() else A.reportButton:Hide() end
  A.alertButton:SetText(A.db.options.alerts~=false and 'Gnome discovery alerts: ON' or 'Gnome discovery alerts: OFF')
  local c=A.coverage or {}
- A.coverageLabel:SetText(c.log and 'Tracking: readable combat log observed. Scores are addon-reported, not server-verified.' or 'Tracking: confirmed CC fallback. Exact 10% damage requires readable combat-log data. Unknown attribution is skipped.')
+ A.coverageLabel:SetText(c.log and 'Tracking: guild-only party/raid; readable combat log observed. Scores are client-reported.' or 'Tracking: guild-only party/raid CC fallback. Exact damage and other players\' killers require readable combat-log data.')
  A.status:SetText((A.guildKey and 'AUTO SYNC ON | outside instances | every 15 min + score/profile changes | ' or 'NO GUILD | ')..(A.syncStatus or 'Waiting for peers'))
  A.postStatusLabel:SetText(A.postStatus or 'Guild chat reports are manual only. Refresh guild data never posts to chat.')
  if A.mode=='Charts' then
@@ -102,7 +102,7 @@ function A.RefreshUI()
    if a.last~=b.last then return a.last>b.last end;return a.name<b.name
   end)
  else
-  A.heading:SetText('GUILD LEADERBOARD | Click [+] alias to expand characters | cached addon reports')
+  A.heading:SetText('GUILD LEADERBOARD | Click [+] to expand | [observed] = guildmate witnessed in your party/raid')
   local labels={'Alias / character','Kills','Deaths','K/D','Encountered'};for i,label in ipairs(labels) do A.headers[i]:SetText(label) end
   data=A.LeaderboardGroups(period,now)
   table.sort(data,function(a,b)
@@ -120,6 +120,7 @@ function A.RefreshUI()
   if r then
    local color=(encounters and r.race=='Gnome') and '|cffffb347' or ((r.isOwn or r.name==A.owner) and '|cff66ddff' or '|cffffffff')
    local label=r.isGroup and ((A.expanded[r.id] and '[-] ' or '[+] ')..r.name..' ('..#r.children..')') or ((r.child and '   ' or '')..A.DisplayName(r.name))
+   if r.observed then label=label..' [observed]'end
    row[1]:SetText(color..label..'|r');row.button:Show();row.button:SetScript('OnClick',function()if r.isGroup then A.expanded[r.id]=not A.expanded[r.id];A.RefreshUI() end end)
    if encounters then row[2]:SetText(color..r.race..'|r');row[3]:SetText(date('!%Y-%m-%d',r.first));row[4]:SetText(date('!%m-%d %H:%M',r.last));row[5]:SetText('')
    else row[2]:SetText(tostring(r.k));row[3]:SetText(tostring(r.d));row[4]:SetText(ratio(r.k,r.d));row[5]:SetText(r.encountered>=0 and tostring(r.encountered) or '-') end
@@ -233,7 +234,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.2.1 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.3.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

@@ -6,8 +6,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y luajit lua5.1
-      - run: luac5.1 -p Core.lua Accounts.lua Sync.lua Runtime.lua Dashboard.lua UI.lua
+      - run: luac5.1 -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Runtime.lua Dashboard.lua UI.lua
       - run: luajit tests/run.lua .
       - run: luajit tests/integration.lua .
       - run: luajit tests/accounts.lua .
       - run: luajit tests/dashboard.lua .
+      - run: luajit tests/group.lua .

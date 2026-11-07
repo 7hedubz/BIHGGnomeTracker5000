@@ -4,6 +4,18 @@
 
 Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and automatic guild leaderboards.
 
+## Guild-only group observation (1.3.0)
+
+- Track **yourself and fellow guildmates in your party/raid**, including controlled pets, even when those guildmates do not have the addon. Verified group guildmates are discovered automatically and appear as individual **[observed]** character entries.
+- **Only current guildmates are tallied.** Non-guild party/raid players receive no credit. An unguilded player is not tallied either. The leaderboard, Top 10, personal cards and account kill-time chart filter out non-guild characters. Old saved history is retained rather than deleted.
+- Each participant must independently qualify: at least 10% of the Gnome's observed peak maximum health in effective attributed damage **or** a confirmed supported CC aura, followed by a confirmed death within the participation window. Merely grouping with a killer, casting CC, or seeing health drop is not enough.
+- Enemy nameplates, your target/focus/mouseover, and guild group members' target tokens provide observable targets. Aura source GUIDs resolve to guild characters/pet owners. Combat information that is secret or unavailable is skipped.
+- **Forever's closed log still matters:** readable own/party CC can be observed, but damage-only participation cannot be reconstructed without readable combat-log data. Other players' deaths to Gnomes require a readable Gnome lethal hit followed by confirmed death; another player's corpse alone does not identify its killer. Your own fresh death recap remains supported. A non-addon player's encounter count is unknown (`-`), not invented.
+- Different non-addon characters stay separate. Once they install the addon and initialize their characters, alias metadata groups those same character keys; witnessed history follows them instead of creating duplicate character rows.
+- Observations synchronize through guild addon messages outside instances, including to members who were not present. Multiple witnesses share event-level records rather than summing witness totals. Duplicate/replayed reports are suppressed using participant/opponent GUIDs and a **three-second death-correlation window**, with contribution timing distinguishing later lives. Without a server-issued kill ID this is best-effort: extreme latency or very rapid repeat deaths can remain ambiguous.
+- Upgrade baselines preserve legacy totals. Before a character's upgrade boundary, potentially overlapping legacy and witnessed daily counts merge conservatively by maximum rather than addition; disjoint pre-upgrade activity cannot be reconstructed exactly. New event-era records merge by event identity. Adoption of a previously non-addon character retains its witnessed events.
+- Lifetime event identities/timestamps are retained in account-wide, guild-separated storage to support deduplication and later adoption. Storage and full-history catch-up grow with activity; large histories take time at the paced send rate. Fresh new events get priority over an already queued historical replay. Personal characters keep their own lifetime history when changing guild, without importing unrelated former guildmates.
+
 ## Account-wide aliases (1.1.0)
 
 - Your leaderboard entry is an **alias**, with the combined kills, deaths, recalculated K/D, and unique Gnome encounters of your known guild characters.
@@ -13,7 +25,7 @@ Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and aut
 - **Existing characters must each log in once after upgrading** to import their old statistics into the account profile. After that, any online guild character shares the account's known guild-alt records, including offline alts; guildmates do not have to catch every alt online. Characters never initialized on this installation cannot be discovered automatically.
 - Rename once and all known characters use the new alias. Renaming does not reset statistics or create another score. Stale nickname updates cannot override newer revisions.
 - Account grouping uses this WoW account's SavedVariables, not Battle.net identity. Separate WoW accounts/installations are not automatically linked. Copying/migrating account SavedVariables requires a fully closed client.
-- The personal summary combines all locally known characters. The guild leaderboard includes current guild-member characters, plus your active character. The private Alliance encounter log remains the active character's log.
+- The personal summary and guild leaderboard include **current guild-member characters only**, with no exception for an unguilded active character. The private Alliance encounter log remains the active character's log.
 - An alias's encounter statistic deduplicates the **same Gnome GUID across its characters**. It does not sum daily or character unique counts. Guildmates receive a precomputed account-unique snapshot; stale/missing period data displays `-` instead of inventing a count.
 
 ## Important Forever limitation
@@ -65,20 +77,20 @@ The report uses cached addon scores, says so in its heading, and is readable in 
 
 ## Guild synchronization
 
-Each guildmate must install/enable the addon. Direct score packets are attributed to the guild-channel sender. The new account protocol also shares **the sender's locally known alts**, not arbitrary cached guild peers. Alt targets must be current guild members; an alt claim cannot overwrite another account's already-known direct binding, and a character's own declaration takes precedence over an inherited claim. Account identities, nickname/alt ownership claims, scores, and account-unique summaries remain **unverified client reports**, not server-authoritative or cryptographically verified ownership.
+At least one observer must run the addon to witness grouped guildmates. Guildmates need it themselves for account aliases, their own full-coverage reports and receiving the synced UI, but not for witnessed group credit. Direct score packets are attributed to the guild-channel sender. Account snapshots share **the sender's locally known alts**, not arbitrary cached aggregate peer totals; event-level guild observations may be relayed separately. Alt targets must be current guild members; conflicting direct account bindings are rejected. Account identities, ownership claims, statistics and witness events remain **unverified client reports**, not server-authoritative or cryptographically verified ownership.
 
 - Automatic sync at login, world entry, guild changes, personal score changes, alias changes, and every 15 minutes. Manual **Refresh guild data** or `/gkt sync` is also available. These silent addon packets do not post a chat report.
 - Forever blocks addon messages inside instances. Results queue until leaving. Failed sends retain the packet for retry; full history is paced at at most two data packets/second.
 - Lifetime totals plus up to 400 days of nonzero daily kill/death totals use cumulative merges, so duplicate/reordered score packets do not double-count.
 - Guild caches are account-wide and separated by guild/realm. Current membership is checked. Already-known offline members remain cached; unknown data cannot be recovered from the server. Partial delivery can leave incomplete recent scores until another full exchange.
-- Only aggregates/account labels are shared. Names and GUIDs from the private Alliance log are not broadcast. Summing different guildmates' unique encounters is **not** a unique guild-wide Gnome count.
-- Older addon versions can still exchange legacy character totals, but must upgrade for alias grouping and expansion.
+- Aggregates/account labels are shared. Group observation records additionally share participating character names/GUIDs, opponent GUIDs and event/contribution timestamps for deduplication. The private Alliance name/sighting log is not broadcast. Summing different guildmates' unique encounters is **not** a unique guild-wide Gnome count.
+- Older addon versions can exchange legacy character totals, but must upgrade for group observation/event deduplication and the latest guild-only display behavior.
 
 ## Saved data and upgrade
 
 `BIHGGKTDB` remains per-character. New **`BIHGGKTAccountDB`** is account-wide and retains nickname, stable grouping ID, known character records, and shared guild caches. Existing totals migrate by cumulative maximum, not addition, and remain after renaming. Lifetime totals and unique identities persist; dated history is retained for 400 days. Activity before addon installation cannot be reconstructed. Do not edit live SavedVariables while WoW is running.
 
-**From 1.2.0 to 1.2.1, `/reload` is sufficient**: the load list is unchanged. Upgrading from before 1.2.0 requires a full quit/relaunch because `Dashboard.lua` was added to the TOC. Upgrading from before 1.1.0 also adds account-wide data; log each existing alt once to import it. No statistics reset is needed.
+**For 1.3.0, fully quit and relaunch Forever**: `GroupTracker.lua` was added to the TOC. Upgrading from before 1.1.0 also adds account-wide data; log each existing alt once to import it. No statistics reset is needed.
 
 ## Install
 
@@ -91,6 +103,7 @@ World of Warcraft/_forever_/Interface/AddOns/
     Core.lua
     Accounts.lua
     Sync.lua
+    GroupTracker.lua
     Runtime.lua
     Dashboard.lua
     UI.lua
@@ -119,8 +132,9 @@ Lua 5.1-compatible; no embedded libraries/dependencies:
 luajit tests/run.lua .
 luajit tests/accounts.lua .
 luajit tests/dashboard.lua .
+luajit tests/group.lua .
 luajit tests/integration.lua .
-luac -p Core.lua Accounts.lua Sync.lua Runtime.lua Dashboard.lua UI.lua
+luac -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Runtime.lua Dashboard.lua UI.lua
 ```
 
 Regression tests cover qualification, attribution, duplicate deaths, UTC periods, bounded packets, cumulative sync, account initialization/alt migration, nickname changes/collisions, cross-character encounter uniqueness, and identity exchange. The actual-TOC integration harness covers mocked lifecycle, own-CC/death detection, exact-damage parsing, recap attribution, account profile UI/editing/expansion, view transitions, secret values, and failed/instance-blocked sends. Mocks validate logic and API usage, **not actual client rendering or API visibility**. Tests never write live SavedVariables.

@@ -31,10 +31,13 @@ UnitIsEnemy=UnitCanAttack
 function UnitIsUnit(a,b)return a==b end
 function GetNormalizedRealmName()return 'Realm' end
 function GetRealmName()return 'Realm' end
-function GetGuildInfo()return 'Guild' end
+function GetGuildInfo(u)return units[u or 'player']and(units[u or 'player'].guild or 'Guild')end
 function IsInGuild()return true end
-function GetNumGuildMembers()return 2 end
-function GetGuildRosterInfo(i)if i==1 then return 'Tester-Realm' else return 'Friend-Realm' end end
+function GetNumGuildMembers()return units.party1 and 3 or 2 end
+function GetGuildRosterInfo(i)if i==1 then return 'Tester-Realm'elseif i==2 then return 'Friend-Realm'else return 'NoAddon-Realm'end end
+function GetNumSubgroupMembers()return units.party1 and 2 or 0 end
+function GetNumGroupMembers()return units.party1 and 3 or 0 end
+function IsInRaid()return false end
 C_GuildInfo={GuildRoster=noop}
 function IsInInstance()return inside,'none' end
 function GetPlayerInfoByGUID(g)if g=='Player-gnome' then return 'Mage','MAGE','Gnome','Gnome',2,'Tiny','Realm' end end
@@ -75,13 +78,13 @@ units.target={guid='Player-damage',name='Other',race='Gnome',faction='Alliance',
 A.Scan('target')
 CombatLogGetCurrentEventInfo=function()return now,'SPELL_DAMAGE',false,'Player-me','Tester',0,0,'Player-damage','Other',0,0,133,'Fireball',4,100,0 end
 A.ReadCombatLog()
-assert(A.encounters['Player-damage'] and A.encounters['Player-damage'].damage==100,'damage parsed: '..tostring(A.encounters['Player-damage'] and A.encounters['Player-damage'].damage))
+assert(A.groupTargets['Player-damage'] and A.groupTargets['Player-damage'].actors['Player-me'].damage==100,'own contribution damage parsed into group tracker')
 CombatLogGetCurrentEventInfo=function()return now,'UNIT_DIED',false,nil,nil,0,0,'Player-damage','Other',0,0 end
 A.ReadCombatLog();assert(A.db.owners[A.owner].total==2,'readable log exact 10% damage path; total='..A.db.owners[A.owner].total..' encounter='..tostring(A.encounters['Player-damage'])..' dead='..tostring(A.db.dead['Player-damage']))
 -- A cast-success packet must not qualify as landed crowd control.
 units.target={guid='Player-miss',name='Missed',race='Gnome',faction='Alliance',hp=1000,enemy=true};A.Scan('target')
 CombatLogGetCurrentEventInfo=function()return now,'SPELL_CAST_SUCCESS',false,'Player-me','Tester',0,0,'Player-miss','Missed',0,0,118,'Polymorph',64 end
-A.ReadCombatLog();A.Death('Player-miss',now);assert(A.db.owners[A.owner].total==2,'cast success not confirmed CC')
+A.ReadCombatLog();A.GroupDeath('Player-miss',now);assert(A.db.owners[A.owner].total==2,'cast success not confirmed CC')
 -- Missing or secret values must fail closed without preventing later reads.
 local secret={}
 issecretvalue=function(v)return v==secret end
@@ -157,5 +160,22 @@ A.confirmPostButton.scripts.OnClick();assert(not A.preview:IsShown() and A.postJ
 for i=0,10 do tick()end
 assert(#chat==#A.previewLines and chat[1][2]=='GUILD','confirmed ranking posts only previewed lines to guild')
 assert(A.status.text:find('AUTO SYNC ON',1,true),'automatic sync status is explicit')
+-- Party-only observation works without any addon message from the guildmate.
+units.party1={name='NoAddon',guid='Player-noaddon',race='Orc',faction='Horde',hp=1000,guild='Guild'}
+units.partypet1={guid='Pet-noaddon'}
+units.party2={name='Guest',guid='Player-guest',race='Orc',faction='Horde',hp=1000,guild='Other'}
+event('GROUP_ROSTER_UPDATE')
+assert(A.PeerRecords()['NoAddon-Realm'].observerOnly,'guildmate is discovered on group join without addon handshake')
+units.target={guid='Player-party-gnome',name='Victim',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+C_UnitAuras.GetAuraDataByIndex=function(u,i)if u=='target'and i==1 and not units.target.dead then return{spellId=118,sourceUnit='party1',auraInstanceID=201,expirationTime=now+10}end end
+event('PLAYER_TARGET_CHANGED');units.target.dead=true;event('UNIT_HEALTH','target')
+assert(A.GuildEffectiveRecord('NoAddon-Realm',A.PeerRecords()['NoAddon-Realm'],now).total==1,'visible party CC and confirmed death credit guildmate')
+units.target={guid='Player-guest-gnome',name='Other victim',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+C_UnitAuras.GetAuraDataByIndex=function(u,i)if u=='target'and i==1 and not units.target.dead then return{spellId=118,sourceUnit='party2',auraInstanceID=202,expirationTime=now+10}end end
+event('PLAYER_TARGET_CHANGED');units.target.dead=true;event('UNIT_HEALTH','target')
+assert(not A.PeerRecords()['Guest-Realm'],'non-guild party CC is never tallied')
+A.OpenView('Leaderboard',false);local shown=false
+for _,row in ipairs(A.rows)do if(row[1].text or ''):find('NoAddon',1,true)then shown=(row[1].text or ''):find('[observed]',1,true)~=nil end end
+assert(shown,'non-addon guildmate is visibly marked as observed')
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, visible CC, exact damage, confirmed deaths, encounters, five-column UI, guild sync, secret values, blocked/retry sends')

@@ -69,10 +69,11 @@ function A.SetAlias(alias,now)
  return true
 end
 function A.AccountEncounterCount(period,now,members)
+ members=members or A.members
  local identities={};local first=A.FirstDay(period,now);local today=A.Day(now)
  local chars=A.account and A.account.characters or {[A.owner]={seen=A.db.seen}}
  for name,r in pairs(chars) do
-  if not members or members[name] or name==A.owner then
+  if not members or members[name] then
    for guid,entry in pairs(r.seen or {}) do if entry.race=='Gnome' then
     if period=='Lifetime' then identities[guid]=true else
      for day in pairs(entry.days or {}) do if day>=first and day<=today then identities[guid]=true;break end end
@@ -101,7 +102,7 @@ function A.ReceiveAccount(msg,sender,now)
    if r.accountID~=id then r.accountEncounterScores=nil;r.accountEncounterStamp=nil end
    r.accountID=id;r.alias=alias;r.aliasRev=rev
   end
-  r.bindingDirect=true;r.updated=now;return true
+  r.bindingDirect=true;r.observerOnly=false;r.updated=now;return true
  end
  local fields={};for s in msg:gmatch('[^|]+') do fields[#fields+1]=s end
  if fields[1]~='3' or fields[2]~='U' or #fields~=11 then return false end
@@ -120,15 +121,16 @@ function A.LeaderboardGroups(period,now)
  if A.account then A.SnapshotAccount(now) end
  local records={}
  for name,r in pairs(A.PeerRecords()) do if A.members and A.members[name] then records[name]=r end end
- if A.account then for name,r in pairs(A.account.characters) do if name==A.owner or (A.members and A.members[name]) then records[name]=r end end
- else records[A.owner]=A.db.owners[A.owner] end
+ if A.account then for name,r in pairs(A.account.characters) do if A.members and A.members[name] then records[name]=r end end
+ elseif A.members and A.members[A.owner] then records[A.owner]=A.db.owners[A.owner] end
  local groups={}
  for name,r in pairs(records) do
   local key=r.accountID and 'account:'..r.accountID or 'character:'..name
   local g=groups[key]
   if not g then g={id=key,name=r.alias or short(name),aliasRev=-1,k=0,d=0,children={},isGroup=true,encountered=-1};groups[key]=g end
   if r.alias and (r.aliasRev or 0)>=g.aliasRev then g.name=r.alias;g.aliasRev=r.aliasRev or 0 end
-  local k=A.Score(r,period,now);local d=A.Score(r,period,now,'deaths')
+  local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now)or r
+  local k=A.Score(effective,period,now);local d=A.Score(effective,period,now,'deaths')
   local encountered=name==A.owner and A.EncounterCount(period,now) or A.EncounterScore(r,period,now)
   if A.account and A.account.characters[name] then
    local identities={};local first=A.FirstDay(period,now);local today=A.Day(now)
@@ -137,7 +139,8 @@ function A.LeaderboardGroups(period,now)
    end end
    encountered=0;for _ in pairs(identities) do encountered=encountered+1 end
   end
-  g.children[#g.children+1]={name=name,k=k,d=d,kd=d>0 and k/d or (k>0 and math.huge or 0),encountered=encountered or -1,isOwn=name==A.owner}
+  g.children[#g.children+1]={name=name,k=k,d=d,kd=d>0 and k/d or (k>0 and math.huge or 0),encountered=encountered or -1,isOwn=name==A.owner,observed=r.observerOnly}
+  g.observed=g.observed or r.observerOnly
   g.k=g.k+k;g.d=g.d+d;g.isOwn=g.isOwn or name==A.owner
   if r.accountEncounterScores and (period=='Lifetime' or A.Day(r.accountEncounterStamp)==A.Day(now)) and (not g.encounterStamp or r.accountEncounterStamp>g.encounterStamp) then
    for i,label in ipairs(A.frames) do if label==period then g.encountered=r.accountEncounterScores[i];g.encounterStamp=r.accountEncounterStamp end end

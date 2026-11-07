@@ -15,6 +15,8 @@ for _,line in ipairs(lines)do assert(#line<=255,'chat line exceeds byte budget')
 local empty=A.BuildTopReport('Today',now+86400);assert(#empty==1 and empty[1]:find('No recorded',1,true),'empty period does not invent top ten')
 A.db.owners[A.owner].days[day]=2;A.db.owners[A.owner].deathDays[day]=1
 A.account.characters['Alt-Realm']={total=4,deaths=2,days={[day]=4,[day-2]=1},deathDays={[day]=2},seen={}}
+A.members['Alt-Realm']=true
+A.account.characters['NonGuild-Realm']={total=999,deaths=999,days={[day]=999},deathDays={[day]=999},seen={}}
 local trend=A.ActivityTrend('7 days',now)
 assert(#trend==7 and trend[7].kills==6 and trend[7].deaths==3,'trend aggregates account alts by UTC day')
 assert(#A.ActivityTrend('Lifetime',now)==30,'lifetime trend is labeled last thirty days')

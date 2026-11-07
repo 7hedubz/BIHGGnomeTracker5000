@@ -31,6 +31,7 @@ function A.Scan(unit)
  if not A.db or not A.Safe(UnitExists,unit) or not A.Safe(UnitIsPlayer,unit) then return end
  local g=A.Safe(UnitGUID,unit); if type(g)~='string' or not g:match('^Player%-') then return end
  local ok,_,race=pcall(UnitRace,unit); if not ok or A.Secret(race) then race=nil end
+ if not race then race=A.Race(g)end
  local faction=A.Safe(UnitFactionGroup,unit)
  local name,realm
  if UnitName then local good,n,r=pcall(UnitName,unit); if good then name=readable(n);realm=readable(r) end end
@@ -39,7 +40,7 @@ function A.Scan(unit)
   name=A.Name(name)
  end
  local t=now()
- if faction=='Alliance' then
+ if faction=='Alliance' and A.members and A.members[A.owner]then
   local fresh=A.Encounter(g,name,race,faction,t)
   if fresh then
    A.QueueShare(true)
@@ -49,12 +50,12 @@ function A.Scan(unit)
  local hostile=A.Safe(UnitCanAttack,'player',unit)
  local dead=A.Safe(UnitIsDeadOrGhost,unit)
  local hp=A.Safe(UnitHealthMax,unit)
- A.Observe(g,race,hostile,hp,t,dead)
+ if A.GroupObserve then A.GroupObserve(g,race,hostile,hp,t,dead)else A.Observe(g,race,hostile,hp,t,dead)end
  -- Corpses and mind-controlled targets may no longer be attackable. Preserve
  -- hostility established while alive; never infer hostile credit from a corpse.
- local encounter=A.encounters[g]
+ local encounter=A.GroupObserve and A.groupTargets[g]or A.encounters[g]
  if race~='Gnome' or not (hostile or (encounter and encounter.hostile)) then return end
- if dead then A.Death(g,t); return end
+ if dead then if A.GroupDeath then A.GroupDeath(g,t)else A.Death(g,t)end;return end
  if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
   for i=1,80 do
    local a=A.Safe(C_UnitAuras.GetAuraDataByIndex,unit,i,'HARMFUL')
@@ -62,11 +63,13 @@ function A.Scan(unit)
    if type(a)=='table' and not (issecrettable and issecrettable(a)) then
     local id=readable(a.spellId); local source=readable(a.sourceUnit)
     local instance=readable(a.auraInstanceID); local expires=readable(a.expirationTime)
-    if type(id)=='number' and A.CCSpells[id] and type(source)=='string' and own(source) then
+    local sourceGUID=type(source)=='string'and A.Safe(UnitGUID,source)
+    local eligible=A.GroupCC and sourceGUID and A.groupSources[sourceGUID]or(not A.GroupCC and own(source))
+    if type(id)=='number' and A.CCSpells[id] and type(source)=='string' and eligible then
      -- Re-observing the same aura is not another successful application.
-     local key=tostring(id)..':'..tostring(instance or '')..':'..tostring(expires or '')
+     local key=tostring(id)..':'..tostring(sourceGUID or '')..':'..tostring(instance or '')..':'..tostring(expires or '')
      A.auras[g]=A.auras[g] or {}
-     if not A.auras[g][key] then A.auras[g][key]=t; A.CC(g,id,true,t) end
+     if not A.auras[g][key] then A.auras[g][key]=t;if A.GroupCC then A.GroupCC(g,id,sourceGUID,t)else A.CC(g,id,true,t)end end
      A.coverage.cc=true
     end
    end
@@ -74,10 +77,13 @@ function A.Scan(unit)
  end
 end
 function A.ScanVisible()
+ if A.RefreshGroupActors then A.RefreshGroupActors()end
  for _,u in ipairs({'target','focus','mouseover'}) do A.Scan(u) end
  for u in pairs(A.plates) do if A.Safe(UnitExists,u) then A.Scan(u) else A.plates[u]=nil end end
+ for _,u in ipairs(A.groupUnits or {})do A.Scan(u..'target')end
  local t=now()
  for g,e in pairs(A.encounters) do if t-(e.last or e.seen or 0)>A.WINDOW then A.encounters[g]=nil end end
+ for g,e in pairs(A.groupTargets or {})do if t-e.seen>A.WINDOW then A.groupTargets[g]=nil end end
  for g,keys in pairs(A.auras) do
   for k,stamp in pairs(keys) do if t-stamp>600 then keys[k]=nil end end
   if not next(keys) then A.auras[g]=nil end
@@ -85,6 +91,7 @@ function A.ScanVisible()
 end
 function A.Roster()
  local guild=A.Safe(GetGuildInfo,'player'); local old=A.guildKey
+ A.guildName=type(guild)=='string'and guild or nil
  A.guildKey=type(guild)=='string' and guild..'-'..(A.Safe(GetNormalizedRealmName) or '') or nil
  local count=0
  A.members={}; if A.guildKey then
@@ -93,8 +100,10 @@ function A.Roster()
   for i=1,math.min(count,1000) do local name=A.Name(A.Safe(GetGuildRosterInfo,i)); if name then A.members[name]=true end end
  end
  if old~=A.guildKey then A.outgoing=nil; A.request=true; A.rx={}; A.queries={}; A.lastRequest=nil; A.syncStatus=nil; A.QueueShare(true) end
+ if A.RefreshGroupActors then A.RefreshGroupActors()end
  local peers=A.PeerRecords()
  if count>0 then for name in pairs(peers) do if not A.members[name] then peers[name]=nil end end end
+ if A.RefreshGroupActors then if A.CarryOwnGuildHistory then A.CarryOwnGuildHistory(now())end;A.RebuildOwnGuildTotals(now())end
  if A.RefreshUI then A.RefreshUI() end
 end
 function A.ReadCombatLog()
@@ -114,6 +123,7 @@ function A.ReadCombatLog()
  if type(event)~='string' then return end
  A.coverage.log=true
  local t=now()
+ if A.GroupCombat then A.GroupCombat(v,t);return end
  if event=='UNIT_DIED' or event=='UNIT_DESTROYED' then A.Death(dst,t);return end
  local mine=src and (src==A.Safe(UnitGUID,'player') or src==A.Safe(UnitGUID,'pet'))
  if not mine then
@@ -143,14 +153,14 @@ function A.Recap()
     -- Do not attribute stale/untimed recaps or hidden casters.
     if id and type(stamp)=='number' and math.abs(stamp-pending.time)<=10 and hide~=true and type(g)=='string' and g:match('^Player%-') then
      A.coverage.recap=true
-     A.PlayerDeath('recap:'..id..':'..stamp,A.Race(g),pending.time); A.pendingDeath=nil; return
+     A.PlayerDeath('recap:'..id..':'..stamp,A.Race(g),pending.time,g); A.pendingDeath=nil; return
     end
    end
   end
  end
  local k=A.killingBlow
  if k and math.abs(k.time-pending.time)<=2 then
-  A.PlayerDeath('combat:'..pending.time,A.Race(k.guid),pending.time);A.pendingDeath=nil
+  A.PlayerDeath('combat:'..pending.time,A.Race(k.guid),pending.time,k.guid);A.pendingDeath=nil
  end
 end
 function A.Changed()
@@ -166,6 +176,7 @@ local function login()
  BIHGGKTAccountDB=BIHGGKTAccountDB or {}
  local identity=A.Safe(UnitGUID,'player') or A.owner:gsub('[^%w_%-]',''):sub(1,50)
  A.InitAccount(BIHGGKTAccountDB,identity..'-'..now(),now())
+ if A.InitGroupTracking then A.InitGroupTracking(now())end
  A.plates={};A.auras={};A.coverage={};A.syncStatus='Waiting for guild roster'
  if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then pcall(C_ChatInfo.RegisterAddonMessagePrefix,A.PREFIX) end
  A.Roster();A.QueueShare(true);A.request=true
@@ -178,6 +189,7 @@ local function handler(_,event,...)
  if not A.db then return end
  if event=='PLAYER_ENTERING_WORLD' then A.Roster();A.QueueShare(true);A.ScanVisible()
  elseif event=='GUILD_ROSTER_UPDATE' or event=='PLAYER_GUILD_UPDATE' then A.Roster()
+ elseif event=='GROUP_ROSTER_UPDATE'or event=='UNIT_PET'then if A.RefreshGroupActors then A.RefreshGroupActors()end
  elseif event=='NAME_PLATE_UNIT_ADDED' then if not A.Secret(arg1) and type(arg1)=='string' then A.plates[arg1]=true;A.Scan(arg1) end
  elseif event=='NAME_PLATE_UNIT_REMOVED' then if not A.Secret(arg1) then A.plates[arg1]=nil end
  elseif event=='UNIT_AURA' or event=='UNIT_HEALTH' or event=='UNIT_FLAGS' then if not A.Secret(arg1) and type(arg1)=='string' then A.Scan(arg1) end
@@ -185,7 +197,7 @@ local function handler(_,event,...)
  elseif event=='UPDATE_MOUSEOVER_UNIT' then A.Scan('mouseover')
  elseif event=='PLAYER_FOCUS_CHANGED' then A.Scan('focus')
  elseif event=='COMBAT_LOG_EVENT_UNFILTERED' then A.ReadCombatLog()
- elseif event=='PARTY_KILL' then if not A.Secret(arg2) then A.Death(arg2,now()) end
+ elseif event=='PARTY_KILL' then if not A.Secret(arg2)then if A.GroupDeath then A.GroupDeath(arg2,now())else A.Death(arg2,now())end end
  elseif event=='PLAYER_DEAD' then
   if A.deathActive then return end
   A.deathActive=true;A.pendingDeath={time=now()}
@@ -200,7 +212,7 @@ frame:SetScript('OnEvent',function(...)
  local ok,err=pcall(handler,...)
  if not ok then A.lastError=tostring(err); if not A.errorShown and DEFAULT_CHAT_FRAME then A.errorShown=true;DEFAULT_CHAT_FRAME:AddMessage('|cffff5555BIHG error:|r '..A.lastError..' (/gkt debug)') end end
 end)
-for _,event in ipairs({'PLAYER_LOGIN','PLAYER_ENTERING_WORLD','GUILD_ROSTER_UPDATE','PLAYER_GUILD_UPDATE','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','UNIT_AURA','UNIT_HEALTH','UNIT_FLAGS','PLAYER_TARGET_CHANGED','UPDATE_MOUSEOVER_UNIT','PLAYER_FOCUS_CHANGED','COMBAT_LOG_EVENT_UNFILTERED','PARTY_KILL','PLAYER_DEAD','PLAYER_ALIVE','PLAYER_UNGHOST','CHAT_MSG_ADDON'}) do pcall(frame.RegisterEvent,frame,event) end
+for _,event in ipairs({'PLAYER_LOGIN','PLAYER_ENTERING_WORLD','GUILD_ROSTER_UPDATE','PLAYER_GUILD_UPDATE','GROUP_ROSTER_UPDATE','UNIT_PET','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','UNIT_AURA','UNIT_HEALTH','UNIT_FLAGS','PLAYER_TARGET_CHANGED','UPDATE_MOUSEOVER_UNIT','PLAYER_FOCUS_CHANGED','COMBAT_LOG_EVENT_UNFILTERED','PARTY_KILL','PLAYER_DEAD','PLAYER_ALIVE','PLAYER_UNGHOST','CHAT_MSG_ADDON'}) do pcall(frame.RegisterEvent,frame,event) end
 local elapsed=0
 frame:SetScript('OnUpdate',function(_,dt)
  elapsed=elapsed+dt; if elapsed<0.5 or not A.db then return end;elapsed=0

@@ -41,21 +41,23 @@ function A.RenderCharts(now)
   if r then row.label:SetText(i..'. '..r.name);row.bar:SetMinMaxValues(0,math.max(1,peak));row.bar:SetValue(r.k);row.value:SetText(tostring(r.k));row.label:Show();row.bar:Show();row.value:Show()
   else row.label:Hide();row.bar:Hide();row.value:Hide() end
  end
- local data=A.ActivityTrend(A.period,now);local maximum=0
- for _,d in ipairs(data) do maximum=math.max(maximum,d.kills,d.deaths) end
- A.trendSubtitle:SetText('Your account | latest '..#data..' days in '..A.period)
- A.trendPeak:SetText('Peak / day: '..maximum)
- for i,row in ipairs(A.trendBars) do
-  local d=data[i]
-  if d then
-   local step=350/#data;local width=math.min(6,step*0.30);local x=50+(i-1)*step
-   row.kills:ClearAllPoints();row.kills:SetPoint('BOTTOMLEFT',A.trendChart,'TOPLEFT',x,-250);row.kills:SetSize(width,162)
-   row.deaths:ClearAllPoints();row.deaths:SetPoint('BOTTOMLEFT',A.trendChart,'TOPLEFT',x+width+1,-250);row.deaths:SetSize(width,162)
-   row.kills:SetMinMaxValues(0,math.max(1,maximum));row.deaths:SetMinMaxValues(0,math.max(1,maximum));row.kills:SetValue(d.kills);row.deaths:SetValue(d.deaths);row.kills:Show();row.deaths:Show()
-  else row.kills:Hide();row.deaths:Hide() end
+ local graph=A.KillsLine(A.period,now,350,164);A.lineData=graph
+ A.trendSubtitle:SetText('Your account | latest '..#graph.points..' days in '..A.period)
+ A.trendPeak:SetText('Y: Kills per day | peak '..graph.peak)
+ for i,value in ipairs(graph.ticks) do A.lineYTicks[i]:SetText(tostring(value)) end
+ for i,dot in ipairs(A.lineDots) do
+  local p=graph.points[i];dot.data=p
+  if p then dot:ClearAllPoints();dot:SetPoint('CENTER',A.linePlot,'BOTTOMLEFT',p.x,p.y);dot:Show()else dot:Hide()end
  end
- A.trendFirst:SetText(data[1] and date('!%d %b',data[1].day*86400) or '')
- A.trendLast:SetText(data[#data] and date('!%d %b',data[#data].day*86400) or '')
+ for i,line in ipairs(A.lineSegments) do
+  local p,q=graph.points[i],graph.points[i+1]
+  if p and q then line:SetStartPoint('BOTTOMLEFT',A.linePlot,p.x,p.y);line:SetEndPoint('BOTTOMLEFT',A.linePlot,q.x,q.y);line:Show()else line:Hide()end
+ end
+ local seen={}
+ for i,label in ipairs(A.lineXTicks) do
+  local index=math.floor((#graph.points-1)*(i-1)/4)+1;local p=graph.points[index]
+  if p and not seen[index] then label:ClearAllPoints();label:SetPoint('TOP',A.linePlot,'BOTTOMLEFT',p.x,-10);label:SetText(date('!%d %b',p.day*86400));label:Show();seen[index]=true else label:Hide()end
+ end
 end
 function A.RefreshUI()
  if not A.window or not A.db then return end
@@ -177,12 +179,23 @@ function A.CreateUI()
   A.chartRows[i]={label=text(top,'small',14,y,142),bar=bar,value=text(top,'small',390,y,50)}
  end
  local trend=panel(A.chartsPane,472,0,452,320);A.trendChart=trend
- text(trend,'normal',14,-12,420):SetText('DAILY ACCOUNT ACTIVITY');A.trendSubtitle=text(trend,'small',14,-34,420);A.trendPeak=text(trend,'small',14,-58,420);A.trendBars={}
- for i=1,30 do
-  local row={};for _,key in ipairs({'kills','deaths'}) do local b=CreateFrame('StatusBar',nil,trend);b:SetOrientation('VERTICAL');b:SetStatusBarTexture('Interface\\Buttons\\WHITE8X8');if key=='kills' then b:SetStatusBarColor(0.94,0.62,0.20)else b:SetStatusBarColor(0.88,0.28,0.29)end;row[key]=b end;A.trendBars[i]=row
+ text(trend,'normal',14,-12,420):SetText('KILLS OVER TIME');A.trendSubtitle=text(trend,'small',14,-34,420);A.trendPeak=text(trend,'small',14,-56,420)
+ local plot=CreateFrame('Frame',nil,trend);A.linePlot=plot;plot:SetPoint('TOPLEFT',70,-78);plot:SetSize(350,164)
+ A.lineYTicks={};A.lineXTicks={};A.lineDots={};A.lineSegments={}
+ for i=0,4 do
+  local y=i/4*164;local grid=plot:CreateLine(nil,'BACKGROUND');grid:SetThickness(1);grid:SetColorTexture(0.18,0.23,0.28,1);grid:SetStartPoint('BOTTOMLEFT',plot,0,y);grid:SetEndPoint('BOTTOMLEFT',plot,350,y)
+  local tick=text(trend,'small',0,0,52);tick:ClearAllPoints();tick:SetPoint('RIGHT',plot,'BOTTOMLEFT',-10,y);tick:SetJustifyH('RIGHT');A.lineYTicks[i+1]=tick
+  local label=text(trend,'small',0,0,62);label:SetJustifyH('CENTER');A.lineXTicks[i+1]=label
  end
- A.trendFirst=text(trend,'small',50,-263,160);A.trendLast=text(trend,'small',330,-263,100)
- text(trend,'small',50,-291,350):SetText('|cfff0a033Gold: kills|r    |cffe0484aRed: deaths to Gnomes|r')
+ local axis=plot:CreateLine(nil,'BACKGROUND');axis:SetThickness(1);axis:SetColorTexture(0.45,0.50,0.55,1);axis:SetStartPoint('BOTTOMLEFT',plot,0,0);axis:SetEndPoint('BOTTOMLEFT',plot,0,164)
+ for i=1,29 do local line=plot:CreateLine(nil,'OVERLAY');line:SetThickness(2);line:SetColorTexture(0.94,0.62,0.20,1);A.lineSegments[i]=line end
+ for i=1,30 do
+  local dot=CreateFrame('Frame',nil,plot);dot:SetSize(12,12);dot:EnableMouse(true)
+  local mark=dot:CreateTexture(nil,'OVERLAY');mark:SetSize(5,5);mark:SetPoint('CENTER');mark:SetColorTexture(1,0.74,0.30,1)
+  dot:SetScript('OnEnter',function(self)if self.data and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText(date('!%Y-%m-%d',self.data.day*86400)..' UTC');GameTooltip:AddLine(self.data.kills..' kills recorded',1,0.74,0.30);GameTooltip:Show()end end)
+  dot:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end);A.lineDots[i]=dot
+ end
+ A.lineXAxis=text(trend,'small',14,-291,420);A.lineXAxis:SetText('X: Time (UTC date) | hover a point for its kill count')
  A.settingsPane=panel(w,18,-276,924,320)
  text(A.settingsPane,'normal',20,-18,880):SetText('ACCOUNT PROFILE')
  text(A.settingsPane,'small',20,-45,880):SetText('One nickname for your known alts. Renaming preserves statistics; identical nicknames do not merge unrelated accounts.')
@@ -220,7 +233,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.2.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.2.1 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

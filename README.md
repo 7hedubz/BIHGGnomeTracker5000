@@ -46,7 +46,9 @@ Open **`/gkt`**, `/gnomekills`, `/bihg`, or use the minimap gear.
 
 ### Charts
 
-**Charts** contains a horizontal Top 10 guild-alias kill ranking for the selected period, and a daily account activity chart with gold kill bars / red deaths-to-Gnomes bars. Daily activity shows the latest **up to 30 UTC days within the selected period**; Lifetime therefore shows the latest 30 days rather than the entire lifetime on the time axis. Labels identify this limit. Guild rankings use cached reports; empty rankings show an explicit no-data message rather than fictional zero-score leaders.
+**Charts** contains a horizontal Top 10 guild-alias kill ranking and a **Kills over time line graph**. The line combines your characters' recorded daily kills: **X = UTC date/time, Y = kills per day**. Numeric Y-axis ticks start at zero, date ticks run from oldest to newest, and hovering a point shows its exact date/count. This is daily activity, not a cumulative lifetime-total curve. A single-day view shows one point rather than an invented time segment.
+
+The line shows the latest **up to 30 UTC days within the selected period**; Lifetime therefore shows the latest 30 days rather than the entire lifetime on the time axis. Labels identify this limit. Guild rankings use cached reports; empty rankings show an explicit no-data message rather than fictional zero-score leaders. Version 1.2.1 replaces the former daily kill/death bars with this kills-only line graph.
 
 ### Send the Top 10 to guild chat
 
@@ -76,7 +78,7 @@ Each guildmate must install/enable the addon. Direct score packets are attribute
 
 `BIHGGKTDB` remains per-character. New **`BIHGGKTAccountDB`** is account-wide and retains nickname, stable grouping ID, known character records, and shared guild caches. Existing totals migrate by cumulative maximum, not addition, and remain after renaming. Lifetime totals and unique identities persist; dated history is retained for 400 days. Activity before addon installation cannot be reconstructed. Do not edit live SavedVariables while WoW is running.
 
-**For 1.2.0, fully quit and relaunch the client**: this version adds `Dashboard.lua` to the TOC. Upgrading from before 1.1.0 also adds account-wide data; log each existing alt once to import it. No statistics reset is needed.
+**From 1.2.0 to 1.2.1, `/reload` is sufficient**: the load list is unchanged. Upgrading from before 1.2.0 requires a full quit/relaunch because `Dashboard.lua` was added to the TOC. Upgrading from before 1.1.0 also adds account-wide data; log each existing alt once to import it. No statistics reset is needed.
 
 ## Install
 

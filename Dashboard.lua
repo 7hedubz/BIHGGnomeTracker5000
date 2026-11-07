@@ -29,6 +29,17 @@ function A.ActivityTrend(period,now)
  end
  return data
 end
+function A.KillsLine(period,now,width,height)
+ local data=A.ActivityTrend(period,now);local peak=0
+ for _,d in ipairs(data) do peak=math.max(peak,d.kills) end
+ local step=math.max(1,math.ceil(peak/4));local ceiling=step*4
+ local result={points={},ticks={},peak=peak,ceiling=ceiling}
+ for i=0,4 do result.ticks[#result.ticks+1]=i*step end
+ for i,d in ipairs(data) do
+  result.points[i]={day=d.day,kills=d.kills,x=#data==1 and width/2 or (i-1)/(#data-1)*width,y=d.kills/ceiling*height}
+ end
+ return result
+end
 function A.StartTopPost(lines,now)
  if not A.guildKey or (IsInGuild and A.Safe(IsInGuild)~=true) then A.postStatus='Join a guild before posting.';return false end
  if A.Safe(IsInInstance)~=false then A.postStatus='Leave the instance before posting to guild.';return false end

@@ -6,6 +6,10 @@ local noop=function()end
 local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)self.shown=false end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetText=function(self)return self.text end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
 local function obj()return setmetatable({scripts={},events={},shown=true},{__index=function(_,k)return methods[k] or noop end})end
 methods.CreateFontString=obj;methods.CreateTexture=obj
+methods.CreateLine=obj
+methods.SetStartPoint=function(self,...)self.start={...}end
+methods.SetEndPoint=function(self,...)self.finish={...}end
+methods.SetPoint=function(self,...)self.coords={...}end
 methods.SetValue=function(self,v)self.value=v end
 methods.SetMinMaxValues=function(self,low,high)self.low=low;self.high=high end
 function CreateFrame(_,name)local o=obj();frames[#frames+1]=o;if name then _G[name]=o end;return o end
@@ -140,7 +144,12 @@ A.OpenView('Charts',false)
 assert(A.chartsPane:IsShown() and not A.tablePane:IsShown() and not A.settingsPane:IsShown(),'chart view has distinct content pane')
 assert(A.chartRows[1].bar.value==7,'native ranking bar uses actual cached alias kills')
 A.SelectPeriod('Today')
-assert(A.trendBars[1].kills.value==7 and not A.trendBars[2].kills:IsShown(),'daily chart obeys selected period and hides unused bars')
+assert(A.lineDots[1].data.kills==7 and not A.lineDots[2]:IsShown(),'kill line obeys selected period and hides unused points')
+assert(A.lineDots[1].coords[4]==175 and not A.lineSegments[1]:IsShown(),'single day is a centered point, not a fictitious time segment')
+A.SelectPeriod('7 days')
+assert(A.lineSegments[6]:IsShown() and not A.lineSegments[7]:IsShown(),'seven daily points form six connected line segments')
+assert(A.lineSegments[1].start[3]==0 and A.lineSegments[6].finish[3]==350,'line runs from earliest to latest date')
+assert(A.lineYTicks[1].text=='0' and A.lineXAxis.text:find('Time',1,true),'numeric kill axis and date axis are labeled')
 A.OpenView('Leaderboard',false);assert(A.tablePane:IsShown() and not A.chartsPane:IsShown(),'returning from charts restores table')
 local chat={};SendChatMessage=function(msg,channel)chat[#chat+1]={msg,channel}end
 A.reportButton.scripts.OnClick();assert(A.preview:IsShown() and #chat==0 and not A.postJob,'preview never posts automatically')

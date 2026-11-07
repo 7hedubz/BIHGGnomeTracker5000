@@ -1,0 +1,13 @@
+## Interface: 16001
+## AllowLoadGameType: camelot
+## ExcludeLoadGameType: standard, classic
+## Title: BIHG GnomeKillTracker 5000
+## Author: DoHeal
+## Version: 1.0.0
+## Notes: Gnome PvP kills, deaths, Alliance encounters, and synced guild leaderboards. /gkt
+## SavedVariablesPerCharacter: BIHGGKTDB
+## IconTexture: Interface\Icons\INV_Misc_Gear_01
+Core.lua
+Sync.lua
+Runtime.lua
+UI.lua

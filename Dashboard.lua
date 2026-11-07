@@ -19,7 +19,8 @@ end
 function A.ActivityTrend(period,now)
  local today=A.Day(now);local first=math.max(today-29,A.FirstDay(period,now));local data={}
  local records={}
- for name,r in pairs(A.account and A.account.characters or {[A.owner]=A.db.owners[A.owner]})do if A.members and A.members[name]then records[#records+1]=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now)or r end end
+ local members=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
+ for name,r in pairs(A.account and A.account.characters or {[A.owner]=A.db.owners[A.owner]})do if members[name]then records[#records+1]=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r end end
  for day=first,today do
   local k,d=0,0
   for _,r in ipairs(records)do k=k+((r.days or {})[day]or 0);d=d+((r.deathDays or {})[day]or 0)end

@@ -17,7 +17,7 @@ function A.Name(name)
 end
 function A.Race(g)
  if A.Secret(g) or type(g)~='string' then return nil end
- local saved=A.db and A.db.seen and A.db.seen[g]
+ local saved=(A.account and A.account.knownEncounters and A.account.knownEncounters[g])or(A.db and A.db.seen and A.db.seen[g])
  if saved and saved.race then return saved.race end
  if GetPlayerInfoByGUID then
   local ok,_,_,_,race=pcall(GetPlayerInfoByGUID,g)
@@ -138,6 +138,7 @@ function A.Roster(confirmed)
  A.guildUnverified=false
  if type(guild)=='string'and guild~=''and type(realm)=='string'and realm~=''then
   A.guildName=guild;A.guildKey=guild..'-'..realm;A.db.lastGuild={name=guild,key=A.guildKey}
+  if A.account then A.account.viewGuilds=A.account.viewGuilds or{};A.account.viewGuilds[realm]=A.guildKey end
  elseif A.Safe(IsInGuild)==true and last and type(last.name)=='string'and type(last.key)=='string'and(guild==nil or guild==last.name)then
   A.guildName=last.name;A.guildKey=last.key;A.guildUnverified=true;confirmed=false
  else A.guildName=nil;A.guildKey=nil end

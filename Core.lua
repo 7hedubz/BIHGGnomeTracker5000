@@ -109,6 +109,7 @@ function A.Encounter(g,name,race,faction,now)
  if not r then r={first=now,days={}}; A.db.seen[g]=r end
  r.name=name or r.name or g; r.race=race or r.race; r.last=now; r.days=r.days or {}; r.days[A.Day(now)]=true
  for d in pairs(r.days) do if d<A.Day(now)-A.RETENTION+1 then r.days[d]=nil end end
+ if A.RememberKnownEncounter then A.RememberKnownEncounter(g,r)end
  return fresh and race=='Gnome'
 end
 function A.EncounterCount(frame,now)

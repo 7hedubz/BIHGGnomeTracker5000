@@ -10,6 +10,7 @@ jobs:
       - run: luajit tests/run.lua .
       - run: luajit tests/integration.lua .
       - run: luajit tests/accounts.lua .
+      - run: luajit tests/shared_cache.lua .
       - run: luajit tests/dashboard.lua .
       - run: luajit tests/group.lua .
       - run: luajit tests/nearby.lua .

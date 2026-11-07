@@ -119,10 +119,11 @@ function A.RefreshUI()
  end
  local now=clock();local period=A.period or 'Lifetime';local me=A.db.owners[A.owner];local kills,deaths=0,0
  if A.RefreshTopPostControls then A.RefreshTopPostControls()end
- for name,r in pairs(A.account and A.account.characters or {[A.owner]=me}) do if A.members and A.members[name]then local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now)or r;kills=kills+A.Score(effective,period,now);deaths=deaths+A.Score(effective,period,now,'deaths')end end
- local values={tostring(kills),tostring(deaths),ratio(kills,deaths),tostring(A.AccountEncounterCount(period,now))}
+ local viewMembers=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
+ for name,r in pairs(A.account and A.account.characters or {[A.owner]=me}) do if viewMembers[name]then local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r;kills=kills+A.Score(effective,period,now);deaths=deaths+A.Score(effective,period,now,'deaths')end end
+ local values={tostring(kills),tostring(deaths),ratio(kills,deaths),tostring(A.AccountEncounterCount(period,now,viewMembers))}
  for i,v in ipairs(values) do A.statCards[i].value:SetText(v) end
- A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | known guild characters; encounter identities deduplicated')
+ A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | '..(not A.guildKey and viewKey and'cached guild history (read-only)'or'known guild characters; encounter identities deduplicated'))
  for label,b in pairs(A.navButtons) do style(b,A.mode==label) end
  for i,b in ipairs(A.periodButtons) do style(b,A.frames[i]==period) end
  local tabular=A.mode=='Leaderboard' or A.mode=='Encounters';local encounters=A.mode=='Encounters'
@@ -149,10 +150,10 @@ function A.RefreshUI()
  for _,row in ipairs(A.rows) do row[4]:SetWidth(encounters and 262 or 122);if encounters then row[5]:Hide() else row[5]:Show() end end
  local data={}
  if encounters then
-  A.heading:SetText('ALLIANCE ENCOUNTERS | Personal sighting log; Gnomes highlighted')
+  A.heading:SetText('ALLIANCE ENCOUNTERS | Account-wide local history; Gnomes highlighted')
   A.headers[1]:SetText('Character');A.headers[2]:SetText('Race');A.headers[3]:SetText('First seen');A.headers[4]:SetText('Last seen')
   local first=A.FirstDay(period,now)
-  for guid,r in pairs(A.db.seen or {}) do
+  for guid,r in pairs(A.KnownEncounters()) do
    local include=period=='Lifetime'
    for day in pairs(r.days or {}) do if day>=first and day<=A.Day(now) then include=true;break end end
    if include then data[#data+1]={name=r.name or guid,targetName=r.name,race=r.race or '?',first=r.first,last=r.last} end
@@ -338,7 +339,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.6 | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.7 | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

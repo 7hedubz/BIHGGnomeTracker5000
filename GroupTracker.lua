@@ -3,13 +3,13 @@ local function copy(t)local out={};for k,v in pairs(t or {})do out[k]=v end;retu
 local function player(g)return type(g)=='string' and g:match('^Player%-[%w%-]+$')~=nil end
 local function record()return {total=0,deaths=0,days={},deathDays={}}end
 local function number(s,max)local n=type(s)=='string' and s:match('^%d+$') and tonumber(s);if n and n<=max then return n end end
-local function store()
- if not A.guildKey then return nil end
+local function store(guildKey)
+ guildKey=guildKey or A.guildKey;if not guildKey then return nil end
  local root=A.account or A.db;root.guildObservations=root.guildObservations or {}
- root.guildObservations[A.guildKey]=root.guildObservations[A.guildKey] or {events={}}
- local s=root.guildObservations[A.guildKey];A.groupIndexes=A.groupIndexes or {};local index=A.groupIndexes[A.guildKey]
+ root.guildObservations[guildKey]=root.guildObservations[guildKey] or {events={}}
+ local s=root.guildObservations[guildKey];A.groupIndexes=A.groupIndexes or {};local index=A.groupIndexes[guildKey]
  if not index then
-  index={names={},pairs={}};A.groupIndexes[A.guildKey]=index
+  index={names={},pairs={}};A.groupIndexes[guildKey]=index
   for _,e in pairs(s.events)do
    local pair=e.kind..':'..e.actor..':'..e.target
    index.names[e.name]=index.names[e.name] or {};table.insert(index.names[e.name],e)
@@ -56,8 +56,8 @@ function A.RefreshGroupActors()
   for i=1,math.min(n,4)do add('party'..i,'partypet'..i)end
  end
 end
-function A.GuildEffectiveRecord(name,r,now)
- r=r or record();local s,index=store();if not s then return r end
+function A.GuildEffectiveRecord(name,r,now,guildKey)
+ r=r or record();local s,index=store(guildKey);if not s then return r end
  local base=r.guildBase
  local b=base or {since=r.observerOnly and 0 or now+1,total=r.total or 0,deaths=r.deaths or 0,days=r.days or {},deathDays=r.deathDays or {}}
  local result={total=b.total or 0,deaths=b.deaths or 0,days=copy(b.days),deathDays=copy(b.deathDays)}

@@ -16,6 +16,24 @@ local function merge(target,source)
  end
  return target
 end
+function A.RememberKnownEncounter(guid,entry)
+ if not A.account then return end
+ local cache=A.account.knownEncounters or{};A.account.knownEncounters=cache
+ local old=cache[guid]
+ if not old then old={days={}};cache[guid]=old end
+ if not old.last or(entry.last or 0)>old.last then
+  old.name=entry.name or old.name;old.race=entry.race or old.race
+ else old.name=old.name or entry.name;old.race=old.race or entry.race end
+ if entry.first then old.first=math.min(old.first or entry.first,entry.first)end
+ if entry.last then old.last=math.max(old.last or entry.last,entry.last)end
+ old.days=old.days or{};for day in pairs(entry.days or{})do old.days[day]=true end
+end
+function A.KnownEncounters()
+ if not A.account then return A.db and A.db.seen or{}end
+ for _,r in pairs(A.account.characters or{})do for guid,e in pairs(r.seen or{})do A.RememberKnownEncounter(guid,e)end end
+ for guid,e in pairs(A.db.seen or{})do A.RememberKnownEncounter(guid,e)end
+ return A.account.knownEncounters or{}
+end
 function A.InitAccount(account,id,now)
  account.version=1;account.id=account.id or id;account.alias=account.alias or short(A.owner)
  account.aliasRev=account.aliasRev or now;account.characters=account.characters or {};account.guilds=account.guilds or {}
@@ -24,8 +42,11 @@ function A.InitAccount(account,id,now)
  local seen=r.seen or {};for guid,entry in pairs(A.db.seen or {}) do
   local old=seen[guid]
   if not old then seen[guid]=entry else
+   local newer=(entry.last or 0)>=(old.last or 0)
    old.first=math.min(old.first or entry.first,entry.first);old.last=math.max(old.last or entry.last,entry.last)
-   old.name=entry.name or old.name;old.race=entry.race or old.race;old.days=old.days or {}
+   if newer then old.name=entry.name or old.name;old.race=entry.race or old.race
+   else old.name=old.name or entry.name;old.race=old.race or entry.race end
+   old.days=old.days or {}
    for day in pairs(entry.days or {}) do old.days[day]=true end
   end
  end
@@ -48,6 +69,7 @@ function A.InitAccount(account,id,now)
   for _,entry in pairs(record.seen or {}) do for day in pairs(entry.days or {}) do if day<firstDay then entry.days[day]=nil end end end
  end
  A.SnapshotAccount(now)
+ for _,entry in pairs(A.KnownEncounters())do for day in pairs(entry.days or{})do if day<firstDay then entry.days[day]=nil end end end
 end
 function A.SnapshotAccount(now)
  if not A.account then return end
@@ -117,11 +139,44 @@ function A.ReceiveAccount(msg,sender,now)
  if not r.accountEncounterStamp or stamp>=r.accountEncounterStamp then r.accountEncounterScores=scores;r.accountEncounterStamp=stamp end
  return true
 end
+-- Read-only selection is deliberately separate from the live guild identity
+-- used by transport, contribution tracking and report authorization.
+function A.ViewGuildKey()
+ if A.guildKey then return A.guildKey end
+ if not A.account then return end
+ local realm=A.Safe and A.Safe(GetNormalizedRealmName)or nil
+ realm=realm or(type(A.owner)=='string'and A.owner:match('%-(.+)$'))
+ if type(realm)~='string'or realm==''then return end
+ local suffix='-'..realm;local guilds=A.account.guilds or{}
+ local preferred=(A.account.viewGuilds or{})[realm]
+ if preferred and guilds[preferred]and preferred:sub(-#suffix)==suffix then return preferred end
+ local selected
+ for key in pairs(guilds)do if key:sub(-#suffix)==suffix then if selected then return end;selected=key end end
+ return selected
+end
+function A.ViewPeerRecords()
+ local key=A.ViewGuildKey();if not key then return{}end
+ if key==A.guildKey then return A.PeerRecords()end
+ return(A.account.guilds or{})[key]or{}
+end
+function A.ViewGuildMembers()
+ if A.guildKey then return A.members or{}end
+ local key=A.ViewGuildKey();if not key then return{}end
+ local cache=(A.account.guildMembership or{})[key];local members={}
+ local identities=(A.account.guildIdentities or{})[key]or{}
+ for name,present in pairs(cache and cache.members or A.ViewPeerRecords())do if present then
+  local guid=(cache and cache.guids or{})[name]or(identities.names or{})[name]
+  local canonical=guid and((A.account.characterNamesByGUID or{})[guid]or(identities.guids or{})[guid])or name
+  members[canonical or name]=true
+ end end
+ return members
+end
 function A.LeaderboardGroups(period,now)
  if A.account then A.SnapshotAccount(now) end
  local records={}
- for name,r in pairs(A.PeerRecords()) do if A.members and A.members[name] then records[name]=r end end
- if A.account then for name,r in pairs(A.account.characters) do if A.members and A.members[name] then records[name]=r end end
+ local members=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
+ for name,r in pairs(A.ViewPeerRecords()) do if members[name] then records[name]=r end end
+ if A.account then for name,r in pairs(A.account.characters) do if members[name] then records[name]=r end end
  elseif A.members and A.members[A.owner] then records[A.owner]=A.db.owners[A.owner] end
  local groups={}
  for name,r in pairs(records) do
@@ -129,7 +184,7 @@ function A.LeaderboardGroups(period,now)
   local g=groups[key]
   if not g then g={id=key,name=r.alias or short(name),aliasRev=-1,k=0,d=0,children={},isGroup=true,encountered=-1};groups[key]=g end
   if r.alias and (r.aliasRev or 0)>=g.aliasRev then g.name=r.alias;g.aliasRev=r.aliasRev or 0 end
-  local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now)or r
+  local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r
   local k=A.Score(effective,period,now);local d=A.Score(effective,period,now,'deaths')
   local encountered=name==A.owner and A.EncounterCount(period,now) or A.EncounterScore(r,period,now)
   if A.account and A.account.characters[name] then
@@ -148,7 +203,7 @@ function A.LeaderboardGroups(period,now)
  end
  local out={}
  for _,g in pairs(groups) do
-  if A.account and g.id=='account:'..A.account.id then g.encountered=A.AccountEncounterCount(period,now,A.members)
+  if A.account and g.id=='account:'..A.account.id then g.encountered=A.AccountEncounterCount(period,now,members)
   elseif #g.children==1 and g.encountered<0 then g.encountered=g.children[1].encountered end
   g.kd=g.d>0 and g.k/g.d or (g.k>0 and math.huge or 0)
   table.sort(g.children,function(a,b)return a.name<b.name end);out[#out+1]=g

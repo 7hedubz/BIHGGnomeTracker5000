@@ -358,5 +358,12 @@ assert(A.nearbyFrame:IsShown(),'combat auto-close leaves independent Nearby over
 combat=false;setfenv(secureSnippet,{self=A.window,newstate='available'});secureSnippet();tick()
 assert(not A.window:IsShown(),'leaving combat does not reopen config automatically')
 A.OpenView('Settings',false);assert(A.window:IsShown(),'user can reopen normally after combat')
+A.account.characters['CacheAlt-Realm']={total=0,deaths=0,days={},deathDays={},seen={['Player-alt-history']={name='SharedAltSight',race='Gnome',first=now-1,last=now,days={[A.Day(now)]=true}}}}
+A.OpenView('Encounters',false);local sharedVisible=false
+for _,row in ipairs(A.rows)do if row.data and row.data.name=='SharedAltSight'then sharedVisible=true end end
+assert(sharedVisible and not A.db.seen['Player-alt-history'],'actual encounter UI reads other local character history without adding personal attribution')
+local liveKey,liveMembers=A.guildKey,A.members;A.guildKey=nil;A.members={};A.OpenView('Leaderboard',false)
+assert(A.summary.text:find('cached guild history (read-only)',1,true)and not A.reportButton:IsShown()and A.guildKey==nil,'cached-only UI is explicitly labeled and cannot authorize public posting')
+A.guildKey=liveKey;A.members=liveMembers;A.RefreshUI()
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, protected targeting, persistent scores, rank-gated guild reports, independent party detection chat, local-only report diagnostics and guarded APIs')

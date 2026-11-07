@@ -89,7 +89,7 @@ function A.AccountPackets(now)
  local out={'3|I|'..A.account.id..'|'..A.EncodeAlias(A.account.alias)..'|'..A.account.aliasRev}
  local unique={'3','U',A.account.id,tostring(now)}
  for _,period in ipairs(A.frames) do unique[#unique+1]=tostring(A.AccountEncounterCount(period,now,A.members)) end
- out[#out+1]=table.concat(unique,'|');return out
+ out[#out+1]=table.concat(unique,'|');if A.CharacterIdentityPacket then local packet=A.CharacterIdentityPacket();if packet then out[#out+1]=packet end end;return out
 end
 function A.ReceiveAccount(msg,sender,now)
  local id,encoded,rev=msg:match('^3|I|([%w_%-]+)|(%x+)|(%d+)$')
@@ -179,12 +179,14 @@ function A.AltPackets(now)
   for _,key in ipairs({'days','deathDays'}) do for day in pairs(r[key] or {}) do if day>=today-A.RETENTION+1 and day<=today then days[day]=true end end end
   local sorted={};for day in pairs(days) do sorted[#sorted+1]=day end;table.sort(sorted,function(a,b)return a>b end)
   for _,day in ipairs(sorted) do packets[#packets+1]=prefix..string.format('2|S|%d|%d|%d|%d|%d',r.total,r.deaths or 0,day,(r.days or {})[day] or 0,(r.deathDays or {})[day] or 0) end
+  if type(r.characterGUID)=='string'and r.characterGUID:match('^Player%-[%w%-]+$')then packets[#packets+1]='6|R|'..A.EncodeAlias(name)..'|'..r.characterGUID end
  end
  return packets
 end
 function A.ReceiveAlt(msg,sender,now)
  local encoded,payload=msg:match('^4|R|(%x+)|(2|[SE]|.+)$')
  local name=encoded and A.DecodeAlias(encoded)
+ if name and A.CanonicalCharacterName then local old=A.PeerRecords()[name];name=A.CanonicalCharacterName(name,old and old.characterGUID)end
  local source=A.PeerRecords()[sender]
  if not name or name==A.owner or name==sender or not A.members[name] or not source or not source.accountID or not source.bindingDirect then return false end
  if A.account and A.account.characters[name] and source.accountID~=A.account.id then return false end

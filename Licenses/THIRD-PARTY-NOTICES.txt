@@ -1,0 +1,62 @@
+Third-party assets bundled with BIHGGnomeKillTracker5000
+
+AUDIO: Kenney Interface Sounds (1.0)
+Created/distributed by Kenney (www.kenney.nl), creation date 11-02-2020.
+Source page: https://opengameart.org/content/interface-sounds
+Downloaded archive: https://opengameart.org/sites/default/files/kenney_interfaceSounds.zip
+Media/alert-1.ogg = Audio/error_001.ogg
+Media/alert-2.ogg = Audio/error_002.ogg
+Media/alert-3.ogg = Audio/error_003.ogg
+Media/alert-4.ogg = Audio/error_004.ogg
+These are unmodified original Ogg Vorbis files, renamed only. No synthesis,
+trimming, normalization, or re-encoding was performed.
+License: Creative Commons Zero 1.0 Universal (CC0-1.0).
+See CC0-1.0.txt for the full legal code and Kenney-Interface-Sounds.txt for
+the original archive notice. Attribution is appreciated, not required.
+
+LibStub
+Source: https://repos.wowace.com/wow/libstub/trunk/LibStub.lua
+Upstream repository revision at retrieval: 109; library minor: 2.
+Upstream notice, retained verbatim in the unmodified source:
+-- LibStub is hereby placed in the Public Domain
+-- Credits: Kaelten, Cladhaire, ckknight, Mikk, Ammo, Nevcairiel, joshborke
+There is no additional upstream license text; this is its public-domain dedication.
+
+CallbackHandler-1.0
+Source: https://repos.wowace.com/wow/callbackhandler/trunk/CallbackHandler-1.0/CallbackHandler-1.0.lua
+Upstream repository revision at retrieval: 29; library minor: 8.
+License: BSD 3-Clause, as identified on its official project page.
+Full upstream license: https://www.wowace.com/project/15049/license
+See CallbackHandler-1.0-BSD.txt. The upstream license contains literal
+<YEAR>, <OWNER>, and <ORGANIZATION> placeholders; they are preserved, not invented.
+The source is distributed unmodified.
+
+LibSharedMedia-3.0
+Original project: https://www.wowace.com/projects/libsharedmedia-3-0/
+Pinned unmodified source: https://raw.githubusercontent.com/Bodify/BetterBlizzPlates/bcb8732159ae4de3cbe17ef26049efffeb718ff1/libs/LibSharedMedia-3.0/LibSharedMedia-3.0.lua
+Mirror commit: bcb8732159ae4de3cbe17ef26049efffeb718ff1; library minor: 8020003 (8.2.0 v3).
+This compatible version avoids introducing Midnight-only C_UIFileAsset APIs.
+Author: Elkano (elkano@gmx.de).
+Inspired By: SurfaceLib by Haste/Otravi (troeks@gmail.com).
+Website: https://www.curseforge.com/wow/addons/libsharedmedia-3-0
+License: LGPL v2.1, explicitly stated in the source header.
+The project-wide license page says 'All Rights Reserved unless otherwise
+explicitly stated'; the distributed Lua file explicitly states LGPL v2.1.
+See LGPL-2.1.txt for the full license, plus GPL-2.0.txt referenced by LGPL.
+License texts downloaded from SPDX's license-list-data repository after
+www.gnu.org returned HTTP 403. The complete library source is included,
+unmodified and separately replaceable. Redistribution must retain the library's
+notices and license and permit modification/replacement and reverse engineering
+for debugging modifications as required by LGPL 2.1. No addon-wide relicensing
+is asserted by this notice.
+
+Load order / runtime prerequisites
+Libs/LibStub.lua
+Libs/CallbackHandler-1.0.lua
+Libs/LibSharedMedia-3.0.lua
+Then addon code that uses LibStub("LibSharedMedia-3.0").
+LibStub expects WoW's strmatch global; CallbackHandler expects WoW's
+securecallfunction; LibSharedMedia expects the WoW/Lua 5.1 globals getfenv,
+bit.band, GetLocale, and the client media/API globals used in its source.
+Shared media from other addons is available only when registered with the
+same LibSharedMedia registry; arbitrary unregistered sound files are not scanned.

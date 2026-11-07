@@ -1,0 +1,4 @@
+# Preserve downloaded third-party source and licensed assets byte-for-byte.
+Libs/*.lua -text -whitespace
+Media/*.ogg binary
+Licenses/*.txt -text -whitespace

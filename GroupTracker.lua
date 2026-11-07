@@ -36,12 +36,14 @@ function A.RefreshGroupActors()
   if not A.Safe(UnitExists,unit) then return end
   local guid=A.Safe(UnitGUID,unit);if not player(guid)then return end
   local name=unitName(unit);if not name then return end
+  if guid==A.Safe(UnitGUID,'player')then name=A.owner elseif A.CanonicalCharacterName then name=A.CanonicalCharacterName(name,guid)end
   local guild=A.Safe(GetGuildInfo,unit)
   if guild and A.guildName and guild~=A.guildName then A.members[name]=nil;return end
   if not A.members[name] and not (A.guildName and guild==A.guildName)then return end
   A.members[name]=true
   local peers=A.PeerRecords()
   if name~=A.owner and not(A.account and A.account.characters[name])and not peers[name]then peers[name]=record();peers[name].observerOnly=true end
+  if peers[name]then if peers[name].characterGUID and peers[name].characterGUID~=guid then return end;peers[name].characterGUID=guid end
   local actor={name=name,guid=guid,unit=unit};A.groupOwners[guid]=actor;A.groupSources[guid]=actor;A.groupUnits[#A.groupUnits+1]=unit
   local petGUID=A.Safe(UnitGUID,pet);if type(petGUID)=='string' then A.groupSources[petGUID]=actor end
  end
@@ -78,6 +80,7 @@ function A.RebuildOwnGuildTotals(now)
  r.total=effective.total;r.deaths=effective.deaths;r.days=effective.days;r.deathDays=effective.deathDays
 end
 function A.AddGuildEvent(kind,name,actor,target,at,contribution,now)
+ if A.CanonicalCharacterName then name=A.CanonicalCharacterName(name,actor)end
  if not A.guildKey or not A.members[name] or not player(actor)or not player(target)or(kind~='K'and kind~='D')then return false end
  at=math.floor(at);contribution=math.floor(contribution)
  if at>now+5 or at<1000000000 or contribution>at+1 or contribution<at-A.WINDOW then return false end
@@ -204,7 +207,8 @@ function A.ReceiveGroup(msg,sender,now)
   if A.RefreshUI then A.RefreshUI()end
   return ok
  elseif f[2]=='B'and #f==9 then
-  local name=A.DecodeAlias(f[3]);local since=number(f[4],4102444800);local total=number(f[5],1000000000);local deaths=number(f[6],1000000000)
+  local name=A.DecodeAlias(f[3]);if name and A.CanonicalCharacterName then local old=A.PeerRecords()[name];name=A.CanonicalCharacterName(name,old and old.characterGUID)end
+  local since=number(f[4],4102444800);local total=number(f[5],1000000000);local deaths=number(f[6],1000000000)
   local day=number(f[7],1000000);local kills=number(f[8],1000000000);local dd=number(f[9],1000000000)
   if not name or not A.members[name]or not since or since>now+5 or not total or not deaths or not day or day>A.Day(now)or not kills or kills>total or not dd or dd>deaths then return false end
   local peers=A.PeerRecords();local source=peers[sender];local target=peers[name]

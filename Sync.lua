@@ -15,6 +15,10 @@ function A.Receive(msg,channel,sender,now)
  A.rx=A.rx or {}; local limit=A.rx[sender]
  if not limit or now-limit.start>=60 then limit={start=now,n=0}; A.rx[sender]=limit end
  limit.n=limit.n+1; if limit.n>450 then return false end
+ if msg:sub(1,2)=='6|'then
+  local ok=A.ReceiveCharacterIdentity and A.ReceiveCharacterIdentity(msg,sender,now)or false
+  if ok and A.RefreshUI then A.RefreshUI()end;return ok
+ end
  if msg:sub(1,2)=='5|'then return A.ReceiveGroup and A.ReceiveGroup(msg,sender,now)or false end
  if msg:sub(1,4)=='4|R|' then return A.ReceiveAlt and A.ReceiveAlt(msg,sender,now) or false end
  if msg:sub(1,2)=='3|' then
@@ -95,7 +99,7 @@ function A.Pump(now)
   end
  end
  A.groupPriorityBurst=0
- if not A.lastRequest or now-A.lastRequest>=900 then A.request=true; A.fullShare=true; A.dirty=true; A.lastRequest=now end
+ if not A.lastRequest or now-A.lastRequest>=60 then A.request=true; A.fullShare=true; A.dirty=true; A.lastRequest=now end
  if A.request then
   if A.SendPacket('2|Q') then A.request=false else A.syncStatus='Sync request waiting / retrying'; return end
  end

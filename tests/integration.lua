@@ -1,6 +1,12 @@
 local root=arg[1] or '.'
 local now=1700000000
 local frames={}; local timers={}; local sent={}; local inside=false; local result=0
+local soundCalls={};function PlaySoundFile(file,channel)soundCalls[#soundCalls+1]={file,channel};return true,1 end
+function GetLocale()return'enUS'end
+function GetBuildInfo()return'1.60.1','70291','',16001 end
+function IsWindowsClient()return true end
+WOW_PROJECT_ID=1;WOW_PROJECT_MAINLINE=1;bit=require('bit')
+strmatch=string.match;function securecallfunction(fn,...)return fn(...)end
 local units={player={guid='Player-me',name='Tester',race='Orc',faction='Horde',hp=1000},target={guid='Player-gnome',name='Tiny',race='Gnome',faction='Alliance',hp=1000,enemy=true}}
 local noop=function()end
 local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)self.shown=false end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetText=function(self)return self.text end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
@@ -62,6 +68,7 @@ assert(A.db and A.owner=='Tester-Realm','login initializes persistence')
 assert(A.account and A.account.alias=='Tester','account identity initializes with first toon')
 assert(A.nearbyFrame and A.nearbyFrame:IsShown()and not A.window:IsShown(),'independent Spy-style nearby widget is visible while dashboard is closed')
 assert(A.nearbyCount==1 and A.nearbyRows[1].data.race=='Gnome','readable target feeds nearby list')
+assert(#soundCalls==1 and soundCalls[1][1]==A.BundledNearbySounds[1].value,'actual OnUpdate sends the default short Alliance alarm once')
 assert(A.EncounterCount('Lifetime',now)==1,'visible Gnome stored uniquely')
 assert(A.db.seen['Player-gnome'],'Alliance player memory')
 units.target.dead=true;event('UNIT_HEALTH','target');tick()
@@ -73,7 +80,7 @@ A.ToggleUI();A.RefreshUI();assert(A.window:IsShown(),'UI opens')
 A.mode='Encounters';A.RefreshUI();A.mode='Leaderboard';A.RefreshUI()
 A.dirty=true;inside=true;local n=#sent;A.Pump(now);assert(#sent==n,'instance prevents send')
 inside=false;result=3;A.request=false;A.lastRequest=now;A.Pump(now);assert(A.outgoing,'failed send retains queue')
-result=0;for i=1,10 do A.Pump(now+i)end;assert(not A.outgoing,'successful retry flushes queue')
+result=0;for i=1,50 do A.Pump(now+i);if not A.outgoing and not A.dirty and not A.request then break end end;assert(not A.outgoing and not A.dirty,'successful retry flushes complete metadata/history queue')
 A.Receive('2|S|7|3|'..A.Day(now)..'|2|1','GUILD','Friend-Realm',now)
 A.RefreshUI();assert(A.PeerRecords()['Friend-Realm'].total==7,'guild peer record merged')
 -- Exercise the optional exact-damage path without aura qualification.
@@ -191,6 +198,13 @@ UnitIsVisible=function(u)return units[u]and units[u].visible~=false end
 for i=1,5 do event('NAME_PLATE_UNIT_ADDED','nameplate'..i)end;tick()
 assert(A.nearbyCount==2 and A.nearbyRows[1].data.guid=='Player-near-gnome','nearby window lists visible Alliance only, Gnomes first')
 assert(not A.nearbyRows[1].name.text:find('-Realm',1,true),'nearby names hide realm suffix')
+local savedEncounter=A.db.seen['Player-near-gnome'];local savedKills=A.db.owners[A.owner].total
+local soundsBeforeClear=#soundCalls
+assert(A.nearbyButtons.clear,'Nearby needs an explicit Clear button')
+A.nearbyButtons.clear.scripts.OnClick()
+assert(A.nearbyCount==0 and A.db.seen['Player-near-gnome']==savedEncounter and A.db.owners[A.owner].total==savedKills,'Clear empties nearby list without deleting history/statistics')
+tick();assert(A.nearbyCount==2,'still-visible players can be detected again after clearing')
+assert(#soundCalls==soundsBeforeClear,'Clear cannot cause repeated alerts for already observed contacts')
 A.nearbyButtons.collapse.scripts.OnClick()
 assert(A.nearbyFrame:IsShown()and A.nearbyFrame.height==24 and not A.nearbyRows[1].frame:IsShown(),'collapse retains compact counted header')
 A.nearbyButtons.collapse.scripts.OnClick();assert(A.nearbyRows[1].frame:IsShown(),'expand restores list')
@@ -201,6 +215,32 @@ SlashCmdList.BIHGGKT('nearby');assert(A.nearbyFrame:IsShown(),'slash command res
 A.window:Hide();A.nearbyButtons.history.scripts.OnClick();assert(A.window:IsShown()and A.mode=='Encounters','history control opens separate encounter log')
 A.OpenView('Settings',false);A.nearbyToggleButton.scripts.OnClick();assert(not A.nearbyFrame:IsShown(),'settings can hide overlay without hiding the dashboard')
 A.nearbyToggleButton.scripts.OnClick();assert(A.nearbyFrame:IsShown(),'settings can restore overlay')
+assert(A.allianceAudioToggle and A.gnomeAudioToggle,'separate sound controls exist')
+A.gnomeAudioToggle.scripts.OnClick();assert(A.db.options.extraGnomeSoundEnabled,'extra Gnome sound is independently configurable')
+A.gnomeAudioToggle.scripts.OnClick();assert(not A.db.options.extraGnomeSoundEnabled,'extra Gnome sound can be disabled')
+A.allianceToneButton.scripts.OnClick();assert(A.soundPicker:IsShown()and A.soundPickerKind=='alliance','sound picker opens for correct alert type')
+assert(#A.soundPickerData>=4 and A.soundPickerRows[1].choice,'downloaded alarm choices are selectable')
+local choice=A.soundPickerRows[2].choice.name;A.soundPickerRows[2].select.scripts.OnClick()
+assert(A.db.options.allianceTone==choice and not A.soundPicker:IsShown(),'sound choice persists and closes picker')
+A.gnomeToneButton.scripts.OnClick();assert(A.soundPickerKind=='gnome','Gnome choice uses independent picker target')
+A.soundSearch:SetText('BIHG: Short alarm 4');A.soundSearch.scripts.OnTextChanged()
+assert(#A.soundPickerData==1 and A.soundPickerRows[1].choice.name=='BIHG: Short alarm 4','picker supports literal name filtering')
+A.soundPicker:Hide()
+local media=assert(LibStub('LibSharedMedia-3.0',true),'bundled SharedMedia library must actually load from TOC')
+for i=1,15 do assert(media:Register('sound','External sound '..i,A.BundledNearbySounds[3].value))end
+assert(media:Register('sound','Third-party warning',A.BundledNearbySounds[4].value))
+A.allianceToneButton.scripts.OnClick();local allSounds=A.GetNearbySoundChoices()
+assert(#A.soundPickerData>10,'real SharedMedia registry includes all third-party sounds, not just presets')
+A.soundPickerNext.scripts.OnClick();assert(A.soundPage==2 and A.soundPickerRows[1].choice.name==allSounds[11].name,'picker pages the complete registry')
+A.soundSearch:SetText('__no_such_sound__');A.soundSearch.scripts.OnTextChanged()
+assert(#A.soundPickerData==0 and not A.soundPickerRows[1].select:IsShown()and not A.soundPickerRows[1].preview:IsShown(),'empty sound searches have no blank actionable rows')
+A.soundSearch:SetText('Third-party warning');A.soundSearch.scripts.OnTextChanged()
+local selectedBefore=A.db.options.allianceTone;local previewBefore=#soundCalls;A.soundPickerRows[1].preview.scripts.OnClick()
+assert(#soundCalls==previewBefore+1 and soundCalls[#soundCalls][1]==A.BundledNearbySounds[4].value and A.db.options.allianceTone==selectedBefore,'third-party Preview plays the registry value without changing selection')
+A.soundPicker:Hide()
+A.audioChannelButton.scripts.OnClick();assert(A.db.options.soundChannel=='SFX','audio channel is configurable in Settings')
+local beforePreview=#soundCalls;A.alliancePreviewButton.scripts.OnClick()
+assert(#soundCalls==beforePreview+1 and soundCalls[#soundCalls][2]=='SFX','Preview uses selected channel through actual UI handler')
 for i=1,10 do A.NearbyNotice('Player-page-'..i,'Extra'..i..'-Realm',i<=3 and'Gnome'or'Human','Alliance',now,false,true)end
 A.RefreshNearby(now);local all=A.NearbyList(now)
 assert(A.nearbyButtons.next:IsShown()and A.nearbyCount==12,'long nearby list exposes paging controls')

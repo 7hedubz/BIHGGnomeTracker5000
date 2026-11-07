@@ -64,6 +64,23 @@ A separate compact overlay is enabled by default, independently of the dashboard
 
 Nearby opponents are not leaderboard participants. The guild-only qualification/tally rules remain unchanged. Nearby cache contents themselves are not broadcast or rehydrated from historical SavedVariables.
 
+### Character identity repair (1.5.0)
+
+Player GUIDs and per-character SavedVariables provenance reconcile alternate API spellings of the same character. Old name records are archived, their encounter identities and cumulative counters merge conservatively, and witnessed event identities are preserved rather than added twice. The leaderboard uses one physical-character entry per linked GUID; actual different-GUID alts remain separate expandable children under the account nickname. Equal nicknames alone never merge accounts.
+
+Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
+
+### Sound alerts and Clear (1.5.0)
+
+**Settings → Local notifications** has independent Alliance and extra-Gnome sound toggles, separate sound selectors and Preview buttons, plus a sound-channel selector. General Alliance audio defaults ON; the extra Gnome sound defaults OFF. A new Gnome can play the general alarm followed by the optional extra sound, or use the Gnome sound alone if general audio is disabled.
+
+- Four very short bundled alarm cues are available without another addon. Their source/license information is in `Media/SOURCES.md` and `Licenses/`.
+- The searchable, paginated picker includes **all valid sound entries registered with LibSharedMedia by loaded addons**, not just the bundled presets. Select a name to save it; Preview does not change the selection. Reopening or filtering reads the current registry, including late registrations. Standard `None` is silent. An unavailable saved third-party sound falls back to a bundled alarm without erasing the saved name.
+- Master is the default output; SFX, Dialog, Ambience and Music are also selectable. Game volume/mute settings still apply. No audio CVars are changed. A successful playback API return confirms client acceptance, not that speakers are audible.
+- Alerts come from fresh **local readable Alliance sightings**, not guild packets or historical encounter rows. Repeated scans/duplicate unit tokens stay silent. A contact can alert again after more than 30 seconds unseen. Crowd detections coalesce, with a two-second batch cooldown and a short separation before the optional extra Gnome cue.
+- **Clear** in the Nearby header clears current contacts and queued sounds only. It retains statistics, encounter history and recent-contact sound suppression. Still-visible players can repopulate on the next scan without immediately repeating their alert. It does not disable detection.
+- Sound settings are per character, separate from new-Gnome **chat messages** and overlay visibility. Playback failures cannot stop detection, kill tracking or guild sync.
+
 ### Dashboard layout (1.2.0)
 
 - **View navigation:** separate Guild leaderboard, Alliance encounters, Charts, and Settings tabs.
@@ -96,7 +113,7 @@ The report uses cached addon scores, says so in its heading, and is readable in 
 
 At least one observer must run the addon to witness grouped guildmates. Guildmates need it themselves for account aliases, their own full-coverage reports and receiving the synced UI, but not for witnessed group credit. Direct score packets are attributed to the guild-channel sender. Account snapshots share **the sender's locally known alts**, not arbitrary cached aggregate peer totals; event-level guild observations may be relayed separately. Alt targets must be current guild members; conflicting direct account bindings are rejected. Account identities, ownership claims, statistics and witness events remain **unverified client reports**, not server-authoritative or cryptographically verified ownership.
 
-- Automatic sync at login, world entry, guild changes, personal score changes, alias changes, and every 15 minutes. Manual **Refresh guild data** or `/gkt sync` is also available. These silent addon packets do not post a chat report.
+- Automatic sync at login, world entry, guild changes, personal score changes, alias changes, and every minute. Manual **Refresh guild data** or `/gkt sync` is also available. These silent addon packets do not post a chat report.
 - Forever blocks addon messages inside instances. Results queue until leaving. Failed sends retain the packet for retry; full history is paced at at most two data packets/second.
 - Lifetime totals plus up to 400 days of nonzero daily kill/death totals use cumulative merges, so duplicate/reordered score packets do not double-count.
 - Guild caches are account-wide and separated by guild/realm. Current membership is checked. Already-known offline members remain cached; unknown data cannot be recovered from the server. Partial delivery can leave incomplete recent scores until another full exchange.
@@ -107,7 +124,7 @@ At least one observer must run the addon to witness grouped guildmates. Guildmat
 
 `BIHGGKTDB` remains per-character. New **`BIHGGKTAccountDB`** is account-wide and retains nickname, stable grouping ID, known character records, and shared guild caches. Existing totals migrate by cumulative maximum, not addition, and remain after renaming. Lifetime totals and unique identities persist; dated history is retained for 400 days. Activity before addon installation cannot be reconstructed. Do not edit live SavedVariables while WoW is running.
 
-**For 1.4.0, fully quit and relaunch Forever**: `Nearby.lua` was added to the TOC. Upgrading from before 1.1.0 also adds account-wide data; log each existing alt once to import it. No statistics reset is needed.
+**For 1.5.0, fully quit and relaunch Forever**: `Identity.lua`, `Sounds.lua` and bundled shared-media libraries were added to the TOC. Upgrading from before 1.1.0 also adds account-wide data; log each existing alt once to import it. No statistics reset is needed.
 
 ## Install
 
@@ -117,12 +134,20 @@ Use the release zip, not GitHub's automatically named source directory:
 World of Warcraft/_forever_/Interface/AddOns/
   BIHGGnomeKillTracker5000/
     BIHGGnomeKillTracker5000.toc
+    Libs/LibStub.lua
+    Libs/CallbackHandler-1.0.lua
+    Libs/LibSharedMedia-3.0.lua
+    Media/alert-1.ogg ... alert-4.ogg
+    Media/SOURCES.md
+    Licenses/
     Core.lua
     Accounts.lua
     Sync.lua
     GroupTracker.lua
+    Identity.lua
     Runtime.lua
     Dashboard.lua
+    Sounds.lua
     Nearby.lua
     UI.lua
 ```
@@ -154,8 +179,10 @@ luajit tests/accounts.lua .
 luajit tests/dashboard.lua .
 luajit tests/group.lua .
 luajit tests/nearby.lua .
+luajit tests/sounds.lua .
+luajit tests/identity.lua .
 luajit tests/integration.lua .
-luac -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Runtime.lua Dashboard.lua Nearby.lua UI.lua
+luac -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Identity.lua Runtime.lua Dashboard.lua Sounds.lua Nearby.lua UI.lua Libs/*.lua
 ```
 
 Regression tests cover qualification, attribution, duplicate deaths, UTC periods, bounded packets, cumulative sync, account initialization/alt migration, nickname changes/collisions, cross-character encounter uniqueness, and identity exchange. The actual-TOC integration harness covers mocked lifecycle, own-CC/death detection, exact-damage parsing, recap attribution, account profile UI/editing/expansion, view transitions, secret values, and failed/instance-blocked sends. Mocks validate logic and API usage, **not actual client rendering or API visibility**. Tests never write live SavedVariables.

@@ -18,7 +18,7 @@ end
 local function button(parent,label,x,y,w,fn,tip)
  local b=CreateFrame('Button',nil,parent,BackdropTemplateMixin and 'BackdropTemplate' or nil);b:SetSize(w,26);b:SetPoint('TOPLEFT',x,y)
  b:SetBackdrop({bgFile='Interface\\Buttons\\WHITE8X8',edgeFile='Interface\\Buttons\\WHITE8X8',edgeSize=1})
- local fs=b:CreateFontString(nil,'OVERLAY','GameFontHighlightSmall');fs:SetPoint('CENTER');b:SetFontString(fs);b:SetText(label);style(b,false)
+ local fs=b:CreateFontString(nil,'OVERLAY','GameFontHighlightSmall');fs:SetPoint('CENTER');b:SetFontString(fs);b.label=fs;b:SetText(label);style(b,false)
  b:SetScript('OnClick',fn)
  b:SetScript('OnEnter',function(self)
   if not self.selected then self:SetBackdropColor(0.17,0.21,0.26,1) end
@@ -29,6 +29,54 @@ local function button(parent,label,x,y,w,fn,tip)
 end
 local function ratio(k,d)if d==0 then return '-' end;return string.format('%.2f',k/d)end
 local function clock()return A.Safe(GetServerTime) or time()end
+function A.RefreshSoundPicker()
+ if not A.soundPicker then return end
+ A.soundPickerData=A.GetNearbySoundChoices(A.soundSearch:GetText())
+ local data=A.soundPickerData;local pages=math.max(1,math.ceil(#data/10));A.soundPage=math.max(1,math.min(A.soundPage or 1,pages))
+ A.soundPickerTitle:SetText(A.soundPickerKind=='gnome'and'EXTRA GNOME ALERT SOUND'or'ALLIANCE ALERT SOUND')
+ A.soundPickerPage:SetText(#data..' sounds | Page '..A.soundPage..' / '..pages)
+ A.soundPickerPrevious:SetEnabled(A.soundPage>1);A.soundPickerNext:SetEnabled(A.soundPage<pages)
+ for i,row in ipairs(A.soundPickerRows)do
+  row.choice=data[(A.soundPage-1)*10+i]
+  if row.choice then row.select:SetText(row.choice.name);row.select:Show();row.preview:Show();style(row.select,A.db.options[A.soundPickerKind..'Tone']==row.choice.name)
+  else row.select:Hide();row.preview:Hide()end
+ end
+end
+function A.OpenSoundPicker(kind)
+ if kind~='alliance'and kind~='gnome'then return end
+ A.soundPickerKind=kind;A.soundPage=1
+ if not A.soundPicker then
+  local p=panel(A.window,0,0,620,490);A.soundPicker=p;_G.BIHGGKTSoundPicker=p;p:ClearAllPoints();p:SetPoint('CENTER');p:SetFrameStrata('FULLSCREEN_DIALOG');p:EnableMouse(true)
+  A.soundPickerTitle=text(p,'large',20,-18,580)
+  text(p,'small',20,-45,580):SetText('Bundled short alarms + all LibSharedMedia sounds registered by loaded addons.')
+  text(p,'small',20,-75,55):SetText('Search')
+  local search=CreateFrame('EditBox',nil,p,'InputBoxTemplate');A.soundSearch=search;search:SetSize(515,26);search:SetPoint('TOPLEFT',85,-68);search:SetAutoFocus(false);search:SetMaxLetters(128);search:SetText('')
+  search:SetScript('OnTextChanged',function()A.soundPage=1;A.RefreshSoundPicker()end)
+  search:SetScript('OnEscapePressed',function()search:ClearFocus();p:Hide()end)
+  A.soundPickerRows={}
+  for i=1,10 do
+   local row={};local y=-109-(i-1)*28
+   row.select=button(p,'',20,y,478,function()
+    if row.choice and A.SelectNearbySound(A.soundPickerKind,row.choice.name)then search:ClearFocus();p:Hide();A.RefreshUI()else A.RefreshSoundPicker()end
+   end)
+   row.select.label:SetWidth(460);row.select.label:SetWordWrap(false)
+   row.select:SetScript('OnEnter',function(self)
+    if not self.selected then self:SetBackdropColor(0.17,0.21,0.26,1)end
+    if row.choice and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText(row.choice.name);GameTooltip:AddLine('Click to select. Preview does not change your selection.',0.85,0.89,0.94,true);GameTooltip:Show()end
+   end)
+   row.preview=button(p,'Preview',510,y,90,function()if row.choice then A.PlayNearbyTone(A.soundPickerKind,row.choice.name);A.RefreshUI()end end,'Preview through your selected sound channel without changing the saved sound.')
+   A.soundPickerRows[i]=row
+  end
+  A.soundPickerPrevious=button(p,'< Previous',20,-410,105,function()A.soundPage=A.soundPage-1;A.RefreshSoundPicker()end)
+  A.soundPickerNext=button(p,'Next >',135,-410,85,function()A.soundPage=A.soundPage+1;A.RefreshSoundPicker()end)
+  A.soundPickerPage=text(p,'small',240,-417,360)
+  text(p,'small',20,-452,430):SetText('Type to filter. Reopen/refresh the list to include late media registrations.')
+  button(p,'Close',480,-445,120,function()search:ClearFocus();p:Hide()end)
+  p:EnableMouseWheel(true);p:SetScript('OnMouseWheel',function(_,delta)A.soundPage=A.soundPage-(delta>0 and 1 or -1);A.RefreshSoundPicker()end)
+  UISpecialFrames[#UISpecialFrames+1]='BIHGGKTSoundPicker';p:Hide()
+ end
+ A.soundSearch:SetText('');A.RefreshSoundPicker();A.soundPicker:Show()
+end
 function A.SelectPeriod(period)
  A.period=period;A.page=1;A.RefreshUI()
 end
@@ -73,11 +121,12 @@ function A.RefreshUI()
  if A.mode=='Charts' then A.chartsPane:Show() else A.chartsPane:Hide() end
  if A.mode=='Settings' then A.settingsPane:Show() else A.settingsPane:Hide() end
  if A.mode=='Leaderboard' or A.mode=='Charts' then A.reportButton:Show() else A.reportButton:Hide() end
- A.alertButton:SetText(A.db.options.alerts~=false and 'Gnome discovery alerts: ON' or 'Gnome discovery alerts: OFF')
+ A.alertButton:SetText(A.db.options.alerts~=false and 'New-Gnome chat messages: ON' or 'New-Gnome chat messages: OFF')
  A.nearbyToggleButton:SetText(A.db.options.nearbyShown and'Nearby overlay: ON'or'Nearby overlay: OFF')
+ if A.RefreshSoundSettings then A.RefreshSoundSettings()end
  local c=A.coverage or {}
  A.coverageLabel:SetText(c.log and 'Tracking: guild-only party/raid; readable combat log observed. Scores are client-reported.' or 'Tracking: guild-only party/raid debuff fallback. Exact damage and other players\' killers require readable combat-log data.')
- A.status:SetText((A.guildKey and 'AUTO SYNC ON | outside instances | every 15 min + score/profile changes | ' or 'NO GUILD | ')..(A.syncStatus or 'Waiting for peers'))
+ A.status:SetText((A.guildKey and 'AUTO SYNC ON | outside instances | every 1 min + score/profile changes | ' or 'NO GUILD | ')..(A.syncStatus or 'Waiting for peers'))
  A.postStatusLabel:SetText(A.postStatus or 'Guild chat reports are manual only. Refresh guild data never posts to chat.')
  if A.mode=='Charts' then
   A.heading:SetText('CHARTS | Guild ranking and your recorded daily activity');A.pageLabel:SetText('Recorded data only');A.RenderCharts(now);return
@@ -207,14 +256,26 @@ function A.CreateUI()
  A.aliasSave=button(A.settingsPane,'Save nickname',390,-76,150,saveAlias,'Updates your account alias and queues guild synchronization; does not post to chat.')
  input:SetScript('OnEnterPressed',saveAlias);input:SetScript('OnEscapePressed',function()input:SetText(A.account.alias);input:ClearFocus()end)
  text(A.settingsPane,'normal',20,-148,880):SetText('LOCAL NOTIFICATIONS')
- A.alertButton=button(A.settingsPane,'Gnome discovery alerts',20,-177,290,function()A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()end,'Only toggles your local new-Gnome chat notification; tracking and guild sync remain active.')
+ A.alertButton=button(A.settingsPane,'New-Gnome chat messages',20,-177,290,function()A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()end,'Only toggles your local new-Gnome chat notification; tracking and guild sync remain active.')
  A.nearbyToggleButton=button(A.settingsPane,'Nearby overlay: ON',330,-177,250,function()A.ToggleNearby()end,'Show/hide the separate Spy-style Nearby Alliance window. Hiding it does not disable detection, statistics or guild synchronization.')
- text(A.settingsPane,'small',20,-223,880):SetText('Upgrade note: log each old alt in once to import its history. Enemy nameplates improve visible-unit detection.')
- text(A.settingsPane,'small',20,-248,880):SetText('Nearby overlay: Gnomes first, 30-second recent sightings. /gkt nearby restores it after closing.')
+ text(A.settingsPane,'small',20,-115,880):SetText('Log each old alt once to import its history. Enemy nameplates improve detection. /gkt nearby restores the overlay.')
+ A.allianceAudioToggle=button(A.settingsPane,'Alliance sound: ON',20,-213,220,function()A.db.options.allianceSoundEnabled=not A.db.options.allianceSoundEnabled;A.RefreshUI()end,'Alert for new Alliance sightings. Repeated scans are silent; crowd sightings are coalesced. Independent of the chat-alert toggle.')
+ A.gnomeAudioToggle=button(A.settingsPane,'Extra Gnome sound: OFF',20,-247,220,function()A.db.options.extraGnomeSoundEnabled=not A.db.options.extraGnomeSoundEnabled;A.RefreshUI()end,'Optional additional sound after the Alliance sound for Gnomes. Can also be used alone with the general sound disabled.')
+ A.allianceToneButton=button(A.settingsPane,'Choose Alliance sound',250,-213,250,function()A.OpenSoundPicker('alliance')end,'Choose a bundled short alarm or any sound registered with LibSharedMedia by loaded addons.')
+ A.gnomeToneButton=button(A.settingsPane,'Choose Gnome sound',250,-247,250,function()A.OpenSoundPicker('gnome')end,'The extra Gnome sound has its own selection.')
+ A.allianceToneButton.label:SetWidth(230);A.allianceToneButton.label:SetWordWrap(false);A.gnomeToneButton.label:SetWidth(230);A.gnomeToneButton.label:SetWordWrap(false)
+ A.alliancePreviewButton=button(A.settingsPane,'Preview',510,-213,80,function()A.PlayNearbyTone('alliance');A.RefreshUI()end,'Test the selected Alliance sound even if its automatic alerts are disabled.')
+ A.gnomePreviewButton=button(A.settingsPane,'Preview',510,-247,80,function()A.PlayNearbyTone('gnome');A.RefreshUI()end,'Test the selected extra Gnome sound even if its automatic alerts are disabled.')
+ A.audioChannelButton=button(A.settingsPane,'Sound channel: Master',600,-177,300,function()
+  local channels=A.NearbySoundChannels;local index=1;for i,ch in ipairs(channels)do if ch==A.db.options.soundChannel then index=i;break end end
+  A.db.options.soundChannel=channels[index%#channels+1];A.RefreshUI()
+ end,'Choose Master, SFX, Dialog, Ambience or Music. The game audio settings and volume for that channel still apply.')
+ A.audioStatusLabel=text(A.settingsPane,'small',610,-215,290);A.audioStatusLabel:SetWordWrap(true);A.audioStatusLabel:SetHeight(62)
+ text(A.settingsPane,'small',20,-292,880):SetText('New sightings only; re-alert after 30s unseen. Crowd alerts coalesce. Clear preserves saved history and statistics.')
  A.previousButton=button(w,'< Previous',18,-617,105,function()A.page=(A.page or 1)-1;A.RefreshUI()end)
  A.nextButton=button(w,'Next >',133,-617,85,function()A.page=(A.page or 1)+1;A.RefreshUI()end)
  A.pageLabel=text(w,'small',232,-625,255)
- A.syncButton=button(w,'Refresh guild data',500,-617,176,function()A.request=true;A.QueueShare(true);A.syncStatus='Manual refresh queued; automatic sync remains on';A.RefreshUI()end,'Optional manual refresh. Automatic sync already runs at login, on score/profile changes and every 15 minutes outside instances. No guild chat messages.')
+ A.syncButton=button(w,'Refresh guild data',500,-617,176,function()A.request=true;A.QueueShare(true);A.syncStatus='Manual refresh queued; automatic sync remains on';A.RefreshUI()end,'Optional manual refresh. Automatic sync already runs at login, on score/profile changes and every minute outside instances. No guild chat messages.')
  A.reportButton=button(w,'Post Top 10 to Guild...',686,-617,256,A.ShowTopPreview,'Preview and confirm a guild-chat ranking for the selected period. Separate from silent automatic addon sync.')
  A.status=text(w,'small',20,-653,920);A.postStatusLabel=text(w,'small',20,-670,920);A.coverageLabel=text(w,'small',20,-688,920)
  local preview=panel(w,0,0,650,390);A.preview=preview;_G.BIHGGKTTopPreview=preview;preview:ClearAllPoints();preview:SetPoint('CENTER');preview:SetFrameStrata('FULLSCREEN_DIALOG');preview:EnableMouse(true)
@@ -225,7 +286,7 @@ function A.CreateUI()
  button(preview,'Cancel',450,-344,180,function()preview:Hide()end);UISpecialFrames[#UISpecialFrames+1]='BIHGGKTTopPreview';preview:Hide()
  w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)if A.mode=='Leaderboard' or A.mode=='Encounters' then A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end end)
  A.period='Lifetime';for _,p in ipairs(A.frames)do if p==A.db.options.period then A.period=p end end;A.mode='Leaderboard';A.sort='kills';A.page=1
- w:SetScript('OnHide',function()A.db.options.period=A.period;preview:Hide()end);w:Hide()
+ w:SetScript('OnHide',function()A.db.options.period=A.period;preview:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
  if Minimap then
   local m=CreateFrame('Button','BIHGGKTMinimap',Minimap);m:SetSize(30,30);m:SetPoint('TOPLEFT',Minimap,'TOPLEFT',-8,-12);m:SetFrameStrata('MEDIUM')
   local icon=m:CreateTexture(nil,'ARTWORK');icon:SetAllPoints();icon:SetTexture('Interface\\Icons\\INV_Misc_Gear_01')
@@ -237,7 +298,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.4.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.5.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

@@ -113,6 +113,7 @@ function A.Roster()
  if old~=A.guildKey then A.outgoing=nil; A.request=true; A.rx={}; A.queries={}; A.lastRequest=nil; A.syncStatus=nil; A.QueueShare(true) end
  if A.RefreshGroupActors then A.RefreshGroupActors()end
  local peers=A.PeerRecords()
+ if A.ReconcileGuildMembership then A.ReconcileGuildMembership()end
  if count>0 then for name in pairs(peers) do if not A.members[name] then peers[name]=nil end end end
  if A.RefreshGroupActors then if A.CarryOwnGuildHistory then A.CarryOwnGuildHistory(now())end;A.RebuildOwnGuildTotals(now())end
  if A.RefreshUI then A.RefreshUI() end
@@ -188,6 +189,7 @@ local function login()
  BIHGGKTAccountDB=BIHGGKTAccountDB or {}
  local identity=A.Safe(UnitGUID,'player') or A.owner:gsub('[^%w_%-]',''):sub(1,50)
  A.InitAccount(BIHGGKTAccountDB,identity..'-'..now(),now())
+ if A.BindLocalCharacter then A.BindLocalCharacter(A.Safe(UnitGUID,'player'),now())end
  if A.InitGroupTracking then A.InitGroupTracking(now())end
  if A.InitNearby then A.InitNearby()end
  A.plates={};A.auras={};A.coverage={};A.syncStatus='Waiting for guild roster'
@@ -231,6 +233,6 @@ for _,event in ipairs({'PLAYER_LOGIN','PLAYER_ENTERING_WORLD','ZONE_CHANGED_NEW_
 local elapsed=0
 frame:SetScript('OnUpdate',function(_,dt)
  elapsed=elapsed+dt; if elapsed<0.5 or not A.db then return end;elapsed=0
- local ok,err=pcall(function() A.ScanVisible();A.Pump(now());if A.PumpTopPost then A.PumpTopPost(now()) end;if A.window and A.window:IsShown() then A.RefreshUI() end;if A.RefreshNearby then A.RefreshNearby(now())end end)
+ local ok,err=pcall(function() A.ScanVisible();A.Pump(now());if A.PumpTopPost then A.PumpTopPost(now()) end;if A.window and A.window:IsShown() then A.RefreshUI() end;if A.RefreshNearby then A.RefreshNearby(now())end;if A.PumpNearbySounds then A.PumpNearbySounds(now())end end)
  if not ok then A.lastError=tostring(err) end
 end)

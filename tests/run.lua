@@ -172,4 +172,17 @@ test('health maximum decreases cannot lower two percent threshold mid-fight',fun
  A.Observe('Player-max','Gnome',true,500,1700000001,false)
  eq(A.Death('Player-max',1700000002),false)
 end)
+test('automatic guild sync repeats every sixty seconds and defers inside instances',function()
+ local B={};for _,f in ipairs({'Core.lua','Sync.lua'})do assert(loadfile(root..'/'..f))('BIHGGnomeKillTracker5000',B)end
+ B.Init({},'Tester-Realm',1700000000);B.guildKey='Guild-Realm';B.members={['Tester-Realm']=true}
+ B.Safe=function(fn,...)if fn then return fn(...)end end;B.Secret=function()return false end
+ local oldChat,oldInstance=C_ChatInfo,IsInInstance;local requests=0;local inside=false
+ IsInInstance=function()return inside end
+ C_ChatInfo={SendAddonMessage=function(_,packet,channel)assert(channel=='GUILD');if packet=='2|Q'then requests=requests+1 end;return 0 end}
+ local t=1700000000;B.lastRequest=t;B.request=false
+ B.Pump(t+59);eq(requests,0);B.Pump(t+60);eq(requests,1,'minute boundary')
+ B.Pump(t+119);eq(requests,1);B.Pump(t+120);eq(requests,2,'next minute')
+ inside=true;B.Pump(t+180);eq(requests,2,'instances defer');inside=false;B.Pump(t+181);eq(requests,3,'flush after leaving')
+ C_ChatInfo,IsInInstance=oldChat,oldInstance
+end)
 print('ALL '..passed..' TESTS PASSED')

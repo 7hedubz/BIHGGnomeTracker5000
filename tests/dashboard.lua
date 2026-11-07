@@ -1,0 +1,41 @@
+local root=arg[1] or '.'
+local A={};for _,name in ipairs({'Core.lua','Accounts.lua','Sync.lua'})do assert(loadfile(root..'/'..name))('BIHGGnomeKillTracker5000',A)end
+local f=io.open(root..'/Dashboard.lua');assert(f,'Charts and guild reports not implemented');f:close();assert(loadfile(root..'/Dashboard.lua'))('BIHGGnomeKillTracker5000',A)
+local now=1700000000;local day=A.Day(now);date=os.date
+A.Init({},'Me-Realm',now);A.InitAccount({},'my-account',now)
+A.guildKey='Guild-Realm';A.members={['Me-Realm']=true};local peers=A.PeerRecords()
+for i=1,12 do local name='Peer'..i..'-Realm';A.members[name]=true;peers[name]={total=i,deaths=1,days={[day]=i},deathDays={[day]=1},alias='Alias'..i,accountID='peer'..i,aliasRev=now}end
+local ranks=A.TopKillers('Lifetime',now)
+assert(#ranks==10 and ranks[1].k==12 and ranks[10].k==3,'top ten aliases sorted by kills; zeroes excluded')
+peers['Peer12-Realm'].alias=string.rep('é',30)
+local lines=A.BuildTopReport('Lifetime',now)
+assert(lines[2]:find(string.rep('é',30),1,true),'report preserves complete UTF-8 nickname')
+assert(#lines<=7 and lines[1]:find('Lifetime',1,true) and lines[1]:find('cached',1,true),'bounded report identifies period and cached source')
+for _,line in ipairs(lines)do assert(#line<=255,'chat line exceeds byte budget');assert(not line:find('-Realm',1,true),'report leaks realm suffix')end
+local empty=A.BuildTopReport('Today',now+86400);assert(#empty==1 and empty[1]:find('No recorded',1,true),'empty period does not invent top ten')
+A.db.owners[A.owner].days[day]=2;A.db.owners[A.owner].deathDays[day]=1
+A.account.characters['Alt-Realm']={total=4,deaths=2,days={[day]=4,[day-2]=1},deathDays={[day]=2},seen={}}
+local trend=A.ActivityTrend('7 days',now)
+assert(#trend==7 and trend[7].kills==6 and trend[7].deaths==3,'trend aggregates account alts by UTC day')
+assert(#A.ActivityTrend('Lifetime',now)==30,'lifetime trend is labeled last thirty days')
+local sent={};A.Safe=function(fn,...)return fn and fn(...)end;A.Secret=function()return false end
+IsInInstance=function()return false end
+SendChatMessage=function(msg,channel)sent[#sent+1]={msg,channel}end
+assert(A.StartTopPost(lines,now),'explicit post starts queue')
+assert(not A.StartTopPost(lines,now),'duplicate click cannot start second report')
+A.PumpTopPost(now);assert(#sent==1 and sent[1][2]=='GUILD','posts only to guild')
+A.PumpTopPost(now);assert(#sent==1,'chat report is paced')
+for i=1,10 do A.PumpTopPost(now+i)end
+assert(#sent==#lines and not A.postJob,'all report lines sent exactly once')
+assert(not A.StartTopPost(lines,now+10),'cooldown prevents spam')
+IsInInstance=function()return true end
+assert(not A.StartTopPost(lines,now+70),'cannot start a report inside instance')
+IsInInstance=function()return false end
+SendChatMessage=function()error('blocked')end
+assert(A.StartTopPost(lines,now+70));A.PumpTopPost(now+70)
+assert(not A.postJob and A.postStatus:find('stopped',1,true),'failed chat send stops rather than spamming retries')
+SendChatMessage=nil;local modernSent=false
+C_ChatInfo={SendChatMessage=function(msg,channel)modernSent=channel=='GUILD' end}
+assert(A.StartTopPost(lines,now+140));A.PumpTopPost(now+140)
+assert(modernSent,'modern namespaced chat API is supported')
+print('PASS dashboard: top ten, UTF-safe bounded report lines, empty periods, account daily charts, guild-only manual posting, pacing/cooldown, blocked-send behavior')

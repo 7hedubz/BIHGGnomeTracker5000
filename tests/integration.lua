@@ -6,6 +6,8 @@ local noop=function()end
 local methods={SetScript=function(self,k,v)self.scripts[k]=v end,RegisterEvent=function(self,e)self.events[e]=true end,Show=function(self)self.shown=true end,Hide=function(self)self.shown=false end,IsShown=function(self)return self.shown end,SetText=function(self,s)self.text=s end,GetText=function(self)return self.text end,GetPoint=function()return 'CENTER',nil,'CENTER',0,0 end,GetWidth=function()return 800 end,GetHeight=function()return 600 end,GetEffectiveScale=function()return 1 end}
 local function obj()return setmetatable({scripts={},events={},shown=true},{__index=function(_,k)return methods[k] or noop end})end
 methods.CreateFontString=obj;methods.CreateTexture=obj
+methods.SetValue=function(self,v)self.value=v end
+methods.SetMinMaxValues=function(self,low,high)self.low=low;self.high=high end
 function CreateFrame(_,name)local o=obj();frames[#frames+1]=o;if name then _G[name]=o end;return o end
 UIParent=obj();Minimap=obj();UISpecialFrames={};SlashCmdList={};BackdropTemplateMixin={}
 DEFAULT_CHAT_FRAME={AddMessage=noop};C_Timer={After=function(delay,fn)timers[#timers+1]=fn end}
@@ -93,7 +95,7 @@ GetNumGuildMembers=oldRoster;A.Roster()
 A.mode='Leaderboard';A.RefreshUI();assert(A.headers[5].text=='Encountered','encounter leaderboard column')
 A.headers[5].scripts.OnClick();assert(A.sort=='encounters','encounter sorting')
 A.headers[5].scripts.OnClick();assert(A.ascending,'reverse sort')
-for i=1,7 do A.periodButton.scripts.OnClick()end
+for i=1,7 do A.periodButtons[i].scripts.OnClick()end
 A.window.scripts.OnMouseWheel(nil,-1)
 SlashCmdList.BIHGGKT('alerts');SlashCmdList.BIHGGKT('encounters');assert(A.window:IsShown(),'encounter command opens')
 A.mode='Encounters';A.RefreshUI()
@@ -117,6 +119,7 @@ for _,row in ipairs(A.rows) do assert(not (row[1].text or ''):find('-Realm',1,tr
 A.mode='Encounters';A.RefreshUI()
 for _,row in ipairs(A.rows) do assert(not (row[1].text or ''):find('-Realm',1,true),'encounter log displays character names only') end
 assert(A.db.seen['Player-gnome'].name=='Tiny-Realm','saved encounter identity remains intact')
+A.OpenView('Settings',false);assert(A.settingsPane:IsShown() and not A.tablePane:IsShown(),'settings are separated from table navigation')
 A.aliasInput:SetText('Raid Leader');A.aliasSave.scripts.OnClick()
 assert(A.account.alias=='Raid Leader','nickname can be changed inside addon UI')
 A.account.characters['Alt-Realm']={total=5,deaths=1,days={[A.Day(now)]=5},deathDays={[A.Day(now)]=1},seen={}}
@@ -133,5 +136,17 @@ groupRow.button.scripts.OnClick()
 local collapsed=true
 for _,row in ipairs(A.rows) do if (row[1].text or ''):find('   Alt',1,true) then collapsed=false end end
 assert(collapsed,'clicking alias again collapses its characters')
+A.OpenView('Charts',false)
+assert(A.chartsPane:IsShown() and not A.tablePane:IsShown() and not A.settingsPane:IsShown(),'chart view has distinct content pane')
+assert(A.chartRows[1].bar.value==7,'native ranking bar uses actual cached alias kills')
+A.SelectPeriod('Today')
+assert(A.trendBars[1].kills.value==7 and not A.trendBars[2].kills:IsShown(),'daily chart obeys selected period and hides unused bars')
+A.OpenView('Leaderboard',false);assert(A.tablePane:IsShown() and not A.chartsPane:IsShown(),'returning from charts restores table')
+local chat={};SendChatMessage=function(msg,channel)chat[#chat+1]={msg,channel}end
+A.reportButton.scripts.OnClick();assert(A.preview:IsShown() and #chat==0 and not A.postJob,'preview never posts automatically')
+A.confirmPostButton.scripts.OnClick();assert(not A.preview:IsShown() and A.postJob,'explicit confirmation starts report queue')
+for i=0,10 do tick()end
+assert(#chat==#A.previewLines and chat[1][2]=='GUILD','confirmed ranking posts only previewed lines to guild')
+assert(A.status.text:find('AUTO SYNC ON',1,true),'automatic sync status is explicit')
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, visible CC, exact damage, confirmed deaths, encounters, five-column UI, guild sync, secret values, blocked/retry sends')

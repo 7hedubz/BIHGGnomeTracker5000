@@ -204,6 +204,6 @@ for _,event in ipairs({'PLAYER_LOGIN','PLAYER_ENTERING_WORLD','GUILD_ROSTER_UPDA
 local elapsed=0
 frame:SetScript('OnUpdate',function(_,dt)
  elapsed=elapsed+dt; if elapsed<0.5 or not A.db then return end;elapsed=0
- local ok,err=pcall(function() A.ScanVisible();A.Pump(now());if A.window and A.window:IsShown() then A.RefreshUI() end end)
+ local ok,err=pcall(function() A.ScanVisible();A.Pump(now());if A.PumpTopPost then A.PumpTopPost(now()) end;if A.window and A.window:IsShown() then A.RefreshUI() end end)
  if not ok then A.lastError=tostring(err) end
 end)

@@ -1,38 +1,97 @@
 local _,A=...
 local function text(parent,size,x,y,width)
- local f=parent:CreateFontString(nil,'OVERLAY','GameFontNormal')
- f:SetPoint('TOPLEFT',x,y);f:SetFontObject(size=='small' and 'GameFontHighlightSmall' or 'GameFontHighlight');f:SetJustifyH('LEFT');if width then f:SetWidth(width) end
+ local f=parent:CreateFontString(nil,'OVERLAY','GameFontHighlight')
+ f:SetFontObject(size=='large' and 'GameFontNormalLarge' or (size=='small' and 'GameFontHighlightSmall' or 'GameFontHighlight'))
+ f:SetPoint('TOPLEFT',x,y);f:SetJustifyH('LEFT');f:SetWordWrap(false);if width then f:SetWidth(width) end
  return f
 end
-local function button(parent,label,x,y,w,fn)
- local b=CreateFrame('Button',nil,parent,'UIPanelButtonTemplate');b:SetSize(w,24);b:SetPoint('TOPLEFT',x,y);b:SetText(label);b:SetScript('OnClick',fn);return b
+local function panel(parent,x,y,w,h)
+ local f=CreateFrame('Frame',nil,parent,BackdropTemplateMixin and 'BackdropTemplate' or nil)
+ f:SetPoint('TOPLEFT',x,y);f:SetSize(w,h)
+ f:SetBackdrop({bgFile='Interface\\Buttons\\WHITE8X8',edgeFile='Interface\\Buttons\\WHITE8X8',edgeSize=1})
+ f:SetBackdropColor(0.065,0.08,0.10,0.98);f:SetBackdropBorderColor(0.19,0.23,0.28,1);return f
+end
+local function style(b,selected)
+ b.selected=selected;b:SetBackdropColor(selected and 0.24 or 0.10,selected and 0.17 or 0.13,selected and 0.065 or 0.16,1)
+ b:SetBackdropBorderColor(selected and 0.95 or 0.27,selected and 0.66 or 0.33,selected and 0.22 or 0.39,1)
+end
+local function button(parent,label,x,y,w,fn,tip)
+ local b=CreateFrame('Button',nil,parent,BackdropTemplateMixin and 'BackdropTemplate' or nil);b:SetSize(w,26);b:SetPoint('TOPLEFT',x,y)
+ b:SetBackdrop({bgFile='Interface\\Buttons\\WHITE8X8',edgeFile='Interface\\Buttons\\WHITE8X8',edgeSize=1})
+ local fs=b:CreateFontString(nil,'OVERLAY','GameFontHighlightSmall');fs:SetPoint('CENTER');b:SetFontString(fs);b:SetText(label);style(b,false)
+ b:SetScript('OnClick',fn)
+ b:SetScript('OnEnter',function(self)
+  if not self.selected then self:SetBackdropColor(0.17,0.21,0.26,1) end
+  if tip and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText(label);GameTooltip:AddLine(tip,0.85,0.89,0.94,true);GameTooltip:Show() end
+ end)
+ b:SetScript('OnLeave',function(self)style(self,self.selected);if GameTooltip then GameTooltip:Hide() end end)
+ return b
 end
 local function ratio(k,d)if d==0 then return '-' end;return string.format('%.2f',k/d)end
+local function clock()return A.Safe(GetServerTime) or time()end
+function A.SelectPeriod(period)
+ A.period=period;A.page=1;A.RefreshUI()
+end
+function A.RenderCharts(now)
+ local top=A.TopKillers(A.period,now);local peak=top[1] and top[1].k or 1
+ A.topChartSubtitle:SetText(A.period..' | cached guild aliases | kills')
+ A.chartEmpty:SetText(#top==0 and 'No recorded kills for this period.' or '')
+ for i,row in ipairs(A.chartRows) do
+  local r=top[i]
+  if r then row.label:SetText(i..'. '..r.name);row.bar:SetMinMaxValues(0,math.max(1,peak));row.bar:SetValue(r.k);row.value:SetText(tostring(r.k));row.label:Show();row.bar:Show();row.value:Show()
+  else row.label:Hide();row.bar:Hide();row.value:Hide() end
+ end
+ local data=A.ActivityTrend(A.period,now);local maximum=0
+ for _,d in ipairs(data) do maximum=math.max(maximum,d.kills,d.deaths) end
+ A.trendSubtitle:SetText('Your account | latest '..#data..' days in '..A.period)
+ A.trendPeak:SetText('Peak / day: '..maximum)
+ for i,row in ipairs(A.trendBars) do
+  local d=data[i]
+  if d then
+   local step=350/#data;local width=math.min(6,step*0.30);local x=50+(i-1)*step
+   row.kills:ClearAllPoints();row.kills:SetPoint('BOTTOMLEFT',A.trendChart,'TOPLEFT',x,-250);row.kills:SetSize(width,162)
+   row.deaths:ClearAllPoints();row.deaths:SetPoint('BOTTOMLEFT',A.trendChart,'TOPLEFT',x+width+1,-250);row.deaths:SetSize(width,162)
+   row.kills:SetMinMaxValues(0,math.max(1,maximum));row.deaths:SetMinMaxValues(0,math.max(1,maximum));row.kills:SetValue(d.kills);row.deaths:SetValue(d.deaths);row.kills:Show();row.deaths:Show()
+  else row.kills:Hide();row.deaths:Hide() end
+ end
+ A.trendFirst:SetText(data[1] and date('!%d %b',data[1].day*86400) or '')
+ A.trendLast:SetText(data[#data] and date('!%d %b',data[#data].day*86400) or '')
+end
 function A.RefreshUI()
  if not A.window or not A.db then return end
- local t=A.Safe(GetServerTime) or time(); local period=A.period or 'Lifetime'; local me=A.db.owners[A.owner]
- local kills,deaths=0,0
- for _,r in pairs(A.account and A.account.characters or {me}) do kills=kills+A.Score(r,period,t);deaths=deaths+A.Score(r,period,t,'deaths') end
- A.summary:SetText(string.format('You (%s): %d kills | %d deaths to Gnomes | K/D %s | %d Gnomes encountered (unique)',A.account and A.account.alias or A.DisplayName(A.owner),kills,deaths,ratio(kills,deaths),A.AccountEncounterCount(period,t)))
- A.periodButton:SetText(period..'  >')
+ local now=clock();local period=A.period or 'Lifetime';local me=A.db.owners[A.owner];local kills,deaths=0,0
+ for _,r in pairs(A.account and A.account.characters or {me}) do kills=kills+A.Score(r,period,now);deaths=deaths+A.Score(r,period,now,'deaths') end
+ local values={tostring(kills),tostring(deaths),ratio(kills,deaths),tostring(A.AccountEncounterCount(period,now))}
+ for i,v in ipairs(values) do A.statCards[i].value:SetText(v) end
+ A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | all known characters; encounter identities deduplicated')
+ for label,b in pairs(A.navButtons) do style(b,A.mode==label) end
+ for i,b in ipairs(A.periodButtons) do style(b,A.frames[i]==period) end
+ local tabular=A.mode=='Leaderboard' or A.mode=='Encounters';local encounters=A.mode=='Encounters'
+ if tabular then A.tablePane:Show();A.previousButton:Show();A.nextButton:Show() else A.tablePane:Hide();A.previousButton:Hide();A.nextButton:Hide() end
+ if A.mode=='Charts' then A.chartsPane:Show() else A.chartsPane:Hide() end
+ if A.mode=='Settings' then A.settingsPane:Show() else A.settingsPane:Hide() end
+ if A.mode=='Leaderboard' or A.mode=='Charts' then A.reportButton:Show() else A.reportButton:Hide() end
+ A.alertButton:SetText(A.db.options.alerts~=false and 'Gnome discovery alerts: ON' or 'Gnome discovery alerts: OFF')
  local c=A.coverage or {}
- A.coverageLabel:SetText('Tracking: '..(c.log and 'readable combat log observed' or 'CC-only fallback; exact 10% damage unavailable without readable combat log')..'\nDeaths: confirmed Gnome killing blows only. Encounters: visible Alliance players. Dates: UTC.')
- A.status:SetText(A.syncStatus or 'Waiting for guild')
- local data={}
- local encounters=A.mode=='Encounters'
+ A.coverageLabel:SetText(c.log and 'Tracking: readable combat log observed. Scores are addon-reported, not server-verified.' or 'Tracking: confirmed CC fallback. Exact 10% damage requires readable combat-log data. Unknown attribution is skipped.')
+ A.status:SetText((A.guildKey and 'AUTO SYNC ON | outside instances | every 15 min + score/profile changes | ' or 'NO GUILD | ')..(A.syncStatus or 'Waiting for peers'))
+ A.postStatusLabel:SetText(A.postStatus or 'Guild chat reports are manual only. Refresh guild data never posts to chat.')
+ if A.mode=='Charts' then
+  A.heading:SetText('CHARTS | Guild ranking and your recorded daily activity');A.pageLabel:SetText('Recorded data only');A.RenderCharts(now);return
+ elseif A.mode=='Settings' then
+  A.heading:SetText('SETTINGS | Account identity and local notifications');A.pageLabel:SetText('Account-wide alias');return
+ end
  if encounters then A.headers[5]:Hide() else A.headers[5]:Show() end
  A.headers[4]:SetWidth(encounters and 270 or 130)
- for _,row in ipairs(A.rows) do
-  row[4]:SetWidth(encounters and 262 or 122)
-  if encounters then row[5]:Hide() else row[5]:Show() end
- end
- if A.mode=='Encounters' then
-  A.heading:SetText('ALLIANCE ENCOUNTER LOG  |  Gnomes highlighted  |  unique characters seen in selected period')
-  A.headers[1]:SetText('Player');A.headers[2]:SetText('Race');A.headers[3]:SetText('First seen');A.headers[4]:SetText('Last seen');A.headers[5]:SetText('')
-  local first=A.FirstDay(period,t)
+ for _,row in ipairs(A.rows) do row[4]:SetWidth(encounters and 262 or 122);if encounters then row[5]:Hide() else row[5]:Show() end end
+ local data={}
+ if encounters then
+  A.heading:SetText('ALLIANCE ENCOUNTERS | Personal sighting log; Gnomes highlighted')
+  A.headers[1]:SetText('Character');A.headers[2]:SetText('Race');A.headers[3]:SetText('First seen');A.headers[4]:SetText('Last seen')
+  local first=A.FirstDay(period,now)
   for guid,r in pairs(A.db.seen or {}) do
    local include=period=='Lifetime'
-   for day in pairs(r.days or {}) do if day>=first and day<=A.Day(t) then include=true;break end end
+   for day in pairs(r.days or {}) do if day>=first and day<=A.Day(now) then include=true;break end end
    if include then data[#data+1]={name=r.name or guid,race=r.race or '?',first=r.first,last=r.last} end
   end
   table.sort(data,function(a,b)
@@ -41,9 +100,9 @@ function A.RefreshUI()
    if a.last~=b.last then return a.last>b.last end;return a.name<b.name
   end)
  else
-  A.heading:SetText('GUILD LEADERBOARD | Click an alias to expand characters | client-reported, not server-verified')
-  A.headers[1]:SetText('Alias / character');A.headers[2]:SetText('Kills');A.headers[3]:SetText('Deaths');A.headers[4]:SetText('K/D');A.headers[5]:SetText('Encountered')
-  data=A.LeaderboardGroups(period,t)
+  A.heading:SetText('GUILD LEADERBOARD | Click [+] alias to expand characters | cached addon reports')
+  local labels={'Alias / character','Kills','Deaths','K/D','Encountered'};for i,label in ipairs(labels) do A.headers[i]:SetText(label) end
+  data=A.LeaderboardGroups(period,now)
   table.sort(data,function(a,b)
    if A.sort=='name' then if a.name~=b.name then return a.name<b.name end;return a.id<b.id end
    local key=A.sort=='deaths' and 'd' or (A.sort=='ratio' and 'kd' or (A.sort=='encounters' and 'encountered' or 'k'))
@@ -52,24 +111,15 @@ function A.RefreshUI()
  end
  if A.ascending then local reversed={};for i=#data,1,-1 do reversed[#reversed+1]=data[i] end;data=reversed end
  local groupCount=#data
- if A.mode~='Encounters' then
-  local flat={}
-  for _,group in ipairs(data) do
-   flat[#flat+1]=group
-   if A.expanded[group.id] then for _,child in ipairs(group.children) do child.child=true;flat[#flat+1]=child end end
-  end
-  data=flat
- end
- local pages=math.max(1,math.ceil(#data/12));A.page=math.max(1,math.min(A.page or 1,pages))
- A.pageLabel:SetText(string.format('Page %d / %d (%d %s)',A.page,pages,groupCount,A.mode=='Encounters' and 'players' or 'aliases'))
+ if not encounters then local flat={};for _,g in ipairs(data) do flat[#flat+1]=g;if A.expanded[g.id] then for _,child in ipairs(g.children) do child.child=true;flat[#flat+1]=child end end end;data=flat end
+ local pages=math.max(1,math.ceil(#data/12));A.page=math.max(1,math.min(A.page or 1,pages));A.pageLabel:SetText(string.format('Page %d / %d (%d %s)',A.page,pages,groupCount,encounters and 'players' or 'aliases'))
  for i,row in ipairs(A.rows) do
   local r=data[(A.page-1)*12+i]
   if r then
-   local color=(A.mode=='Encounters' and r.race=='Gnome') and '|cffffb347' or ((r.isOwn or r.name==A.owner) and '|cff66ddff' or '|cffffffff')
+   local color=(encounters and r.race=='Gnome') and '|cffffb347' or ((r.isOwn or r.name==A.owner) and '|cff66ddff' or '|cffffffff')
    local label=r.isGroup and ((A.expanded[r.id] and '[-] ' or '[+] ')..r.name..' ('..#r.children..')') or ((r.child and '   ' or '')..A.DisplayName(r.name))
-   row[1]:SetText(color..label..'|r')
-   row.button:Show();row.button:SetScript('OnClick',function()if r.isGroup then A.expanded[r.id]=not A.expanded[r.id];A.RefreshUI() end end)
-   if A.mode=='Encounters' then row[2]:SetText(color..r.race..'|r');row[3]:SetText(date('!%Y-%m-%d',r.first));row[4]:SetText(date('!%m-%d %H:%M',r.last));row[5]:SetText('')
+   row[1]:SetText(color..label..'|r');row.button:Show();row.button:SetScript('OnClick',function()if r.isGroup then A.expanded[r.id]=not A.expanded[r.id];A.RefreshUI() end end)
+   if encounters then row[2]:SetText(color..r.race..'|r');row[3]:SetText(date('!%Y-%m-%d',r.first));row[4]:SetText(date('!%m-%d %H:%M',r.last));row[5]:SetText('')
    else row[2]:SetText(tostring(r.k));row[3]:SetText(tostring(r.d));row[4]:SetText(ratio(r.k,r.d));row[5]:SetText(r.encountered>=0 and tostring(r.encountered) or '-') end
   else row.button:Hide();for _,cell in ipairs(row) do cell:SetText('') end end
  end
@@ -81,61 +131,84 @@ end
 function A.OpenView(mode,toggle)
  if not A.window then A.CreateUI() end
  if toggle and A.window:IsShown() and A.mode==mode then A.window:Hide();return end
- if A.mode~=mode then
-  A.mode=mode;A.page=1;A.sort=mode=='Encounters' and 'last' or 'kills';A.ascending=false
- end
+ if A.mode~=mode then A.mode=mode;A.page=1;A.sort=mode=='Encounters' and 'last' or 'kills';A.ascending=false end
  A.window:Show();A.RefreshUI()
+end
+function A.ShowTopPreview()
+ if not A.window then A.CreateUI() end
+ A.previewLines=A.BuildTopReport(A.period or 'Lifetime',clock())
+ A.previewText:SetText(table.concat(A.previewLines,'\n\n'))
+ A.previewExplanation:SetText('Sends '..#A.previewLines..' paced lines to /guild. Uses the selected period and cached alias totals. Not a fresh server query.')
+ A.preview:Show()
 end
 function A.CreateUI()
  if A.window or not A.db then return end
- local w=CreateFrame('Frame','BIHGGKTWindow',UIParent,BackdropTemplateMixin and 'BackdropTemplate' or nil);A.window=w
- w:SetSize(830,590);w:SetPoint('CENTER');w:SetFrameStrata('DIALOG');w:SetClampedToScreen(true)
- w:SetBackdrop({bgFile='Interface\\Buttons\\WHITE8X8',edgeFile='Interface\\Buttons\\WHITE8X8',edgeSize=1});w:SetBackdropColor(0.045,0.055,0.065,0.97);w:SetBackdropBorderColor(0.55,0.36,0.12,1)
- w:EnableMouse(true);w:SetMovable(true);w:RegisterForDrag('LeftButton')
- w:SetScript('OnDragStart',function(self)self:StartMoving()end)
+ local w=panel(UIParent,0,0,960,710);A.window=w;_G.BIHGGKTWindow=w
+ w:ClearAllPoints();w:SetPoint('CENTER');w:SetFrameStrata('DIALOG');w:SetClampedToScreen(true)
+ w:SetScale(math.min(1,(UIParent:GetWidth()-30)/960,(UIParent:GetHeight()-30)/710));w:SetBackdropColor(0.025,0.035,0.048,0.99)
+ w:EnableMouse(true);w:SetMovable(true);w:RegisterForDrag('LeftButton');w:SetScript('OnDragStart',function(self)self:StartMoving()end)
  w:SetScript('OnDragStop',function(self)self:StopMovingOrSizing();local point,_,relative,x,y=self:GetPoint();A.db.options.position={point,relative,x,y}end)
  local pos=A.db.options.position;if pos then w:ClearAllPoints();w:SetPoint(pos[1],UIParent,pos[2],pos[3],pos[4])end
  UISpecialFrames[#UISpecialFrames+1]='BIHGGKTWindow'
- text(w,'normal',18,-16):SetText('|cffffb347BIHG GnomeKillTracker 5000|r  |  by DoHeal')
- button(w,'X',785,-10,28,function()w:Hide()end)
- button(w,'Guild leaderboard',18,-48,170,function()A.mode='Leaderboard';A.page=1;A.RefreshUI()end)
- button(w,'Alliance encounters',194,-48,170,function()A.mode='Encounters';A.page=1;A.RefreshUI()end)
- A.periodButton=button(w,'Lifetime  >',380,-48,140,function()
-  local index=1;for i,f in ipairs(A.frames)do if f==A.period then index=i end end
-  A.period=A.frames[index%#A.frames+1];A.page=1;A.RefreshUI()
- end)
- button(w,'Sync guild',530,-48,110,function()A.request=true;A.QueueShare(true);A.syncStatus='Sync queued (outside instances only)';A.RefreshUI()end)
- local alerts=button(w,'Gnome alerts',650,-48,145,function(self)A.db.options.alerts=not (A.db.options.alerts~=false);self:SetText(A.db.options.alerts and 'Gnome alerts: ON' or 'Gnome alerts: OFF')end)
- alerts:SetText(A.db.options.alerts~=false and 'Gnome alerts: ON' or 'Gnome alerts: OFF')
- A.summary=text(w,'normal',18,-88,795)
- A.coverageLabel=text(w,'small',18,-115,795)
- A.heading=text(w,'small',18,-162,795)
- A.headers={}
- local xs={18,315,415,540,675};local widths={290,95,120,130,135};local sorts={'name','kills','deaths','ratio','encounters'}
- for i=1,5 do local idx=i;A.headers[i]=button(w,'',xs[i],-184,widths[i],function()if A.sort==sorts[idx] then A.ascending=not A.ascending else A.sort=sorts[idx];A.ascending=false end;A.page=1;A.RefreshUI()end)end
- A.rows={}
- A.expanded={}
+ text(w,'large',18,-14,850):SetText('|cffffb347BIHG GnomeKillTracker 5000|r  |  DoHeal')
+ button(w,'X',918,-10,24,function()w:Hide()end)
+ text(w,'small',20,-53,60):SetText('VIEW')
+ A.navButtons={}
+ local modes={{'Leaderboard','Guild leaderboard',85,170},{'Encounters','Alliance encounters',265,180},{'Charts','Charts',455,120},{'Settings','Settings',585,120}}
+ for _,entry in ipairs(modes) do local mode=entry[1];A.navButtons[mode]=button(w,entry[2],entry[3],-44,entry[4],function()A.OpenView(mode,false)end,'Switch the content area; this does not sync or post to chat.') end
+ local filter=panel(w,18,-84,924,52);text(filter,'small',12,-19,75):SetText('PERIOD UTC')
+ A.periodButtons={};for i,label in ipairs(A.frames) do local period=label;A.periodButtons[i]=button(filter,label,92+(i-1)*116,-13,110,function()A.SelectPeriod(period)end,'Applies to statistics, ranking, chart and Top 10 report. Days are UTC calendar days.')end
+ A.statCards={};local labels={'YOUR GNOME KILLS','DEATHS TO GNOMES','KILL / DEATH RATIO','UNIQUE GNOMES ENCOUNTERED'}
+ for i,label in ipairs(labels) do local card=panel(w,18+(i-1)*234,-149,222,64);text(card,'small',12,-10,202):SetText(label);A.statCards[i]={value=text(card,'large',12,-32,200)} end
+ A.summary=text(w,'small',20,-227,920);A.heading=text(w,'small',20,-255,920)
+ A.tablePane=CreateFrame('Frame',nil,w);A.tablePane:SetPoint('TOPLEFT',18,-276);A.tablePane:SetSize(924,320)
+ A.headers={};local xs={0,350,470,610,760};local widths={340,110,130,130,164};local sorts={'name','kills','deaths','ratio','encounters'}
+ for i=1,5 do local idx=i;A.headers[i]=button(A.tablePane,'',xs[i],0,widths[i],function()if A.sort==sorts[idx] then A.ascending=not A.ascending else A.sort=sorts[idx];A.ascending=false end;A.page=1;A.RefreshUI()end,'Click to sort; click again to reverse.')end
+ A.rows={};A.expanded={}
  for i=1,12 do
-  A.rows[i]={};for j=1,5 do A.rows[i][j]=text(w,'small',xs[j]+4,-220-(i-1)*23,widths[j]-8)end
-  local hit=CreateFrame('Button',nil,w);hit:SetPoint('TOPLEFT',18,-214-(i-1)*23);hit:SetSize(795,23);A.rows[i].button=hit
+  A.rows[i]={};for j=1,5 do A.rows[i][j]=text(A.tablePane,'small',xs[j]+5,-40-(i-1)*23,widths[j]-10)end
+  local hit=CreateFrame('Button',nil,A.tablePane);hit:SetPoint('TOPLEFT',0,-34-(i-1)*23);hit:SetSize(924,23);A.rows[i].button=hit
  end
- button(w,'< Previous',18,-512,105,function()A.page=(A.page or 1)-1;A.RefreshUI()end)
- button(w,'Next >',132,-512,85,function()A.page=(A.page or 1)+1;A.RefreshUI()end)
- A.pageLabel=text(w,'small',236,-519,190)
- text(w,'small',430,-519,50):SetText('Alias:')
- local input=CreateFrame('EditBox',nil,w,'InputBoxTemplate');A.aliasInput=input
- input:SetSize(180,24);input:SetPoint('TOPLEFT',480,-512);input:SetAutoFocus(false);input:SetMaxLetters(32);input:SetText(A.account.alias)
- local function saveAlias()
-  if A.SetAlias(input:GetText(),A.Safe(GetServerTime) or time()) then input:SetText(A.account.alias);input:ClearFocus()
-  else DEFAULT_CHAT_FRAME:AddMessage('BIHG: Alias must be 1-64 bytes, without control characters or |.') end
+ A.chartsPane=CreateFrame('Frame',nil,w);A.chartsPane:SetPoint('TOPLEFT',18,-276);A.chartsPane:SetSize(924,320)
+ local top=panel(A.chartsPane,0,0,452,320);A.topChart=top
+ text(top,'normal',14,-12,420):SetText('TOP 10 GNOME KILLERS');A.topChartSubtitle=text(top,'small',14,-34,420);A.chartEmpty=text(top,'small',14,-70,420);A.chartRows={}
+ for i=1,10 do
+  local y=-59-(i-1)*23;local bar=CreateFrame('StatusBar',nil,top);bar:SetPoint('TOPLEFT',162,y);bar:SetSize(218,13);bar:SetStatusBarTexture('Interface\\Buttons\\WHITE8X8');bar:SetStatusBarColor(0.94,0.62,0.20)
+  A.chartRows[i]={label=text(top,'small',14,y,142),bar=bar,value=text(top,'small',390,y,50)}
  end
- A.aliasSave=button(w,'Save alias',674,-512,125,saveAlias)
- input:SetScript('OnEnterPressed',saveAlias)
- input:SetScript('OnEscapePressed',function()input:SetText(A.account.alias);input:ClearFocus()end)
- A.status=text(w,'small',18,-552,795)
- w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end)
- A.period=A.db.options.period or 'Lifetime';A.mode='Leaderboard';A.sort='kills';A.page=1
- w:SetScript('OnHide',function()A.db.options.period=A.period end);w:Hide()
+ local trend=panel(A.chartsPane,472,0,452,320);A.trendChart=trend
+ text(trend,'normal',14,-12,420):SetText('DAILY ACCOUNT ACTIVITY');A.trendSubtitle=text(trend,'small',14,-34,420);A.trendPeak=text(trend,'small',14,-58,420);A.trendBars={}
+ for i=1,30 do
+  local row={};for _,key in ipairs({'kills','deaths'}) do local b=CreateFrame('StatusBar',nil,trend);b:SetOrientation('VERTICAL');b:SetStatusBarTexture('Interface\\Buttons\\WHITE8X8');if key=='kills' then b:SetStatusBarColor(0.94,0.62,0.20)else b:SetStatusBarColor(0.88,0.28,0.29)end;row[key]=b end;A.trendBars[i]=row
+ end
+ A.trendFirst=text(trend,'small',50,-263,160);A.trendLast=text(trend,'small',330,-263,100)
+ text(trend,'small',50,-291,350):SetText('|cfff0a033Gold: kills|r    |cffe0484aRed: deaths to Gnomes|r')
+ A.settingsPane=panel(w,18,-276,924,320)
+ text(A.settingsPane,'normal',20,-18,880):SetText('ACCOUNT PROFILE')
+ text(A.settingsPane,'small',20,-45,880):SetText('One nickname for your known alts. Renaming preserves statistics; identical nicknames do not merge unrelated accounts.')
+ text(A.settingsPane,'small',20,-83,90):SetText('Nickname')
+ local input=CreateFrame('EditBox',nil,A.settingsPane,'InputBoxTemplate');A.aliasInput=input;input:SetSize(250,26);input:SetPoint('TOPLEFT',120,-76);input:SetAutoFocus(false);input:SetMaxLetters(32);input:SetText(A.account.alias)
+ local function saveAlias()if A.SetAlias(input:GetText(),clock()) then input:SetText(A.account.alias);input:ClearFocus()else DEFAULT_CHAT_FRAME:AddMessage('BIHG: Use a nickname of 1-64 bytes without control characters or |.')end end
+ A.aliasSave=button(A.settingsPane,'Save nickname',390,-76,150,saveAlias,'Updates your account alias and queues guild synchronization; does not post to chat.')
+ input:SetScript('OnEnterPressed',saveAlias);input:SetScript('OnEscapePressed',function()input:SetText(A.account.alias);input:ClearFocus()end)
+ text(A.settingsPane,'normal',20,-148,880):SetText('LOCAL NOTIFICATIONS')
+ A.alertButton=button(A.settingsPane,'Gnome discovery alerts',20,-177,290,function()A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()end,'Only toggles your local new-Gnome chat notification; tracking and guild sync remain active.')
+ text(A.settingsPane,'small',20,-223,880):SetText('Upgrade note: log each old alt in once to import its history. Enemy nameplates improve visible-unit detection.')
+ A.previousButton=button(w,'< Previous',18,-617,105,function()A.page=(A.page or 1)-1;A.RefreshUI()end)
+ A.nextButton=button(w,'Next >',133,-617,85,function()A.page=(A.page or 1)+1;A.RefreshUI()end)
+ A.pageLabel=text(w,'small',232,-625,255)
+ A.syncButton=button(w,'Refresh guild data',500,-617,176,function()A.request=true;A.QueueShare(true);A.syncStatus='Manual refresh queued; automatic sync remains on';A.RefreshUI()end,'Optional manual refresh. Automatic sync already runs at login, on score/profile changes and every 15 minutes outside instances. No guild chat messages.')
+ A.reportButton=button(w,'Post Top 10 to Guild...',686,-617,256,A.ShowTopPreview,'Preview and confirm a guild-chat ranking for the selected period. Separate from silent automatic addon sync.')
+ A.status=text(w,'small',20,-653,920);A.postStatusLabel=text(w,'small',20,-670,920);A.coverageLabel=text(w,'small',20,-688,920)
+ local preview=panel(w,0,0,650,390);A.preview=preview;_G.BIHGGKTTopPreview=preview;preview:ClearAllPoints();preview:SetPoint('CENTER');preview:SetFrameStrata('FULLSCREEN_DIALOG');preview:EnableMouse(true)
+ text(preview,'large',20,-18,610):SetText('PREVIEW GUILD REPORT')
+ A.previewExplanation=text(preview,'small',20,-50,610);A.previewExplanation:SetWordWrap(true);A.previewExplanation:SetHeight(36)
+ A.previewText=text(preview,'small',20,-103,610);A.previewText:SetWordWrap(true);A.previewText:SetHeight(210)
+ A.confirmPostButton=button(preview,'Post to /guild',20,-344,180,function()local ok=A.StartTopPost(A.previewLines,clock());if ok then preview:Hide()end;A.RefreshUI()end,'Explicitly sends the previewed report to guild chat, paced and limited to once per minute.')
+ button(preview,'Cancel',450,-344,180,function()preview:Hide()end);UISpecialFrames[#UISpecialFrames+1]='BIHGGKTTopPreview';preview:Hide()
+ w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)if A.mode=='Leaderboard' or A.mode=='Encounters' then A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end end)
+ A.period='Lifetime';for _,p in ipairs(A.frames)do if p==A.db.options.period then A.period=p end end;A.mode='Leaderboard';A.sort='kills';A.page=1
+ w:SetScript('OnHide',function()A.db.options.period=A.period;preview:Hide()end);w:Hide()
  if Minimap then
   local m=CreateFrame('Button','BIHGGKTMinimap',Minimap);m:SetSize(30,30);m:SetPoint('TOPLEFT',Minimap,'TOPLEFT',-8,-12);m:SetFrameStrata('MEDIUM')
   local icon=m:CreateTexture(nil,'ARTWORK');icon:SetAllPoints();icon:SetTexture('Interface\\Icons\\INV_Misc_Gear_01')
@@ -147,10 +220,12 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then
-  local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.1.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.2.0 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
- elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);DEFAULT_CHAT_FRAME:AddMessage('BIHG Gnome alerts: '..(A.db.options.alerts and 'ON' or 'OFF'))
- elseif msg=='encounters' then if not A.window then A.CreateUI() end;A.window:Show();A.mode='Encounters';A.RefreshUI()
- else A.ToggleUI() end
+ elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
+ elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()
+ elseif msg=='encounters' then A.OpenView('Encounters',false)
+ elseif msg=='charts' then A.OpenView('Charts',false)
+ elseif msg=='settings' then A.OpenView('Settings',false)
+ else A.ToggleUI()end
 end

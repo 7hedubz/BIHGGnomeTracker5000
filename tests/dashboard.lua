@@ -24,6 +24,7 @@ assert(#A.ActivityTrend('Lifetime',now)==30,'lifetime trend is labeled last thir
 local sent={};A.Safe=function(fn,...)return fn and fn(...)end;A.Secret=function()return false end
 IsInInstance=function()return false end
 SendChatMessage=function(msg,channel)sent[#sent+1]={msg,channel}end
+local combat=false;InCombatLockdown=function()return combat end
 local guildRank='Member';GetGuildInfo=function()return'Guild',guildRank,3 end
 assert(not A.StartTopPost(lines,now),'ordinary members cannot post a guild report')
 guildRank='Council of BIHG'
@@ -35,7 +36,13 @@ for i=1,10 do A.PumpTopPost(now+i)end
 assert(#sent==#lines and not A.postJob,'all report lines sent exactly once')
 assert(not A.StartTopPost(lines,now+10),'cooldown prevents spam')
 IsInInstance=function()return true end
-assert(not A.StartTopPost(lines,now+70),'cannot start a report inside instance')
+assert(A.StartTopPost(lines,now+70),'dungeon allows an authorized out-of-combat report')
+A.PumpTopPost(now+70);local beforeCombat=#sent;local queuedIndex=A.postJob.index
+combat=true;guildRank=nil;A.PumpTopPost(now+71)
+assert(#sent==beforeCombat and A.postJob and A.postJob.index==queuedIndex,'combat pauses queued report even if rank temporarily unreadable, without losing next line')
+combat=false;guildRank='Council of BIHG';A.PumpTopPost(now+72);assert(#sent==beforeCombat+1,'remaining report resumes out of combat without leaving dungeon')
+A.postJob=nil;A.db.options.lastTopPost=now
+combat=true;assert(not A.StartTopPost(lines,now+70),'new report cannot start in combat');combat=false
 IsInInstance=function()return false end
 SendChatMessage=function()error('blocked')end
 assert(A.StartTopPost(lines,now+70));A.PumpTopPost(now+70)

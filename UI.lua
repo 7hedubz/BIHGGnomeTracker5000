@@ -135,7 +135,7 @@ function A.RefreshUI()
  if A.RefreshSoundSettings then A.RefreshSoundSettings()end
  local c=A.coverage or {}
  A.coverageLabel:SetText(c.log and 'Tracking: guild-only party/raid; readable combat log observed. Scores are client-reported.' or 'Tracking: guild-only party/raid debuff fallback. Exact damage and other players\' killers require readable combat-log data.')
- A.status:SetText((A.guildKey and 'AUTO SYNC ON | outside instances | every 1 min + score/profile changes | ' or 'NO GUILD | ')..(A.syncStatus or 'Waiting for peers'))
+ A.status:SetText((A.guildKey and 'AUTO SYNC ON | out of combat | every 1 min + score/profile changes | ' or 'NO GUILD | ')..(A.syncStatus or 'Waiting for peers'))
  A.postStatusLabel:SetText(A.postStatus or('Manual reports: Council of BIHG / The BIHG Cheese only. | '..(A.rosterStatus or'Guild roster pending.')))
  if A.mode=='Charts' then
   A.heading:SetText('CHARTS | Guild ranking and your recorded daily activity');A.pageLabel:SetText('Recorded data only');A.RenderCharts(now);return
@@ -294,7 +294,7 @@ function A.CreateUI()
  A.previousButton=button(w,'< Previous',18,-617,105,function()A.page=(A.page or 1)-1;A.RefreshUI()end)
  A.nextButton=button(w,'Next >',133,-617,85,function()A.page=(A.page or 1)+1;A.RefreshUI()end)
  A.pageLabel=text(w,'small',232,-625,255)
- A.syncButton=button(w,'Refresh guild data',500,-617,176,function()A.request=true;A.QueueShare(true);A.syncStatus='Manual refresh queued; automatic sync remains on';A.RefreshUI()end,'Optional manual refresh. Automatic sync already runs at login, on score/profile changes and every minute outside instances. No guild chat messages.')
+ A.syncButton=button(w,'Refresh guild data',500,-617,176,function()A.request=true;A.QueueShare(true);A.syncStatus='Manual refresh queued; automatic sync remains on';A.RefreshUI()end,'Optional manual refresh. Automatic sync already runs at login, on score/profile changes and every minute out of combat. No guild chat messages.')
  A.reportButton=button(w,'Post Top 10 to Guild...',686,-617,256,A.ShowTopPreview,'Preview and confirm a guild-chat ranking for the selected period. Separate from silent automatic addon sync.')
  A.status=text(w,'small',20,-653,920);A.postStatusLabel=text(w,'small',20,-670,920);A.coverageLabel=text(w,'small',20,-688,920)
  local preview=panel(w,0,0,650,390);A.preview=preview;_G.BIHGGKTTopPreview=preview;preview:ClearAllPoints();preview:SetPoint('CENTER');preview:SetFrameStrata('FULLSCREEN_DIALOG');preview:EnableMouse(true)
@@ -317,7 +317,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.1 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.2 | log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | '..(A.lastError or 'no Lua errors recorded'))
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

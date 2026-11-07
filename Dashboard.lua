@@ -48,7 +48,7 @@ end
 function A.StartTopPost(lines,now)
  if not A.guildKey or (IsInGuild and A.Safe(IsInGuild)~=true) then A.postStatus='Join a guild before posting.';return false end
  if not A.CanPostTopReport()then A.postStatus='Guild reports are restricted to Council of BIHG and The BIHG Cheese.';return false end
- if A.Safe(IsInInstance)~=false then A.postStatus='Leave the instance before posting to guild.';return false end
+ if A.CommunicationBlocked()then A.postStatus='Leave combat before posting to guild.';return false end
  if A.postJob then A.postStatus='A guild report is already being sent.';return false end
  local last=A.db.options.lastTopPost
  if last and now-last<60 then A.postStatus='Please wait 60 seconds between guild reports.';return false end
@@ -61,12 +61,14 @@ function A.StartTopPost(lines,now)
 end
 function A.PumpTopPost(now)
  local job=A.postJob;if not job or now<job.next then return end
+ if A.guildKey~=job.guild or now-job.created>120 then A.postJob=nil;A.postStatus='Guild report stopped: guild changed or report expired.';return end
+ if A.CommunicationBlocked()then A.postStatus='Guild report paused until out of combat.';return end
  if not A.CanPostTopReport()then A.postJob=nil;A.postStatus='Guild report stopped: authorized guild rank unavailable or changed.';return end
- if A.guildKey~=job.guild or A.Safe(IsInInstance)~=false or now-job.created>120 then A.postJob=nil;A.postStatus='Guild report stopped: guild/instance changed or report expired.';return end
  local send=SendChatMessage or (C_ChatInfo and C_ChatInfo.SendChatMessage)
  if type(send)~='function' then A.postJob=nil;A.postStatus='Guild report stopped: chat API unavailable.';return end
  local ok,result=pcall(send,job.lines[job.index],'GUILD')
  if not ok or A.Secret(result) or result==false or (type(result)=='number' and result~=0) then A.postJob=nil;A.postStatus='Guild report stopped: chat send failed; no automatic retries.';return end
  job.index=job.index+1;job.next=now+1
+ A.postStatus='Guild report sending: '..(job.index-1)..'/'..#job.lines..' lines handed off.'
  if job.index>#job.lines then A.postStatus='Report handed to guild chat ('..#job.lines..' lines).';A.postJob=nil end
 end

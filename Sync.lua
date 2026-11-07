@@ -1,5 +1,10 @@
 local _,A=...
 A.PREFIX='BIHGGKT5000'
+function A.CommunicationBlocked()
+ if type(InCombatLockdown)~='function'then return true end
+ local ok,combat=pcall(InCombatLockdown)
+ return not ok or A.Secret(combat)or not not combat
+end
 local function integer(s,max)
  if type(s)~='string' or not s:match('^%d+$') then return nil end
  local n=tonumber(s); if n and n<=max then return n end
@@ -84,7 +89,7 @@ function A.BuildPackets(full,now)
  return result
 end
 function A.SendPacket(packet)
- if not A.guildKey or A.guildUnverified or A.Safe(IsInInstance)~=false then return false end
+ if not A.guildKey or A.guildUnverified or A.CommunicationBlocked()then return false end
  local fn=C_ChatInfo and C_ChatInfo.SendAddonMessage or SendAddonMessage
  if not fn then return false end
  local ok,result=pcall(fn,A.PREFIX,packet,'GUILD')
@@ -93,7 +98,8 @@ function A.SendPacket(packet)
 end
 function A.Pump(now)
  if A.guildUnverified then A.syncStatus='Guild identity pending; cached history only';return end
- if not A.guildKey or A.Safe(IsInInstance) then A.syncStatus='Queued until outside instance / in guild'; return end
+ if not A.guildKey then A.syncStatus='Waiting for guild membership';return end
+ if A.CommunicationBlocked()then A.syncStatus='Sync paused until out of combat';return end
  -- Fresh witnessed events should not sit behind a long historical replay.
  if A.PriorityGroupPacket and(A.groupPriorityBurst or 0)<4 then
   local packet,id=A.PriorityGroupPacket()

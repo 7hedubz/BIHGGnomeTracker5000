@@ -93,7 +93,7 @@ assert(A.db.owners[A.owner].total==1 and A.db.owners[A.owner].deaths==1,'own lif
 assert(A.GuildEffectiveRecord('Friend-Realm',nil,now+45).total==0,'old guild peer history is not carried as personal history')
 A.guildKey=oldGuild
 local sentPacket
-IsInInstance=function()return false end
+InCombatLockdown=function()return false end
 C_ChatInfo={SendAddonMessage=function(_,packet)sentPacket=packet;return 0 end}
 A.outgoing={'OLD_PACKET'};A.outIndex=1;A.request=false;A.lastRequest=now+46;A.groupPriorityBurst=0
 A.AddGuildEvent('K','Friend-Realm','Player-friend','Player-priority-victim',now+46,now+45,now+46)

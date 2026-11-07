@@ -86,8 +86,8 @@ event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'recap Gnom
 event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'same recap ignored')
 A.ToggleUI();A.RefreshUI();assert(A.window:IsShown(),'UI opens')
 A.mode='Encounters';A.RefreshUI();A.mode='Leaderboard';A.RefreshUI()
-A.dirty=true;inside=true;local n=#sent;A.Pump(now);assert(#sent==n,'instance prevents send')
-inside=false;result=3;A.request=false;A.lastRequest=now;A.Pump(now);assert(A.outgoing,'failed send retains queue')
+A.dirty=true;inside=true;combat=true;local n=#sent;A.Pump(now);assert(#sent==n,'combat prevents sends even in dungeon')
+combat=false;result=3;A.request=false;A.lastRequest=now;A.Pump(now);assert(A.outgoing,'client-rejected dungeon send retains queue')
 result=0;for i=1,50 do A.Pump(now+i);if not A.outgoing and not A.dirty and not A.request then break end end;assert(not A.outgoing and not A.dirty,'successful retry flushes complete metadata/history queue')
 A.Receive('2|S|7|3|'..A.Day(now)..'|2|1','GUILD','Friend-Realm',now)
 A.RefreshUI();assert(A.PeerRecords()['Friend-Realm'].total==7,'guild peer record merged')
@@ -109,9 +109,11 @@ local secret={}
 issecretvalue=function(v)return v==secret end
 local oldGUID=UnitGUID;UnitGUID=function(u)if u=='target' then return secret end;return oldGUID(u)end
 assert(pcall(A.Scan,'target'),'secret unit GUID skipped');UnitGUID=oldGUID
-assert(A.SendPacket('test'),'normal outside-instance send')
-local oldInstance=IsInInstance;IsInInstance=function()return secret end
-assert(not A.SendPacket('test'),'secret instance state fails closed');IsInInstance=oldInstance
+assert(A.SendPacket('test'),'out-of-combat dungeon send is allowed')
+local oldCombat=InCombatLockdown;InCombatLockdown=function()return secret end
+assert(not A.SendPacket('test'),'secret combat state fails closed');InCombatLockdown=oldCombat
+InCombatLockdown=function()return 1 end;assert(not A.SendPacket('test'),'numeric truthy combat state blocks direct sends');InCombatLockdown=oldCombat
+inside=false
 issecretvalue=function()return false end
 -- Zero-size roster while loading must not erase the offline peer cache.
 local oldRoster=GetNumGuildMembers;GetNumGuildMembers=function()return 0 end

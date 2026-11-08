@@ -136,10 +136,9 @@ function A.RefreshUI()
  A.alertButton:SetText(A.db.options.alerts~=false and 'New-Gnome chat messages: ON' or 'New-Gnome chat messages: OFF')
  A.nearbyToggleButton:SetText(A.db.options.nearbyShown and'Nearby overlay: ON'or'Nearby overlay: OFF')
  if A.RefreshSoundSettings then A.RefreshSoundSettings()end
- local c=A.coverage or {}
- A.coverageLabel:SetText(c.log and 'Tracking: guild-only party/raid; readable combat log observed. Scores are client-reported.' or 'Tracking: guild-only party/raid debuff fallback. Exact damage and other players\' killers require readable combat-log data.')
- A.status:SetText((A.guildKey and 'AUTO SYNC ON | out of combat | every 1 min + score/profile changes | ' or 'NO GUILD | ')..(A.syncStatus or 'Waiting for peers'))
- A.postStatusLabel:SetText(A.postStatus or('Manual reports: Council of BIHG / The BIHG Cheese only. | '..(A.rosterStatus or'Guild roster pending.')))
+ local syncStatus=(A.syncStatus or(A.guildKey and'Waiting for peers'or'Waiting for guild membership')):gsub(' %- member reports unverified$','')
+ A.status:SetText(syncStatus)
+ A.membershipStatusLabel:SetText(A.rosterStatus or'Guild roster pending.')
  if A.mode=='Charts' then
   A.heading:SetText('CHARTS | Guild ranking and your recorded daily activity');A.pageLabel:SetText('Recorded data only');A.RenderCharts(now);return
  elseif A.mode=='Settings' then
@@ -306,7 +305,8 @@ function A.CreateUI()
  A.pageLabel=text(w,'small',232,-625,255)
  A.syncButton=button(w,'Refresh guild data',500,-617,176,function()A.request=true;A.QueueShare(true);A.syncStatus='Manual refresh queued; automatic sync remains on';A.RefreshUI()end,'Optional manual refresh. Automatic sync already runs at login, on score/profile changes and every minute out of combat. No guild chat messages.')
  A.reportButton=button(w,'Post Top 10 to Guild...',686,-617,256,A.ShowTopPreview,'Preview and confirm a guild-chat ranking for the selected period. Separate from silent automatic addon sync.')
- A.status=text(w,'small',20,-653,920);A.postStatusLabel=text(w,'small',20,-670,920);A.coverageLabel=text(w,'small',20,-688,920)
+ A.status=text(w,'small',20,-653,740);A.membershipStatusLabel=text(w,'small',20,-670,740)
+ A.versionLabel=text(w,'small',0,0,140);A.versionLabel:ClearAllPoints();A.versionLabel:SetPoint('BOTTOMRIGHT',w,'BOTTOMRIGHT',-18,12);A.versionLabel:SetJustifyH('RIGHT');A.versionLabel:SetText('v'..A.VERSION)
  local preview=panel(w,0,0,650,390);A.preview=preview;_G.BIHGGKTTopPreview=preview;preview:ClearAllPoints();preview:SetPoint('CENTER');preview:SetFrameStrata('FULLSCREEN_DIALOG');preview:EnableMouse(true)
  text(preview,'large',20,-18,610):SetText('PREVIEW GUILD REPORT')
  A.previewExplanation=text(preview,'small',20,-50,610);A.previewExplanation:SetWordWrap(true);A.previewExplanation:SetHeight(36)
@@ -339,7 +339,7 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG 1.7.7 | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG '..A.VERSION..' | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
  elseif msg=='sync' then A.request=true;A.QueueShare(true)
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

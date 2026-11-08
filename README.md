@@ -70,6 +70,12 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Compact status footer and visible version (1.7.8)
+
+The main window footer now keeps only the current descriptive sync state (for example, **Send blocked / retrying**) and guild-membership status. Automatic-sync policy, report-rank boilerplate, tracking coverage prose and the sent-status disclaimer are removed from this footer. Report attempts/errors still appear in local confirmation feedback, and full coverage/report diagnostics remain available through `/gkt debug`.
+
+The loaded Lua version is shown in the **bottom-right corner**. The version label and debug output use the same Core version constant; actual-TOC integration asserts that it matches the packaged TOC and is bottom-right anchored. No transport, identity reconciliation, scoring or report behavior is changed. In particular, this footer update is **not a fix for duplicate remote character identities**. Apply with `/reload` out of combat; the load list is unchanged.
+
 ### Shared local cache across characters (1.7.7)
 
 The persistent Alliance encounter history now shows a **GUID-deduplicated account-wide local knowledge cache**, not just the active character's personal sightings. On load it imports the already-saved sightings of initialized local characters; future sightings update the shared cache immediately. Earliest/latest timestamps and daily presence are merged, and newer names/races cannot be rolled back by loading an older character file. Personal sighting attribution, per-character kills/deaths and guild witness event credit stay separate: shared knowledge is not shared kill credit. Nearby remains a separate live/recent overlay, not the full historical list.

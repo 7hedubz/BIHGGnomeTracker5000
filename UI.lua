@@ -28,7 +28,7 @@ local function button(parent,label,x,y,w,fn,tip)
  b:SetScript('OnLeave',function(self)style(self,self.selected);if GameTooltip then GameTooltip:Hide() end end)
  return b
 end
-local function ratio(k,d)if d==0 then return '-' end;return string.format('%.2f',k/d)end
+
 local function clock()return A.Safe(GetServerTime) or time()end
 function A.RefreshSoundPicker()
  if not A.soundPicker then return end
@@ -121,9 +121,9 @@ function A.RefreshUI()
  if A.RefreshTopPostControls then A.RefreshTopPostControls()end
  local viewMembers=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
  for name,r in pairs(A.account and A.account.characters or {[A.owner]=me}) do if viewMembers[name]then local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r;kills=kills+A.Score(effective,period,now);deaths=deaths+A.Score(effective,period,now,'deaths')end end
- local values={tostring(kills),tostring(deaths),ratio(kills,deaths),tostring(A.AccountEncounterCount(period,now,viewMembers))}
+ local values={tostring(kills),tostring(deaths)}
  for i,v in ipairs(values) do A.statCards[i].value:SetText(v) end
- A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | '..(not A.guildKey and viewKey and'cached guild history (read-only)'or'known guild characters; encounter identities deduplicated'))
+ A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | '..(not A.guildKey and viewKey and'cached guild history (read-only)'or'known guild characters'))
  for label,b in pairs(A.navButtons) do style(b,A.mode==label) end
  for i,b in ipairs(A.periodButtons) do style(b,A.frames[i]==period) end
  local tabular=A.mode=='Leaderboard' or A.mode=='Encounters';local encounters=A.mode=='Encounters'
@@ -144,9 +144,16 @@ function A.RefreshUI()
  elseif A.mode=='Settings' then
   A.heading:SetText('SETTINGS | Account identity and local notifications');A.pageLabel:SetText('Account-wide alias');return
  end
- if encounters then A.headers[5]:Hide() else A.headers[5]:Show() end
- A.headers[4]:SetWidth(encounters and 270 or 130)
- for _,row in ipairs(A.rows) do row[4]:SetWidth(encounters and 262 or 122);if encounters then row[5]:Hide() else row[5]:Show() end end
+ local xs=encounters and{0,350,470,610}or{0,534,729}
+ local widths=encounters and{340,110,130,314}or{524,185,195}
+ for j=1,4 do
+  local header=A.headers[j]
+  if widths[j]then header:ClearAllPoints();header:SetPoint('TOPLEFT',xs[j],0);header:SetWidth(widths[j]);header:Show()else header:Hide()end
+  for i,row in ipairs(A.rows)do
+   if widths[j]then row[j]:ClearAllPoints();row[j]:SetPoint('TOPLEFT',xs[j]+5,-40-(i-1)*23);row[j]:SetWidth(widths[j]-10);row[j]:Show()
+   else row[j]:SetText('');row[j]:Hide()end
+  end
+ end
  local data={}
  if encounters then
   A.heading:SetText('ALLIANCE ENCOUNTERS | Account-wide local history; Gnomes highlighted')
@@ -164,11 +171,12 @@ function A.RefreshUI()
   end)
  else
   A.heading:SetText('GUILD LEADERBOARD | Click [+] to expand | [observed] = guildmate witnessed in your party/raid')
-  local labels={'Alias / character','Kills','Deaths','K/D','Encountered'};for i,label in ipairs(labels) do A.headers[i]:SetText(label) end
+  local labels={'Alias / character','Kills','Deaths'};for i,label in ipairs(labels) do A.headers[i]:SetText(label) end
+  if A.sort~='name'and A.sort~='kills'and A.sort~='deaths'then A.sort='kills'end
   data=A.LeaderboardGroups(period,now)
   table.sort(data,function(a,b)
    if A.sort=='name' then if a.name~=b.name then return a.name<b.name end;return a.id<b.id end
-   local key=A.sort=='deaths' and 'd' or (A.sort=='ratio' and 'kd' or (A.sort=='encounters' and 'encountered' or 'k'))
+   local key=A.sort=='deaths' and 'd' or 'k'
    if a[key]~=b[key] then return a[key]>b[key] end;if a.name~=b.name then return a.name<b.name end;return a.id<b.id
   end)
  end
@@ -185,8 +193,8 @@ function A.RefreshUI()
    row.data=r;local targetName
    if encounters then targetName=r.targetName elseif r.isGroup then if #r.children==1 then targetName=r.children[1].name end else targetName=r.name end
    A.BindTargetButton(row.button,targetName);row[1]:SetText(color..label..'|r');row.button:Show()
-   if encounters then row[2]:SetText(color..r.race..'|r');row[3]:SetText(date('!%Y-%m-%d',r.first));row[4]:SetText(date('!%m-%d %H:%M',r.last));row[5]:SetText('')
-   else row[2]:SetText(tostring(r.k));row[3]:SetText(tostring(r.d));row[4]:SetText(ratio(r.k,r.d));row[5]:SetText(r.encountered>=0 and tostring(r.encountered) or '-') end
+   if encounters then row[2]:SetText(color..r.race..'|r');row[3]:SetText(date('!%Y-%m-%d',r.first));row[4]:SetText(date('!%m-%d %H:%M',r.last))
+   else row[2]:SetText(tostring(r.k));row[3]:SetText(tostring(r.d))end
   else row.data=nil;A.BindTargetButton(row.button,nil);row.button:Hide();for _,cell in ipairs(row) do cell:SetText('') end end
  end
 end
@@ -235,15 +243,15 @@ function A.CreateUI()
  for _,entry in ipairs(modes) do local mode=entry[1];A.navButtons[mode]=button(w,entry[2],entry[3],-44,entry[4],function()A.OpenView(mode,false)end,'Switch the content area; this does not sync or post to chat.') end
  local filter=panel(w,18,-84,924,52);text(filter,'small',12,-19,75):SetText('PERIOD UTC')
  A.periodButtons={};for i,label in ipairs(A.frames) do local period=label;A.periodButtons[i]=button(filter,label,92+(i-1)*116,-13,110,function()A.SelectPeriod(period)end,'Applies to statistics, ranking, chart and Top 10 report. Days are UTC calendar days.')end
- A.statCards={};local labels={'YOUR GNOME KILLS','DEATHS TO GNOMES','KILL / DEATH RATIO','UNIQUE GNOMES ENCOUNTERED'}
- for i,label in ipairs(labels) do local card=panel(w,18+(i-1)*234,-149,222,64);text(card,'small',12,-10,202):SetText(label);A.statCards[i]={value=text(card,'large',12,-32,200)} end
+ A.statCards={};local labels={'YOUR GNOME KILLS','DEATHS TO GNOMES'}
+ for i,label in ipairs(labels) do local card=panel(w,18+(i-1)*468,-149,456,64);text(card,'small',12,-10,432):SetText(label);A.statCards[i]={value=text(card,'large',12,-32,430)} end
  A.summary=text(w,'small',20,-227,920);A.heading=text(w,'small',20,-255,920)
  A.tablePane=CreateFrame('Frame',nil,w);A.tablePane:SetPoint('TOPLEFT',18,-276);A.tablePane:SetSize(924,320)
- A.headers={};local xs={0,350,470,610,760};local widths={340,110,130,130,164};local sorts={'name','kills','deaths','ratio','encounters'}
- for i=1,5 do local idx=i;A.headers[i]=button(A.tablePane,'',xs[i],0,widths[i],function()if A.sort==sorts[idx] then A.ascending=not A.ascending else A.sort=sorts[idx];A.ascending=false end;A.page=1;A.RefreshUI()end,'Click to sort; click again to reverse.')end
+ A.headers={};local xs={0,350,470,610};local widths={340,110,130,314};local sorts={'name','kills','deaths','last'}
+ for i=1,4 do local idx=i;A.headers[i]=button(A.tablePane,'',xs[i],0,widths[i],function()if A.sort==sorts[idx] then A.ascending=not A.ascending else A.sort=sorts[idx];A.ascending=false end;A.page=1;A.RefreshUI()end,'Click to sort; click again to reverse.')end
  A.rows={};A.expanded={}
  for i=1,12 do
-  A.rows[i]={};for j=1,5 do A.rows[i][j]=text(A.tablePane,'small',xs[j]+5,-40-(i-1)*23,widths[j]-10)end
+  A.rows[i]={};for j=1,4 do A.rows[i][j]=text(A.tablePane,'small',xs[j]+5,-40-(i-1)*23,widths[j]-10)end
   local row=A.rows[i];local hit=CreateFrame('Button',nil,A.tablePane,'SecureActionButtonTemplate');hit:SetPoint('TOPLEFT',0,-34-(i-1)*23);hit:SetSize(924,23);row.button=hit;hit:RegisterForClicks('LeftButtonDown','LeftButtonUp')
   hit:HookScript('OnClick',function(_,_,down)local r=row.data;if not down and not A.TargetingLocked()and r and r.isGroup then A.expanded[r.id]=not A.expanded[r.id];A.RefreshUI()end end)
  end

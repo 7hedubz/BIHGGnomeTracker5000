@@ -70,6 +70,12 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Kills-and-deaths leaderboard (1.7.9)
+
+The main summary now has two wider cards: **Your Gnome kills** and **Deaths to Gnomes**. The guild leaderboard shows only **Alias / character**, **Kills** and **Deaths**, with the released space given back to those columns. The Encountered and K/D metrics and their board sorting controls are removed from this UI; alias expansion, character targeting, periods, kill/death sorting, charts, reports and the compact footer/version remain.
+
+The separate **Alliance encounters** view retains Character/Race/First seen/Last seen, including account-wide shared history. Sightings, existing totals, identity metadata, guild event ledgers and compatibility sync packets are not deleted or reset. This is a display-only change, not a remote identity-reconciliation fix. Actual-TOC tests cover the two-card/three-column layout and both directions of transitions to the four-field encounter view so hidden dates do not leak into the leaderboard. Apply with `/reload` out of combat; no load-list changes.
+
 ### Compact status footer and visible version (1.7.8)
 
 The main window footer now keeps only the current descriptive sync state (for example, **Send blocked / retrying**) and guild-membership status. Automatic-sync policy, report-rank boilerplate, tracking coverage prose and the sent-status disclaimer are removed from this footer. Report attempts/errors still appear in local confirmation feedback, and full coverage/report diagnostics remain available through `/gkt debug`.

@@ -123,17 +123,21 @@ issecretvalue=function()return false end
 local oldRoster=GetNumGuildMembers;GetNumGuildMembers=function()return 0 end
 A.Roster();assert(A.PeerRecords()['Friend-Realm'],'unloaded roster preserves cached stats')
 GetNumGuildMembers=oldRoster;A.Roster()
--- The actual five-column board, period cycle, header sorting and paging callbacks run.
-A.mode='Leaderboard';A.RefreshUI();assert(A.headers[5].text=='Encountered','encounter leaderboard column')
-A.headers[5].scripts.OnClick();assert(A.sort=='encounters','encounter sorting')
-A.headers[5].scripts.OnClick();assert(A.ascending,'reverse sort')
+-- Leaderboard exposes only kills/deaths; encounter history keeps its own four fields.
+A.mode='Leaderboard';A.RefreshUI()
+assert(#A.statCards==2,'summary contains only kills and deaths')
+assert(A.headers[1].text=='Alias / character'and A.headers[2].text=='Kills'and A.headers[3].text=='Deaths','leaderboard has only character, kills and deaths headings')
+assert(not A.headers[4]:IsShown()and not A.headers[5],'no K/D or Encountered columns remain on the board')
+assert(not A.rows[1][4]:IsShown()and A.rows[1][4].text=='','no stale encounter date or removed metric cell is visible on the board')
+A.headers[3].scripts.OnClick();assert(A.sort=='deaths','death sorting still works')
+A.headers[3].scripts.OnClick();assert(A.ascending,'reverse sort')
 for i=1,7 do A.periodButtons[i].scripts.OnClick()end
 A.window.scripts.OnMouseWheel(nil,-1)
 SlashCmdList.BIHGGKT('alerts');SlashCmdList.BIHGGKT('encounters');assert(A.window:IsShown(),'encounter command opens')
 A.mode='Encounters';A.RefreshUI()
-assert(not A.headers[5]:IsShown(),'unused fifth header must be hidden in encounter log')
+assert(A.headers[4]:IsShown()and A.headers[4].text=='Last seen'and A.rows[1][4]:IsShown(),'encounter history retains its Last seen column')
 A.mode='Leaderboard';A.RefreshUI()
-assert(A.headers[5]:IsShown(),'fifth header must return on leaderboard')
+assert(not A.headers[4]:IsShown()and not A.rows[1][4]:IsShown(),'returning to leaderboard removes the history-only fourth field')
 local click=BIHGGKTMinimap.scripts.OnClick
 A.window:Hide();A.mode='Encounters';click(nil,'LeftButton')
 assert(A.window:IsShown() and A.mode=='Leaderboard','left click opens leaderboard regardless of previous tab')

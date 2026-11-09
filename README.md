@@ -70,6 +70,12 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Clickable-name hover feedback (1.7.10)
+
+Clickable rows now show a translucent amber highlight under the mouse: the guild leaderboard and Alliance history highlight the full clickable row, the top-killers chart highlights its clickable name area, and Nearby highlights its contact row. The highlight uses the native button highlight texture, so it follows the actual hit area and clears on mouse leave/hide rather than becoming a persistent selection.
+
+Textures are prepared out of combat during normal frame construction. Native hover feedback does not replace secure OnClick or tooltip scripts, modify macros/target attributes, alter frozen combat rows, or cast/attack. Account-group expansion and exact-character targeting behavior are unchanged. Actual-TOC regressions verify highlight attachment/geometry/opacity on all three clickable surfaces, and targeting tests guard combat setup and preservation of existing scripts. Mock tests do not prove native visual appearance; check after `/reload` out of combat. No load-list, statistics or synchronization changes.
+
 ### Kills-and-deaths leaderboard (1.7.9)
 
 The main summary now has two wider cards: **Your Gnome kills** and **Deaths to Gnomes**. The guild leaderboard shows only **Alias / character**, **Kills** and **Deaths**, with the released space given back to those columns. The Encountered and K/D metrics and their board sorting controls are removed from this UI; alias expansion, character targeting, periods, kill/death sorting, charts, reports and the compact footer/version remain.

@@ -15,4 +15,11 @@ assert(A.BindTargetButton(b,'AliasFormat-Realm'));assert(attrs.type1=='macro'and
 local old=attrs.macrotext1;combat=true;assert(not A.BindTargetButton(b,'Other-Realm')and attrs.macrotext1==old,'secure combat binding stays fixed')
 combat=false;A.BindTargetButton(b,nil);assert(not attrs.type1 and not attrs.macrotext1,'unused rows have no stale targeting action')
 combat=1;assert(A.TargetingLocked(),'numeric truthy combat API results also lock protected changes');combat=false
-print('PASS targeting: exact Forever surname/realm alternatives, injection rejection, real character names, protected combat freeze and stale-action cleanup')
+local created=0;local nativeClick=function()end;local nativeEnter=function()end
+local hover={scripts={OnClick=nativeClick,OnEnter=nativeEnter},SetAttribute=function()error('hover must not mutate targeting attributes')end}
+function hover:CreateTexture()created=created+1;return{SetAllPoints=function()end,SetColorTexture=function()end,SetBlendMode=function()end}end
+function hover:SetHighlightTexture(texture)self.highlight=texture end
+combat=true;assert(not A.AddNameHover(hover)and created==0,'highlight setup is deferred in combat rather than mutating protected controls')
+combat=false;assert(A.AddNameHover(hover)and created==1 and hover.highlight,'hover texture is prepared once during normal frame construction')
+assert(hover.scripts.OnClick==nativeClick and hover.scripts.OnEnter==nativeEnter,'hover feedback preserves existing secure clicks and tooltip hooks')
+print('PASS targeting: exact names, injection rejection, real character targeting, combat freeze, stale-action cleanup and native hover feedback')

@@ -253,6 +253,7 @@ function A.CreateUI()
  for i=1,12 do
   A.rows[i]={};for j=1,4 do A.rows[i][j]=text(A.tablePane,'small',xs[j]+5,-40-(i-1)*23,widths[j]-10)end
   local row=A.rows[i];local hit=CreateFrame('Button',nil,A.tablePane,'SecureActionButtonTemplate');hit:SetPoint('TOPLEFT',0,-34-(i-1)*23);hit:SetSize(924,23);row.button=hit;hit:RegisterForClicks('LeftButtonDown','LeftButtonUp')
+  A.AddNameHover(hit)
   hit:HookScript('OnClick',function(_,_,down)local r=row.data;if not down and not A.TargetingLocked()and r and r.isGroup then A.expanded[r.id]=not A.expanded[r.id];A.RefreshUI()end end)
  end
  A.chartsPane=CreateFrame('Frame',nil,w);A.chartsPane:SetPoint('TOPLEFT',18,-276);A.chartsPane:SetSize(924,320)
@@ -262,6 +263,7 @@ function A.CreateUI()
   local y=-59-(i-1)*23;local bar=CreateFrame('StatusBar',nil,top);bar:SetPoint('TOPLEFT',162,y);bar:SetSize(218,13);bar:SetStatusBarTexture('Interface\\Buttons\\WHITE8X8');bar:SetStatusBarColor(0.94,0.62,0.20)
   local row={label=text(top,'small',14,y,142),bar=bar,value=text(top,'small',390,y,50)};A.chartRows[i]=row
   local hit=CreateFrame('Button',nil,top,'SecureActionButtonTemplate');row.button=hit;hit:SetPoint('TOPLEFT',14,y+4);hit:SetSize(142,21);hit:RegisterForClicks('LeftButtonDown','LeftButtonUp')
+  A.AddNameHover(hit)
   hit:HookScript('OnClick',function(_,_,down)local r=row.data;if not down and not A.TargetingLocked()and r and #r.children>1 then A.expanded[r.id]=true;A.OpenView('Leaderboard',false)end end)
  end
  local trend=panel(A.chartsPane,472,0,452,320);A.trendChart=trend

@@ -17,6 +17,15 @@ function A.TargetMacro(name)
  local out={'/cleartarget'};for i,n in ipairs(names)do out[#out+1]='/targetexact '..(i>1 and'[noexists] 'or'')..n end
  return table.concat(out,'\n')
 end
+function A.AddNameHover(button)
+ if A.TargetingLocked()then return false end
+ -- Let the native button manage hover/leave visibility, including in combat.
+ -- Never replace its secure click script or change target attributes here.
+ local highlight=button:CreateTexture(nil,'HIGHLIGHT');highlight:SetAllPoints(button)
+ highlight:SetColorTexture(1,0.70,0.25,0.22);highlight:SetBlendMode('ADD')
+ button:SetHighlightTexture(highlight)
+ return true
+end
 function A.BindTargetButton(button,name)
  if A.TargetingLocked()then return false end
  name=(A.rosterTargetNames and A.rosterTargetNames[name])or name
@@ -133,6 +142,7 @@ function A.CreateNearbyUI()
  A.nearbyRows={}
  for i=1,A.NEARBY_ROWS do
   local row={};local f=CreateFrame('Button',nil,w,'SecureActionButtonTemplate');row.frame=f;f:SetSize(332,21);f:SetPoint('TOPLEFT',4,-24-(i-1)*22);f:RegisterForClicks('LeftButtonDown','LeftButtonUp')
+  A.AddNameHover(f)
   row.name=label(f,5,-5,206);row.detail=label(f,214,-5,112);row.detail:SetJustifyH('RIGHT')
   f:SetScript('OnEnter',function(self)
    local e=row.data;if e and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_LEFT');GameTooltip:SetText(A.DisplayName(e.name));GameTooltip:AddLine((e.race or 'Unknown race')..(e.level and e.level>0 and(' | Level '..e.level)or''),1,0.75,0.35);GameTooltip:AddLine('Left-click: try targeting this character. List bindings freeze in combat.',0.8,0.9,1,true);GameTooltip:AddLine('Last seen '..math.max(0,clock()-e.seen)..'s ago. Recently observed, not a measured distance.',0.8,0.85,0.9,true);GameTooltip:Show()end

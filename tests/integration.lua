@@ -17,6 +17,10 @@ local originalRegister=methods.RegisterEvent
 methods.RegisterEvent=function(self,e)if e=='COMBAT_LOG_EVENT_UNFILTERED'then forbiddenRegistrations=forbiddenRegistrations+1;error('forbidden native CLEU registration')end;originalRegister(self,e)end
 local function obj()return setmetatable({scripts={},events={},shown=true},{__index=function(_,k)return methods[k] or noop end})end
 methods.CreateFontString=obj;methods.CreateTexture=obj
+methods.SetHighlightTexture=function(self,texture)self.highlightTexture=texture end
+methods.SetAllPoints=function(self,relative)self.allPoints=relative end
+methods.SetColorTexture=function(self,...)self.color={...}end
+methods.SetBlendMode=function(self,mode)self.blend=mode end
 methods.CreateLine=obj
 methods.SetStartPoint=function(self,...)self.start={...}end
 methods.SetEndPoint=function(self,...)self.finish={...}end
@@ -80,6 +84,11 @@ assert(A.nearbyCount==1 and A.nearbyRows[1].data.race=='Gnome','readable target 
 assert(A.nearbyRows[1].frame.template=='SecureActionButtonTemplate','nearby names use a secure hardware-click targeting button')
 assert(A.nearbyRows[1].frame.attrs.type1=='macro'and A.nearbyRows[1].frame.attrs.macrotext1:find('Tiny-Realm',1,true),'nearby click targets full real name rather than shortened display text')
 assert(A.rows[1].button.template=='SecureActionButtonTemplate'and A.rows[1].button.attrs.macrotext1:find('Tester-Realm',1,true),'single-character leaderboard header targets its character, not account alias')
+for _,b in ipairs({A.rows[1].button,A.chartRows[1].button,A.nearbyRows[1].frame})do
+ local highlight=rawget(b,'highlightTexture')
+ assert(highlight and highlight.allPoints==b and highlight.color[4]>0 and highlight.color[4]<0.5,'each clickable name uses a full-hit-area translucent native hover highlight')
+ assert(b.scripts.OnClick,'native secure click handlers remain attached with hover feedback')
+end
 assert(#soundCalls==1 and soundCalls[1][1]==A.BundledNearbySounds[1].value,'actual OnUpdate sends the default short Alliance alarm once')
 assert(A.EncounterCount('Lifetime',now)==1,'visible Gnome stored uniquely')
 assert(A.db.seen['Player-gnome'],'Alliance player memory')

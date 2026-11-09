@@ -4,6 +4,8 @@ local units={player={name='Me',guid='Player-me',guild='Guild'},pet={guid='Pet-me
 function UnitExists(u)return units[u]~=nil end
 function UnitGUID(u)return units[u] and units[u].guid end
 function UnitName(u)return units[u] and units[u].name,'Realm' end
+function UnitHealthMax()return 1000 end
+function UnitAffectingCombat()return true end
 function GetGuildInfo(u)return units[u] and units[u].guild end
 function IsInRaid()return false end
 function GetNumSubgroupMembers()return 2 end
@@ -76,13 +78,24 @@ local died={};died[2]='UNIT_DIED';died[8]='Player-friend';A.GroupCombat(died,now
 assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+35).deaths==1,'confirmed Gnome killing blow records group death')
 A.GroupCombat(died,now+36)
 assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+36).deaths==1,'a corpse alone does not assign another killer')
-A.GroupCombat(damage,now+38)
+damage[12]=500;A.GroupCombat(damage,now+38)
 local human={};human[2]='SWING_DAMAGE';human[4]='Player-human';human[8]='Player-friend';human[12]=1000;human[13]=0
 A.GroupCombat(human,now+39);A.GroupCombat(died,now+39)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+39).deaths==1,'later non-Gnome lethal damage clears stale Gnome attribution')
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+39).deaths==1,'exactly fifty percent Gnome damage is not sufficient')
+damage[12]=600;A.GroupCombat(damage,now+43);A.GroupCombat(human,now+44);A.GroupCombat(died,now+44)
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+44).deaths==2,'majority-health Gnome contribution counts despite a Human final blow')
+local oldCombat=UnitAffectingCombat;local fighting=true;UnitAffectingCombat=function()return fighting end
+A.GroupCombat(damage,now+50);fighting=false;A.UpdateDeathCombat('Player-friend','party1',now+51)
+fighting=true;A.UpdateDeathCombat('Player-friend','party1',now+52);A.GroupCombat(human,now+53);A.GroupCombat(died,now+53)
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+53).deaths==2,'a new combat cannot reuse Gnome damage from the prior fight');UnitAffectingCombat=oldCombat
+local D=make('Me-Realm')
+assert(D.AddGuildEvent('D','Friend-Realm','Player-friend','Player-gnome-a',now+60,now+60,now+60))
+assert(not D.AddGuildEvent('D','Friend-Realm','Player-friend','Player-gnome-b',now+60,now+60,now+60),'different qualifying contributors cannot duplicate one victim death')
+assert(D.GuildEffectiveRecord('Friend-Realm',D.PeerRecords()['Friend-Realm'],now+60).deaths==1,'death witness deduplication remains one per victim event')
 -- Confirmed incoming Gnome kills only; merely seeing a guildmate dead must not invent a killer.
-A.GroupOwnDeath('recap1','Gnome',now+40,'Player-gnome')
-A.GroupOwnDeath('recap1','Gnome',now+40,'Player-gnome')
+local proof={damage=600,maxHealth=1000,source='Player-gnome',time=now+40}
+A.GroupOwnDeath('recap1','Gnome',now+40,'Player-gnome',proof)
+A.GroupOwnDeath('recap1','Gnome',now+40,'Player-gnome',proof)
 assert(A.db.owners[A.owner].deaths==1,'own confirmed Gnome death deduplicates')
 local oldRaid=IsInRaid;IsInRaid=function()return true end;units.raid1=units.party1;units.raidpet1=units.partypet1;units.raid2=units.party2
 A.RefreshGroupActors();assert(A.groupSources['Pet-friend']and not A.groupSources['Player-guest'],'raid pets retain guild-only ownership')

@@ -12,7 +12,7 @@ eq(A.SetAlias('bad|alias',now),false);eq(A.SetAlias('',now),false)
 A.guildKey='Guild-Realm';A.members={['First-Realm']=true,['Second-Realm']=true,['Peer-Realm']=true,['PeerAlt-Realm']=true}
 local first=A.db;A.Init({},'Second-Realm',now+1);A.InitAccount(account,'ignored-id',now+1)
 eq(account.id,'account-first','same account retains stable ID');eq(account.alias,'DoHeal','alt inherits nickname')
-A.Award(now+1);A.PlayerDeath('death1','Gnome',now+1)
+A.Award(now+1);A.PlayerDeath('death1','Gnome',now+1,'Player-gnome',{damage=600,maxHealth=1000,source='Player-gnome',time=now+1})
 A.Encounter('Player-unique','Tiny','Gnome','Alliance',now+1);A.Encounter('Player-2','Other','Gnome','Alliance',now+1)
 A.SnapshotAccount(now+1)
 eq(A.AccountEncounterCount('Lifetime',now+1),2)

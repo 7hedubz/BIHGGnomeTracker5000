@@ -2,6 +2,7 @@ local _,A=...
 local function copy(t)local out={};for k,v in pairs(t or {})do out[k]=v end;return out end
 local function player(g)return type(g)=='string' and g:match('^Player%-[%w%-]+$')~=nil end
 local function record()return {total=0,deaths=0,days={},deathDays={}}end
+local function eventPair(kind,actor,target)return kind..':'..actor..':'..(kind=='D'and'death'or target)end
 local function number(s,max)local n=type(s)=='string' and s:match('^%d+$') and tonumber(s);if n and n<=max then return n end end
 local function store(guildKey)
  guildKey=guildKey or A.guildKey;if not guildKey then return nil end
@@ -11,7 +12,7 @@ local function store(guildKey)
  if not index then
   index={names={},pairs={}};A.groupIndexes[guildKey]=index
   for _,e in pairs(s.events)do
-   local pair=e.kind..':'..e.actor..':'..e.target
+   local pair=eventPair(e.kind,e.actor,e.target)
    index.names[e.name]=index.names[e.name] or {};table.insert(index.names[e.name],e)
    index.pairs[pair]=index.pairs[pair] or {};table.insert(index.pairs[pair],e)
   end
@@ -21,13 +22,29 @@ end
 function A.InitGroupTracking(now)
  local r=A.db.owners[A.owner]
  if not r.guildBase then r.guildBase={since=now,total=r.total or 0,deaths=r.deaths or 0,days=copy(r.days),deathDays=copy(r.deathDays)} end
- A.groupTargets={};A.groupSources={};A.groupOwners={};A.groupPending=A.groupPending or {};A.groupLethal={}
+ A.groupTargets={};A.groupSources={};A.groupOwners={};A.groupPending=A.groupPending or {};A.groupIncoming={}
 end
 local function unitName(unit)
  local ok,n,realm=pcall(UnitName,unit)
  if not ok or A.Secret(n) or A.Secret(realm) or type(n)~='string' then return nil end
  if type(realm)=='string' and realm~='' then n=n..'-'..realm:gsub('%s','')end
  return A.Name(n)
+end
+function A.UpdateDeathCombat(guid,unit,t)
+ A.groupIncoming=A.groupIncoming or{};local state=A.groupIncoming[guid]
+ local fighting=A.Safe(UnitAffectingCombat,unit);local hp=A.Safe(UnitHealthMax,unit)
+ if fighting==true then
+  if not state or state.ended then state={started=t,events={},health=0};A.groupIncoming[guid]=state end
+ elseif fighting==false and state and not state.ended then state.ended=t end
+ if state and type(hp)=='number'and hp>0 and hp<math.huge then state.health=math.max(state.health,hp)end
+ return state
+end
+function A.IncomingDeathEvidence(guid,t)
+ local state=(A.groupIncoming or{})[guid]
+ if not state or(state.ended and t-state.ended>2)then return end
+ local health=state.health
+ if guid==A.Safe(UnitGUID,'player')and A.deathFight then health=math.max(health,A.deathFight.health or 0)end
+ return A.GnomeDeathEvidence(state.events,health,t,state.started)
 end
 function A.RefreshGroupActors()
  A.groupSources={};A.groupOwners={};A.groupUnits={}
@@ -46,6 +63,7 @@ function A.RefreshGroupActors()
   if name~=A.owner and not(A.account and A.account.characters[name])and not peers[name]then peers[name]=record();peers[name].observerOnly=true end
   if peers[name]then if peers[name].characterGUID and peers[name].characterGUID~=guid then return end;peers[name].characterGUID=guid end
   local actor={name=name,guid=guid,unit=unit};A.groupOwners[guid]=actor;A.groupSources[guid]=actor;A.groupUnits[#A.groupUnits+1]=unit
+  A.UpdateDeathCombat(guid,unit,A.Safe(GetServerTime)or A.now)
   local petGUID=A.Safe(UnitGUID,pet);if type(petGUID)=='string' then A.groupSources[petGUID]=actor end
  end
  add('player','pet')
@@ -86,7 +104,7 @@ function A.AddGuildEvent(kind,name,actor,target,at,contribution,now)
  if not A.guildKey or not A.members[name] or not player(actor)or not player(target)or(kind~='K'and kind~='D')then return false end
  at=math.floor(at);contribution=math.floor(contribution)
  if at>now+5 or at<1000000000 or contribution>at+1 or contribution<at-A.WINDOW then return false end
- local s,index=store();local pair=kind..':'..actor..':'..target
+ local s,index=store();local pair=eventPair(kind,actor,target)
  for _,old in ipairs(index.pairs[pair]or {})do
   if math.abs(old.time-at)<=3 and (kind=='D' or (contribution<=old.time+1 and old.contribution<=at+1))then return false end
  end
@@ -147,8 +165,8 @@ function A.GroupDeath(g,now)
  end
  return awarded
 end
-function A.GroupOwnDeath(id,race,now,killer)
- if race~='Gnome'or not player(killer)or not A.guildKey or not A.members[A.owner]then return false end
+function A.GroupOwnDeath(id,race,now,killer,proof)
+ if type(id)~='string'or not A.ValidGnomeDeathEvidence(proof,now)or killer~=proof.source or not A.guildKey or not A.members[A.owner]then return false end
  A.db.recaps=A.db.recaps or {};if A.db.recaps[id]then return false end;A.db.recaps[id]=now
  for key,stamp in pairs(A.db.recaps)do if now-stamp>86400 then A.db.recaps[key]=nil end end
  local guid=A.Safe(UnitGUID,'player');return A.AddGuildEvent('D',A.owner,guid,killer,now,now,now)
@@ -157,9 +175,9 @@ function A.GroupCombat(v,now)
  local event,source,target=v[2],v[4],v[8]
  if event=='UNIT_DIED'or event=='UNIT_DESTROYED'then
   A.GroupDeath(target,now)
-  local dead=A.groupOwners[target];local lethal=A.groupLethal[target]
-  if dead and lethal and now-lethal.time<=3 then A.AddGuildEvent('D',dead.name,dead.guid,lethal.killer,now,lethal.time,now)end
-  A.groupLethal[target]=nil;return
+  local dead=A.groupOwners[target];local proof=A.IncomingDeathEvidence(target,now)
+  if dead and proof then A.AddGuildEvent('D',dead.name,dead.guid,proof.source,now,now,now)end
+  A.groupIncoming[target]=nil;return
  end
  local amount,overkill
  if event=='SWING_DAMAGE'then amount,overkill=v[12],v[13]
@@ -168,11 +186,14 @@ function A.GroupCombat(v,now)
  if amount then
   A.GroupDamage(target,amount,overkill,source,now)
   if A.groupOwners[target]then
-   A.groupLethal[target]=nil
-   if player(source)and A.Race(source)=='Gnome'and type(overkill)=='number'and overkill>=0 then A.groupLethal[target]={killer=source,time=now}end
+   local actor=A.groupOwners[target];local state=A.UpdateDeathCombat(target,actor.unit,now)
+   if state and(not state.ended or now-state.ended<=2)then
+    state.events[#state.events+1]={event=event,sourceGUID=source,amount=amount,overkill=overkill,timestamp=now}
+    if #state.events>2000 then table.remove(state.events,1)end
+   end
   end
  elseif event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'or event=='SPELL_AURA_APPLIED_DOSE'then if v[15]=='DEBUFF'then A.GroupCC(target,v[12],source,now,true)end
- elseif event:find('DAMAGE',1,true)and A.groupOwners[target]then A.groupLethal[target]=nil end
+ end
 end
 local function eventPacket(e)return table.concat({'5','E',e.kind,A.EncodeAlias(e.name),e.actor,e.target,e.time,e.contribution},'|')end
 function A.PriorityGroupPacket()

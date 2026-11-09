@@ -87,7 +87,15 @@ function A.Scan(unit)
   end
  end
 end
+function A.ObserveOwnDeathHealth(newCombat)
+ local hp=A.Safe(UnitHealthMax,'player');local t=now();local clock=A.Safe(GetTime)
+ if newCombat then A.deathFight={started=t,clockStart=clock,health=0}end
+ if type(hp)=='number'and hp>0 and hp<math.huge then
+  A.ownHealth=hp;local f=A.deathFight;if f and not f.ended then f.health=math.max(f.health,hp)end
+ end
+end
 function A.ScanVisible()
+ A.ObserveOwnDeathHealth()
  if A.RefreshGroupActors then A.RefreshGroupActors()end
  for _,u in ipairs({'target','focus','mouseover'}) do A.Scan(u) end
  for u in pairs(A.plates) do if A.Safe(UnitExists,u) then A.Scan(u) else A.plates[u]=nil end end
@@ -224,26 +232,38 @@ function A.Recap()
  if not A.pendingDeath then return end
  local pending=A.pendingDeath; local t=now()
  if t-pending.time>8 then A.pendingDeath=nil;return end
- local recap=C_DeathRecap
+ local fight=A.deathFight
+ if fight and fight.ended and pending.time-fight.ended>2 then A.pendingDeath=nil;return end
+ local proof;local recap=C_DeathRecap
  if recap and recap.GetRecapEvents then
   local link=A.Safe(recap.GetRecapLink)
   local id=type(link)=='string' and link:match('death:(%d+)')
-  local events=A.Safe(recap.GetRecapEvents)
+  local events=A.Safe(recap.GetRecapEvents,id and tonumber(id))
   if type(events)=='table' and not (issecrettable and issecrettable(events)) then
-   local e=events[1]
-   if type(e)=='table' and not (issecrettable and issecrettable(e)) then
-    local stamp,hide,g=readable(e.timestamp),readable(e.hideCaster),readable(e.sourceGUID)
-    -- Do not attribute stale/untimed recaps or hidden casters.
-    if id and type(stamp)=='number' and math.abs(stamp-pending.time)<=10 and hide~=true and type(g)=='string' and g:match('^Player%-') then
-     A.coverage.recap=true
-     A.PlayerDeath('recap:'..id..':'..stamp,A.Race(g),pending.time,g); A.pendingDeath=nil; return
-    end
+   local stamp
+   for _,e in ipairs(events)do if not A.Secret(e)and type(e)=='table'and not(issecrettable and issecrettable(e))then
+    local v=readable(e.timestamp);if type(v)=='number'and v==v and v<math.huge then stamp=math.max(stamp or v,v)end
+   end end
+   local diedAt,start=pending.time,fight and fight.started or pending.time-10
+   local fresh=stamp and math.abs(stamp-diedAt)<=10
+   if not fresh and stamp and type(pending.clock)=='number'and math.abs(stamp-pending.clock)<=10 then
+    diedAt=pending.clock;start=fight and fight.clockStart or diedAt-10;fresh=true
+   end
+   A.db.deathRecapsSeen=A.db.deathRecapsSeen or{}
+   if id and fresh and(pending.recapID==id or not A.db.deathRecapsSeen[id])then
+    pending.recapID=id;A.db.deathRecapsSeen[id]=pending.time
+    for key,at in pairs(A.db.deathRecapsSeen)do if t-at>86400 then A.db.deathRecapsSeen[key]=nil end end
+    local hp=A.Safe(recap.GetRecapMaxHealth,tonumber(id));if type(hp)~='number'or hp<=0 or hp>=math.huge then hp=pending.health end
+    if type(hp)=='number'then hp=math.max(hp,pending.health or 0,fight and fight.health or 0)end
+    proof=A.GnomeDeathEvidence(events,hp,diedAt,start)
+    A.coverage.recap=true
+    if proof then proof.time=pending.time end
    end
   end
  end
- local k=A.killingBlow
- if k and math.abs(k.time-pending.time)<=2 then
-  A.PlayerDeath('combat:'..pending.time,A.Race(k.guid),pending.time,k.guid);A.pendingDeath=nil
+ if not proof and A.IncomingDeathEvidence then proof=A.IncomingDeathEvidence(A.Safe(UnitGUID,'player'),pending.time)end
+ if proof then
+  A.PlayerDeath('death:'..pending.time,'Gnome',pending.time,proof.source,proof);A.pendingDeath=nil
  end
 end
 function A.Changed()
@@ -286,7 +306,16 @@ local function handler(_,event,...)
  elseif event=='GROUP_ROSTER_UPDATE'or event=='UNIT_PET'then if A.RefreshGroupActors then A.RefreshGroupActors()end
  elseif event=='NAME_PLATE_UNIT_ADDED' then if not A.Secret(arg1) and type(arg1)=='string' then A.plates[arg1]=true;A.Scan(arg1) end
  elseif event=='NAME_PLATE_UNIT_REMOVED' then if not A.Secret(arg1) then A.plates[arg1]=nil end
- elseif event=='UNIT_AURA' or event=='UNIT_HEALTH' or event=='UNIT_FLAGS' then if not A.Secret(arg1) and type(arg1)=='string' then A.Scan(arg1) end
+ elseif event=='UNIT_AURA' or event=='UNIT_HEALTH' or event=='UNIT_FLAGS' or event=='UNIT_MAXHEALTH' then if not A.Secret(arg1) and type(arg1)=='string' then
+  if arg1=='player'then A.ObserveOwnDeathHealth()end
+  if(event=='UNIT_FLAGS'or event=='UNIT_MAXHEALTH')and A.RefreshGroupActors then A.RefreshGroupActors()end
+  A.Scan(arg1)
+ end
+ elseif event=='PLAYER_REGEN_DISABLED'then
+  A.ObserveOwnDeathHealth(true)
+  local guid=A.Safe(UnitGUID,'player');if guid and A.groupIncoming then A.groupIncoming[guid]=nil end
+  if A.RefreshGroupActors then A.RefreshGroupActors()end
+ elseif event=='PLAYER_REGEN_ENABLED'then if A.deathFight then A.deathFight.ended=now()end
  elseif event=='PLAYER_TARGET_CHANGED' then A.Scan('target')
  elseif event=='UPDATE_MOUSEOVER_UNIT' then A.Scan('mouseover')
  elseif event=='PLAYER_FOCUS_CHANGED' then A.Scan('focus')
@@ -294,9 +323,9 @@ local function handler(_,event,...)
  elseif event=='PARTY_KILL' then if not A.Secret(arg2)then if A.ForgetNearby then A.ForgetNearby(arg2)end;if A.GroupDeath then A.GroupDeath(arg2,now())else A.Death(arg2,now())end end
  elseif event=='PLAYER_DEAD' then
   if A.deathActive then return end
-  A.deathActive=true;A.pendingDeath={time=now()}
+  A.ObserveOwnDeathHealth();A.deathActive=true;A.pendingDeath={time=now(),clock=A.Safe(GetTime),health=A.ownHealth}
   A.Recap(); if C_Timer then C_Timer.After(0.5,A.Recap);C_Timer.After(2,A.Recap) end
- elseif event=='PLAYER_ALIVE' or event=='PLAYER_UNGHOST' then A.killingBlow=nil;A.deathActive=false
+ elseif event=='PLAYER_ALIVE' or event=='PLAYER_UNGHOST' then A.killingBlow=nil;A.deathActive=false;A.pendingDeath=nil;A.deathFight=nil
  elseif event=='CHAT_MSG_ADDON' then
   if A.Secret(arg1) or A.Secret(arg2) or A.Secret(arg3) or A.Secret(arg4) then return end
   if arg1==A.PREFIX then A.Receive(arg2,arg3,A.Name(arg4),now()) end
@@ -308,7 +337,7 @@ frame:SetScript('OnEvent',function(...)
 end)
 -- Forever forbids native CLEU registration; pcall does not prevent its
 -- ADDON_ACTION_FORBIDDEN event. Keep the parser for explicitly supplied data.
-for _,event in ipairs({'ADDON_ACTION_BLOCKED','ADDON_ACTION_FORBIDDEN','PLAYER_LOGIN','PLAYER_ENTERING_WORLD','ZONE_CHANGED_NEW_AREA','GUILD_ROSTER_UPDATE','PLAYER_GUILD_UPDATE','GROUP_ROSTER_UPDATE','UNIT_PET','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','UNIT_AURA','UNIT_HEALTH','UNIT_FLAGS','PLAYER_TARGET_CHANGED','UPDATE_MOUSEOVER_UNIT','PLAYER_FOCUS_CHANGED','PARTY_KILL','PLAYER_DEAD','PLAYER_ALIVE','PLAYER_UNGHOST','CHAT_MSG_ADDON'}) do pcall(frame.RegisterEvent,frame,event) end
+for _,event in ipairs({'ADDON_ACTION_BLOCKED','ADDON_ACTION_FORBIDDEN','PLAYER_LOGIN','PLAYER_ENTERING_WORLD','ZONE_CHANGED_NEW_AREA','GUILD_ROSTER_UPDATE','PLAYER_GUILD_UPDATE','GROUP_ROSTER_UPDATE','UNIT_PET','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','UNIT_AURA','UNIT_HEALTH','UNIT_FLAGS','UNIT_MAXHEALTH','PLAYER_REGEN_DISABLED','PLAYER_REGEN_ENABLED','PLAYER_TARGET_CHANGED','UPDATE_MOUSEOVER_UNIT','PLAYER_FOCUS_CHANGED','PARTY_KILL','PLAYER_DEAD','PLAYER_ALIVE','PLAYER_UNGHOST','CHAT_MSG_ADDON'}) do pcall(frame.RegisterEvent,frame,event) end
 local elapsed=0
 frame:SetScript('OnUpdate',function(_,dt)
  elapsed=elapsed+dt; if elapsed<0.5 or not A.db then return end;elapsed=0

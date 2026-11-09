@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.7.10'
+A.VERSION='1.7.11'
 A.RETENTION = 400
 A.DAMAGE_FRACTION = 0.02
 A.frames = {'Lifetime','7 days','30 days','Today','This week','This month','This year'}
@@ -26,9 +26,69 @@ function A.Award(now)
  r.total=r.total+1; r.days[d]=(r.days[d] or 0)+1
  if A.Changed then A.Changed() end
 end
-function A.PlayerDeath(id,race,now,killer)
- if A.GroupOwnDeath then return A.GroupOwnDeath(id,race,now,killer)end
- if race~='Gnome' or type(id)~='string' then return false end
+local deathDamageEvents={SWING_DAMAGE=true,RANGE_DAMAGE=true,SPELL_DAMAGE=true,SPELL_PERIODIC_DAMAGE=true,DAMAGE_SHIELD=true}
+local function deathSecret(v) return A.Secret and A.Secret(v) end
+local function deathTable(v)
+ return not deathSecret(v) and type(v)=='table' and not (issecrettable and issecrettable(v))
+end
+local function deathNumber(v)
+ return not deathSecret(v) and type(v)=='number' and v==v and v>-math.huge and v<math.huge
+end
+local function deathPlayer(v)
+ return not deathSecret(v) and type(v)=='string' and v:match('^Player%-.+')~=nil
+end
+local function deathMitigation(v,overkill)
+ if deathSecret(v) then return nil end
+ if v==nil then return 0 end
+ if not deathNumber(v) or (not overkill and v<0) then return nil end
+ return math.max(0,v)
+end
+local function deathRow(e,deathTime,combatStart)
+ if not deathTable(e) then return end
+ local event,t,g,amount,hidden=e.event,e.timestamp,e.sourceGUID,e.amount,e.hideCaster
+ if deathSecret(event) or type(event)~='string' or not deathDamageEvents[event]
+  or not deathNumber(t) or t<combatStart or t>deathTime+1
+  or not deathPlayer(g) or not deathNumber(amount) or amount<0
+  or deathSecret(hidden) or (hidden~=nil and hidden~=false) then return end
+ local overkill=deathMitigation(e.overkill,true)
+ local absorbed=deathMitigation(e.absorbed)
+ local resisted=deathMitigation(e.resisted)
+ local blocked=deathMitigation(e.blocked)
+ if not overkill or not absorbed or not resisted or not blocked then return end
+ if type(A.Race)~='function' then return end
+ local ok,race=pcall(A.Race,g)
+ if not ok or deathSecret(race) or race~='Gnome' then return end
+ return g,math.max(0,amount-overkill-absorbed-resisted-blocked)
+end
+function A.GnomeDeathEvidence(events,maxHealth,deathTime,combatStart)
+ if not deathTable(events) or not deathNumber(maxHealth) or maxHealth<=0
+  or not deathNumber(deathTime) or not deathNumber(combatStart) or combatStart>deathTime then return nil end
+ local total,sources=0,{}
+ for _,e in pairs(events) do
+  local guid,damage=deathRow(e,deathTime,combatStart)
+  if guid then
+   total=total+damage
+   if not deathNumber(total) then return nil end
+   sources[guid]=(sources[guid] or 0)+damage
+  end
+ end
+ if total<=maxHealth*0.5 then return nil end
+ local source,best=nil,0
+ for guid,damage in pairs(sources) do
+  if damage>best or (damage==best and (not source or guid<source)) then source,best=guid,damage end
+ end
+ return {damage=total,maxHealth=maxHealth,source=source,time=deathTime}
+end
+function A.ValidGnomeDeathEvidence(proof,now)
+ if not deathTable(proof) or not deathNumber(now) then return false end
+ local damage,hp,source,time=proof.damage,proof.maxHealth,proof.source,proof.time
+ return deathNumber(damage) and damage>0 and deathNumber(hp) and hp>0
+  and damage>hp*0.5 and deathPlayer(source) and deathNumber(time) and time==now
+end
+function A.PlayerDeath(id,race,now,killer,proof)
+ if not A.ValidGnomeDeathEvidence(proof,now) or deathSecret(killer) or killer~=proof.source then return false end
+ if A.GroupOwnDeath then return A.GroupOwnDeath(id,race,now,killer,proof)end
+ if deathSecret(race) or race~='Gnome' or deathSecret(id) or type(id)~='string' then return false end
  A.db.recaps=A.db.recaps or {}
  if A.db.recaps[id] then return false end
  A.db.recaps[id]=now

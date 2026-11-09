@@ -63,7 +63,7 @@ function IsInInstance()return inside,'none' end
 function GetPlayerInfoByGUID(g)if g=='Player-gnome' then return 'Mage','MAGE','Gnome','Gnome',2,'Tiny','Realm' end end
 C_UnitAuras={GetAuraDataByIndex=function(u,i)if u=='target' and i==1 and not units.target.dead then return {spellId=118,sourceUnit='player',auraInstanceID=1,expirationTime=now+10} end end}
 C_ChatInfo={RegisterAddonMessagePrefix=noop,SendAddonMessage=function(p,m,c)sent[#sent+1]={p,m,c};return result end}
-C_DeathRecap={GetRecapLink=function()return '|Hdeath:9|h' end,GetRecapEvents=function()return {{sourceGUID='Player-gnome',timestamp=now,hideCaster=false}} end}
+C_DeathRecap={GetRecapLink=function()return '|Hdeath:9|h' end,GetRecapMaxHealth=function()return 1000 end,GetRecapEvents=function()return {{event='SWING_DAMAGE',amount=500,sourceGUID='Player-gnome',timestamp=now,hideCaster=false}} end}
 local A={}
 local toc=assert(io.open(root..'/BIHGGnomeKillTracker5000.toc'))
 for line in toc:lines()do if line:match('%.lua$')then assert(loadfile(root..'/'..line))('BIHGGnomeKillTracker5000',A)end end;toc:close()
@@ -95,8 +95,21 @@ assert(A.db.seen['Player-gnome'],'Alliance player memory')
 units.target.dead=true;event('UNIT_HEALTH','target');tick()
 assert(A.db.owners[A.owner].total==1,'confirmed own CC + observed death awards kill without CLEU')
 tick();event('PARTY_KILL','Player-me','Player-gnome');assert(A.db.owners[A.owner].total==1,'duplicate death ignored')
-event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'recap Gnome killing blow tracked')
-event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'same recap ignored')
+event('PLAYER_DEAD');delayed();assert((A.db.owners[A.owner].deaths or 0)==0,'a Gnome final blow with exactly half maximum health damage does not qualify')
+event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');now=now+1
+C_DeathRecap.GetRecapLink=function()return '|Hdeath:10|h'end
+C_DeathRecap.GetRecapEvents=function()return{{event='SWING_DAMAGE',amount=100,sourceGUID='Player-human',timestamp=now,hideCaster=false},{event='SPELL_DAMAGE',amount=600,sourceGUID='Player-gnome',timestamp=now-1,hideCaster=false}}end
+event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'more than half health from a Gnome qualifies even when a different race lands the final blow')
+event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'same actual death and recap ignored')
+event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');now=now+2;event('PLAYER_DEAD');delayed()
+assert(A.db.owners[A.owner].deaths==1,'a recap already used in a previous life cannot qualify a new death')
+event('PLAYER_ALIVE');units.player.hp=2000;event('PLAYER_REGEN_DISABLED');now=now+1;units.player.hp=1000
+C_DeathRecap.GetRecapLink=function()return '|Hdeath:11|h'end
+event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'a maximum-health drop cannot lower the threshold below the observed combat peak')
+event('PLAYER_ALIVE');local absoluteClock=GetTime;GetTime=function()return now-1700000000 end;event('PLAYER_REGEN_DISABLED');now=now+1
+C_DeathRecap.GetRecapLink=function()return '|Hdeath:12|h'end
+C_DeathRecap.GetRecapEvents=function()return{{event='SPELL_DAMAGE',amount=600,sourceGUID='Player-gnome',timestamp=GetTime(),hideCaster=false}}end
+event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==2,'fresh monotonic-clock recaps normalize to the persisted server-time death');GetTime=absoluteClock
 A.ToggleUI();A.RefreshUI();assert(A.window:IsShown(),'UI opens')
 A.mode='Encounters';A.RefreshUI();A.mode='Leaderboard';A.RefreshUI()
 A.dirty=true;inside=true;combat=true;local n=#sent;A.Pump(now);assert(#sent==n,'combat prevents sends even in dungeon')
@@ -386,5 +399,16 @@ assert(sharedVisible and not A.db.seen['Player-alt-history'],'actual encounter U
 local liveKey,liveMembers=A.guildKey,A.members;A.guildKey=nil;A.members={};A.OpenView('Leaderboard',false)
 assert(A.summary.text:find('cached guild history (read-only)',1,true)and not A.reportButton:IsShown()and A.guildKey==nil,'cached-only UI is explicitly labeled and cannot authorize public posting')
 A.guildKey=liveKey;A.members=liveMembers;A.RefreshUI()
+-- A transient max-health peak must constrain both recap and incoming-event proofs.
+event('PLAYER_ALIVE');local oldAffectingCombat=UnitAffectingCombat;UnitAffectingCombat=function()return true end
+units.player.hp=1000;event('PLAYER_REGEN_DISABLED');A.RefreshGroupActors();local deathBeforePeak=A.db.owners[A.owner].deaths
+units.player.hp=2000;event('UNIT_MAXHEALTH','player');units.player.hp=1000;event('UNIT_MAXHEALTH','player')
+local incoming={};incoming[2]='SWING_DAMAGE';incoming[4]='Player-gnome';incoming[8]='Player-me';incoming[12]=600;incoming[13]=0
+A.GroupCombat(incoming,now);local ownDied={};ownDied[2]='UNIT_DIED';ownDied[8]='Player-me';A.GroupCombat(ownDied,now)
+assert(A.db.owners[A.owner].deaths==deathBeforePeak,'incoming UNIT_DIED cannot bypass the observed transient max-health peak')
+-- Late collector creation at the lower current health still uses the known own peak.
+A.RefreshGroupActors();A.GroupCombat(incoming,now);A.GroupCombat(ownDied,now)
+assert(A.db.owners[A.owner].deaths==deathBeforePeak,'late incoming collectors cannot lower the own combat health denominator')
+UnitAffectingCombat=oldAffectingCombat
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, protected targeting, persistent scores, rank-gated guild reports, independent party detection chat, local-only report diagnostics and guarded APIs')

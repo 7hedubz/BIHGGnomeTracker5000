@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.7.11'
+A.VERSION='1.7.12'
 A.RETENTION = 400
 A.DAMAGE_FRACTION = 0.02
 A.frames = {'Lifetime','7 days','30 days','Today','This week','This month','This year'}

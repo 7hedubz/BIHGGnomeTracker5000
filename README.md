@@ -70,6 +70,14 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Separate copy/cut report and direct guild-post actions (1.7.12)
+
+**Copy report...** opens a local editable multiline report, using the selected period and the same ranked alias report builder as direct posting. Each person occupies a separate text line. Text starts selected and focused: **Ctrl+C copies**, **Ctrl+X cuts**, and Select all selects it again. Editing/cutting affects only the export box, never saved scores, source data or active guild-post progress. No messages are sent, no public-post cooldown is consumed, and no posting job is created by export. Local export does not require the officer-only direct-post rank.
+
+**Post to guild... remains a separate action**, preserving preview, exact authorized ranks, one line per physical click, spacing, cooldown and failure/cancellation rules. Both actions are available on leaderboard/charts alongside Refresh data. Copying an export does not cancel a direct report already in progress.
+
+The export closes and releases keyboard focus on Close, Escape or main-window/combat auto-close. It does not write the OS clipboard directly: the normal native edit-box keyboard shortcuts perform cut/copy. When manually pasting into in-game chat, paste/send individual lines; do not assume one multiline clipboard paste becomes several chat messages. All data and transport behavior are otherwise unchanged. Apply with `/reload` out of combat; no load-list changes. Native clipboard interaction still needs the normal in-game check.
+
 ### Gnome contribution-based deaths (1.7.11)
 
 New locally recorded deaths use **strictly more than half observed combat maximum health in confirmed Gnome-player damage**, combined across Gnomes, followed by actual death. A non-Gnome finishing blow no longer prevents a qualifying count; a tiny Gnome finishing blow no longer suffices. Readable overkill and mitigation are conservatively excluded. Healing does not erase confirmed damage already dealt; this is a fraction of maximum health, not a majority of all incoming damage.

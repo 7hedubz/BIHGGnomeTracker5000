@@ -132,6 +132,7 @@ function A.RefreshUI()
  if A.mode=='Settings' then A.settingsPane:Show() else A.settingsPane:Hide() end
  local canPost=A.CanPostTopReport()
  if canPost and(A.mode=='Leaderboard' or A.mode=='Charts')then A.reportButton:Show()else A.reportButton:Hide()end
+ if A.mode=='Leaderboard'or A.mode=='Charts'then A.copyReportButton:Show()else A.copyReportButton:Hide()end
  if not canPost and A.preview then A.preview:Hide()end
  A.alertButton:SetText(A.db.options.alerts~=false and 'New-Gnome chat messages: ON' or 'New-Gnome chat messages: OFF')
  A.nearbyToggleButton:SetText(A.db.options.nearbyShown and'Nearby overlay: ON'or'Nearby overlay: OFF')
@@ -226,6 +227,15 @@ function A.ShowTopPreview()
  A.RefreshTopPostControls()
  A.preview:Show()
 end
+function A.ShowCopyReport()
+ if A.TargetingLocked()then return false end
+ if not A.window then A.CreateUI()end
+ if not A.window then return false end
+ A.copyReportLines=A.BuildTopReport(A.period or'Lifetime',clock())
+ A.copyReportEdit:SetText(table.concat(A.copyReportLines,'\n'))
+ A.window:Show();A.copyReportFrame:Show();A.copyReportEdit:SetFocus();A.copyReportEdit:HighlightText();A.copyReportScroll:SetVerticalScroll(0)
+ return true
+end
 function A.CreateUI()
  if A.window or not A.db or A.TargetingLocked()then return end
  local w=panel(UIParent,0,0,960,710,'SecureHandlerStateTemplate');A.window=w;_G.BIHGGKTWindow=w
@@ -313,8 +323,9 @@ function A.CreateUI()
  A.previousButton=button(w,'< Previous',18,-617,105,function()A.page=(A.page or 1)-1;A.RefreshUI()end)
  A.nextButton=button(w,'Next >',133,-617,85,function()A.page=(A.page or 1)+1;A.RefreshUI()end)
  A.pageLabel=text(w,'small',232,-625,255)
- A.syncButton=button(w,'Refresh guild data',500,-617,176,function()A.request=true;A.QueueShare(true);A.syncStatus='Manual refresh queued; automatic sync remains on';A.RefreshUI()end,'Optional manual refresh. Automatic sync already runs at login, on score/profile changes and every minute out of combat. No guild chat messages.')
- A.reportButton=button(w,'Post Top 10 to Guild...',686,-617,256,A.ShowTopPreview,'Preview and confirm a guild-chat ranking for the selected period. Separate from silent automatic addon sync.')
+ A.syncButton=button(w,'Refresh data',500,-617,140,function()A.request=true;A.QueueShare(true);A.syncStatus='Manual refresh queued; automatic sync remains on';A.RefreshUI()end,'Optional manual refresh. Automatic sync already runs at login, on score/profile changes and every minute out of combat. No guild chat messages.')
+ A.copyReportButton=button(w,'Copy report...',650,-617,140,A.ShowCopyReport,'Open editable report text for Ctrl+C (copy) or Ctrl+X (cut). One player per line. This never posts to chat.')
+ A.reportButton=button(w,'Post to guild...',800,-617,142,A.ShowTopPreview,'Preview and confirm a guild-chat ranking for the selected period. Separate from silent automatic addon sync.')
  A.status=text(w,'small',20,-653,740);A.membershipStatusLabel=text(w,'small',20,-670,740)
  A.versionLabel=text(w,'small',0,0,140);A.versionLabel:ClearAllPoints();A.versionLabel:SetPoint('BOTTOMRIGHT',w,'BOTTOMRIGHT',-18,12);A.versionLabel:SetJustifyH('RIGHT');A.versionLabel:SetText('v'..A.VERSION)
  local preview=panel(w,0,0,650,390);A.preview=preview;_G.BIHGGKTTopPreview=preview;preview:ClearAllPoints();preview:SetPoint('CENTER');preview:SetFrameStrata('FULLSCREEN_DIALOG');preview:EnableMouse(true)
@@ -329,9 +340,23 @@ function A.CreateUI()
  A.confirmPostButton.label:SetWidth(390);A.confirmPostButton.label:SetWordWrap(false)
  button(preview,'Cancel',450,-344,180,function()preview:Hide()end);UISpecialFrames[#UISpecialFrames+1]='BIHGGKTTopPreview'
  preview:SetScript('OnHide',function()A.CancelTopPost()end);preview:Hide()
+ local copy=panel(w,0,0,680,440);A.copyReportFrame=copy;_G.BIHGGKTCopyReport=copy
+ copy:ClearAllPoints();copy:SetPoint('CENTER');copy:SetFrameStrata('FULLSCREEN_DIALOG');copy:EnableMouse(true)
+ text(copy,'large',20,-18,640):SetText('COPY / CUT GUILD REPORT')
+ local instructions=text(copy,'small',20,-48,640);instructions:SetWordWrap(true);instructions:SetHeight(48)
+ instructions:SetText('Ctrl+C copies; Ctrl+X cuts selected text. One player per line. Nothing is sent automatically. For in-game chat, paste/send one line at a time.')
+ panel(copy,18,-104,644,270)
+ local scroll=CreateFrame('ScrollFrame',nil,copy,'UIPanelScrollFrameTemplate');A.copyReportScroll=scroll
+ scroll:SetPoint('TOPLEFT',28,-114);scroll:SetSize(610,248)
+ local edit=CreateFrame('EditBox',nil,scroll);A.copyReportEdit=edit
+ edit:SetMultiLine(true);edit:SetAutoFocus(false);edit:SetFontObject(ChatFontNormal);edit:SetSize(604,480);edit:EnableMouse(true);edit:EnableKeyboard(true);scroll:SetScrollChild(edit)
+ edit:SetScript('OnEscapePressed',function()copy:Hide()end);copy:SetScript('OnHide',function()edit:ClearFocus()end)
+ button(copy,'Select all',20,-394,160,function()edit:SetFocus();edit:HighlightText()end)
+ button(copy,'Close',500,-394,160,function()copy:Hide()end)
+ UISpecialFrames[#UISpecialFrames+1]='BIHGGKTCopyReport';copy:Hide()
  w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)if A.mode=='Leaderboard' or A.mode=='Encounters' then A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end end)
  A.period='Lifetime';for _,p in ipairs(A.frames)do if p==A.db.options.period then A.period=p end end;A.mode='Leaderboard';A.sort='kills';A.page=1
- w:SetScript('OnHide',function()A.db.options.period=A.period;preview:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
+ w:SetScript('OnHide',function()A.db.options.period=A.period;preview:Hide();copy:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
  -- Secure state transitions can hide a window containing protected target
  -- buttons during lockdown; an insecure PLAYER_REGEN_DISABLED Hide cannot.
  if type(RegisterStateDriver)=='function'then

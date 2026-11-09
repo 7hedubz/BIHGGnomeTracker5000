@@ -21,6 +21,10 @@ methods.SetHighlightTexture=function(self,texture)self.highlightTexture=texture 
 methods.SetAllPoints=function(self,relative)self.allPoints=relative end
 methods.SetColorTexture=function(self,...)self.color={...}end
 methods.SetBlendMode=function(self,mode)self.blend=mode end
+methods.SetMultiLine=function(self,value)self.multiline=value end
+methods.SetFocus=function(self)self.focused=true end
+methods.ClearFocus=function(self)self.focused=false end
+methods.HighlightText=function(self)self.selectedAll=true end
 methods.CreateLine=obj
 methods.SetStartPoint=function(self,...)self.start={...}end
 methods.SetEndPoint=function(self,...)self.finish={...}end
@@ -208,9 +212,19 @@ assert(A.lineYTicks[1].text=='0' and A.lineXAxis.text:find('Time',1,true),'numer
 A.OpenView('Leaderboard',false);assert(A.tablePane:IsShown() and not A.chartsPane:IsShown(),'returning from charts restores table')
 local chat={};local clicking=false;local outsideClick=0
 SendChatMessage=function(msg,channel)if channel=='GUILD'and not clicking then outsideClick=outsideClick+1;error('guild chat requires player action')end;chat[#chat+1]={msg,channel}end
+assert(A.copyReportButton,'copy/cut report is a separate button, not a replacement for direct guild posting')
+local beforeCopyCooldown=A.db.options.lastTopPost;local originalReport=table.concat(A.BuildTopReport(A.period,now),'\n')
+A.copyReportButton.scripts.OnClick()
+assert(A.copyReportFrame:IsShown()and A.copyReportEdit:GetText()==originalReport and A.copyReportEdit.multiline and A.copyReportEdit.focused and A.copyReportEdit.selectedAll,'copy button opens a focused multiline native editable report with one person per line')
+assert(#chat==0 and not A.postJob and A.db.options.lastTopPost==beforeCopyCooldown,'copying does not send chat, create posting progress or consume the post cooldown')
+A.copyReportEdit:SetText('');assert(table.concat(A.BuildTopReport(A.period,now),'\n')==originalReport,'cutting/editing export text never modifies underlying scores or report data')
+A.copyReportFrame:Hide();assert(not A.copyReportEdit.focused,'closing export releases keyboard focus')
 A.reportButton.scripts.OnClick();assert(A.preview:IsShown() and #chat==0 and not A.postJob,'preview never posts automatically')
 clicking=true;A.confirmPostButton.scripts.OnClick();clicking=false
 assert(#chat==1 and chat[1][1]==A.previewLines[1]and A.preview:IsShown()and A.postJob,'first confirmation sends only the heading and keeps progress visible')
+local postingSnapshot=A.postJob;local sentBeforeExport=#chat
+A.copyReportButton.scripts.OnClick();A.copyReportEdit:SetText('Edited export only');A.copyReportFrame:Hide()
+assert(A.postJob==postingSnapshot and A.preview:IsShown()and #chat==sentBeforeExport and postingSnapshot.lines[1]==A.previewLines[1],'copy/cut export remains independent of an in-progress direct guild report')
 assert(A.confirmPostButton:GetText():find('Send #1',1,true),'same button labels the next ranked player')
 clicking=true;A.confirmPostButton.scripts.OnClick();clicking=false;assert(#chat==1,'rapid duplicate click cannot burst the next line')
 for i=0,10 do tick()end
@@ -234,6 +248,7 @@ assert(not A.coverageLabel and not A.postStatusLabel,'tracking and report-policy
 A.syncStatus='Sent 08:05 - member reports unverified';A.RefreshUI();assert(A.status.text=='Sent 08:05','concise sent status omits the old footer disclaimer')
 A.syncStatus=savedSync;A.rosterStatus=savedRoster;A.RefreshUI()
 playerRank='Member';A.RefreshUI();assert(not A.reportButton:IsShown(),'restricted rank hides report button')
+assert(A.copyReportButton:IsShown(),'local copy/cut export remains available without granting direct-post rank permission')
 SlashCmdList.BIHGGKT('top');assert(not A.preview:IsShown()and not A.postJob,'slash command cannot bypass rank restriction')
 playerRank='The BIHG Cheese';A.RefreshUI();assert(A.reportButton:IsShown(),'second exact allowed rank sees report action')
 A.ShowTopPreview();assert(A.preview:IsShown());playerRank='Member';A.RefreshUI()
@@ -383,10 +398,12 @@ DEFAULT_CHAT_FRAME.AddMessage=originalLocalMessage
 assert(A.window.template:find('SecureHandlerStateTemplate',1,true)and stateDrivers[A.window],'main config window installs secure combat state handling')
 A.OpenView('Settings',false);A.OpenSoundPicker('alliance');A.preview:Show()
 playerRank='Council of BIHG';A.db.options.lastTopPost=nil;assert(A.StartTopPost({'heading','ranked person'},now),'manual progress exists before combat auto-close')
+assert(A.ShowCopyReport()and A.copyReportEdit.focused,'export text holds focus before combat auto-close')
 assert(A.window:IsShown()and A.soundPicker:IsShown(),'settings and picker open before combat')
 local secureSnippet=assert(loadstring(A.window.attrs['_onstate-'..stateDrivers[A.window].id]))
 combat=true;setfenv(secureSnippet,{self=A.window,newstate='closed'});secureSnippet()
 assert(not A.window:IsShown()and not A.preview:IsShown()and not A.soundPicker:IsShown(),'entering combat securely closes dashboard, report preview and config picker')
+assert(not A.copyReportFrame:IsShown()and not A.copyReportEdit.focused,'combat/menu closure dismisses export and releases text focus')
 assert(not A.postJob,'combat auto-close cancels remaining manual report lines without deferral')
 assert(A.nearbyFrame:IsShown(),'combat auto-close leaves independent Nearby overlay available')
 combat=false;setfenv(secureSnippet,{self=A.window,newstate='available'});secureSnippet();tick()

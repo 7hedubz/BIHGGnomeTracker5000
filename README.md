@@ -70,6 +70,15 @@ Player GUIDs and per-character SavedVariables provenance reconcile alternate API
 
 Migration runs in the addon at login; do not manually edit live SavedVariables. Log each existing alt in once after this upgrade to establish its GUID. One online guild character then relays its known offline-alt GUID associations as well as their scores. Updated guildmates use the new identity packets to combine observed and declared name variants; older clients must upgrade for this reconciliation. Guild identity/statistics are still client-reported, not cryptographic ownership verification.
 
+### Chart dates and PERIOD-bounded range slider (1.7.13)
+
+- In **Charts → Kills over time**, enter **From** and **To** as `YYYY-MM-DD` UTC dates and click **Apply dates** or press Enter. Both endpoint days are included. Invalid, reversed, or out-of-PERIOD dates display an error and leave the last valid chart unchanged.
+- Drag the **upper amber start handle** and **lower blue end handle** to change the first and last displayed day. Handles cannot cross. Their vertical offset lets you grab either handle even when both dates are the same.
+- The slider's outer dates come from **PERIOD**: Today, rolling 7/30 days, current Monday-based UTC week, current UTC month/year, or Lifetime. Lifetime begins at the oldest retained daily kill/death record of your guild-member characters; no daily history means today only. Daily storage remains bounded to 400 days. The old additional 30-day plotting cap is removed.
+- Selecting PERIOD resets the handles to its full range. Manual date selections are session-only. An untouched full range follows UTC day rollover; a custom selection is kept within updated bounds. Unapplied edits survive normal refreshes; Escape restores the actual chart dates.
+- These controls change only the account's daily time chart, not leaderboard/ranking/report period filters, saved scores, or guild messages. Dates with no retained recorded kills display zero recorded kills. Legacy lifetime totals cannot be backfilled into unknown dates.
+- Combat/menu closure releases date-field focus and ends dragging. Native visuals and mouse behavior still require the normal in-game check; automated coverage exercises UTC calendars, long ranges, both scaled-UI drag paths, invalid input, edit preservation, and combat closure.
+
 ### Separate copy/cut report and direct guild-post actions (1.7.12)
 
 **Copy report...** opens a local editable multiline report, using the selected period and the same ranked alias report builder as direct posting. Each person occupies a separate text line. Text starts selected and focused: **Ctrl+C copies**, **Ctrl+X cuts**, and Select all selects it again. Editing/cutting affects only the export box, never saved scores, source data or active guild-post progress. No messages are sent, no public-post cooldown is consumed, and no posting job is created by export. Local export does not require the officer-only direct-post rank.
@@ -212,7 +221,7 @@ The four bundled alarms are calibrated to approximately **150% of their original
 
 **Charts** contains a horizontal Top 10 guild-alias kill ranking and a **Kills over time line graph**. The line combines your characters' recorded daily kills: **X = UTC date/time, Y = kills per day**. Numeric Y-axis ticks start at zero, date ticks run from oldest to newest, and hovering a point shows its exact date/count. This is daily activity, not a cumulative lifetime-total curve. A single-day view shows one point rather than an invented time segment.
 
-The line shows the latest **up to 30 UTC days within the selected period**; Lifetime therefore shows the latest 30 days rather than the entire lifetime on the time axis. Labels identify this limit. Guild rankings use cached reports; empty rankings show an explicit no-data message rather than fictional zero-score leaders. Version 1.2.1 replaces the former daily kill/death bars with this kills-only line graph.
+The line shows the inclusive UTC date window selected by the chart's date fields or two-handle slider, bounded by PERIOD and retained daily history (up to 400 days). PERIOD initially displays its full range; Lifetime begins at the oldest retained own-account guild-member daily activity. Guild rankings use cached reports; empty rankings show an explicit no-data message rather than fictional zero-score leaders. Version 1.2.1 replaced daily kill/death bars with this kills-only line graph; 1.7.13 removes its former extra 30-day display cap.
 
 ### Send the Top 10 to guild chat
 

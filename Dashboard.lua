@@ -16,20 +16,84 @@ function A.BuildTopReport(period,now)
  end
  return lines
 end
-function A.ActivityTrend(period,now)
- local today=A.Day(now);local first=math.max(today-29,A.FirstDay(period,now));local data={}
- local records={}
- local members=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
- for name,r in pairs(A.account and A.account.characters or {[A.owner]=A.db.owners[A.owner]})do if members[name]then records[#records+1]=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r end end
- for day=first,today do
+-- Convert civil dates directly to UTC days; WoW need not expose os.time.
+function A.ParseChartDate(text)
+ local y,m,d
+ if type(text)=='string'then y,m,d=text:match('^(%d%d%d%d)%-(%d%d)%-(%d%d)$')end
+ y,m,d=tonumber(y),tonumber(m),tonumber(d)
+ if not y or y<1 or m<1 or m>12 or d<1 then return nil,'Use a valid YYYY-MM-DD date.'end
+ local leap=y%4==0 and(y%100~=0 or y%400==0)
+ local lengths={31,leap and 29 or 28,31,30,31,30,31,31,30,31,30,31}
+ if d>lengths[m]then return nil,'Use a valid YYYY-MM-DD date.'end
+ local year=y-1;local days=365*year+math.floor(year/4)-math.floor(year/100)+math.floor(year/400)
+ for month=1,m-1 do days=days+lengths[month]end
+ return days+d-1-719162
+end
+local function chartRecords(now)
+ local records={};local members=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
+ for name,r in pairs(A.account and A.account.characters or {[A.owner]=A.db.owners[A.owner]})do
+  if members[name]then records[#records+1]=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r end
+ end
+ return records
+end
+local function integer(n)return type(n)=='number'and n==n and n~=math.huge and n~=-math.huge and n%1==0 end
+function A.ChartBounds(period,now)
+ local today=A.Day(now);local floor=today-A.RETENTION+1
+ if period~='Lifetime'then return math.min(today,math.max(floor,A.FirstDay(period,now))),today end
+ local first=today
+ for _,r in ipairs(chartRecords(now))do
+  for _,key in ipairs({'days','deathDays'})do
+   for day,n in pairs(r[key]or{})do
+    if integer(day)and day>=floor and day<first and type(n)=='number'and n>0 then first=day end
+   end
+  end
+ end
+ return first,today
+end
+local function clamp(n,min,max)return math.max(min,math.min(max,n))end
+local function validRange(first,last,min,max)
+ return integer(first)and integer(last)and first>=min and last<=max and first<=last
+end
+function A.GetChartRange(period,now)
+ local min,max=A.ChartBounds(period,now);local r=A.chartRange
+ local first,last=min,max
+ if r and r.period==period and integer(r.first)and integer(r.last)and r.first<=r.last and not(r.first==r.min and r.last==r.max)then
+  first,last=clamp(r.first,min,max),clamp(r.last,min,max)
+ end
+ A.chartRange={period=period,first=first,last=last,min=min,max=max}
+ return first,last,min,max
+end
+function A.ResetChartRange(period,now)
+ A.chartRange=nil
+ return A.GetChartRange(period,now)
+end
+function A.SetChartRange(period,now,first,last)
+ local min,max=A.ChartBounds(period,now)
+ if not validRange(first,last,min,max)then return false,'Choose ordered whole dates within the selected period.'end
+ A.chartRange={period=period,first=first,last=last,min=min,max=max}
+ return true
+end
+function A.SetChartHandle(period,now,which,day)
+ if(which~='first'and which~='last')or type(day)~='number'or day~=day or day==math.huge or day==-math.huge then return false end
+ local first,last,min,max=A.GetChartRange(period,now);day=math.floor(day+0.5)
+ if which=='first'then day=clamp(day,min,last);if day==first then return false end;first=day
+ else day=clamp(day,first,max);if day==last then return false end;last=day end
+ return A.SetChartRange(period,now,first,last)
+end
+function A.ActivityTrend(period,now,first,last)
+ local min,max=A.ChartBounds(period,now);local data={}
+ if first==nil and last==nil then first,last=min,max end
+ if not validRange(first,last,min,max)then return data end
+ local records=chartRecords(now)
+ for day=first,last do
   local k,d=0,0
   for _,r in ipairs(records)do k=k+((r.days or {})[day]or 0);d=d+((r.deathDays or {})[day]or 0)end
   data[#data+1]={day=day,kills=k,deaths=d}
  end
  return data
 end
-function A.KillsLine(period,now,width,height)
- local data=A.ActivityTrend(period,now);local peak=0
+function A.KillsLine(period,now,width,height,first,last)
+ local data=A.ActivityTrend(period,now,first,last);local peak=0
  for _,d in ipairs(data) do peak=math.max(peak,d.kills) end
  local step=math.max(1,math.ceil(peak/4));local ceiling=step*4
  local result={points={},ticks={},peak=peak,ceiling=ceiling}

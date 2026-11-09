@@ -79,7 +79,56 @@ function A.OpenSoundPicker(kind)
  A.soundSearch:SetText('');A.RefreshSoundPicker();A.soundPicker:Show()
 end
 function A.SelectPeriod(period)
- A.period=period;A.page=1;A.RefreshUI()
+ if A.TargetingLocked()then return false end
+ A.period=period;A.page=1;A.chartRange=nil;A.chartDateError=nil;A.chartDatesDirty=nil;A.chartDragging=nil
+ if A.chartFromInput then A.chartFromInput:ClearFocus();A.chartToInput:ClearFocus()end
+ A.RefreshUI()
+end
+local function chartDate(day)return date('!%Y-%m-%d',day*86400)end
+function A.ApplyChartDates()
+ if A.TargetingLocked()then return false end
+ local first,err=A.ParseChartDate(A.chartFromInput:GetText());local last,lastErr=A.ParseChartDate(A.chartToInput:GetText())
+ local ok=false
+ if first and last then ok,err=A.SetChartRange(A.period,clock(),first,last)else err=err or lastErr end
+ A.chartDateError=not ok and(err or'Enter valid dates within the selected PERIOD.')or nil
+ if ok then A.chartDatesDirty=nil;A.chartFromInput:ClearFocus();A.chartToInput:ClearFocus()end
+ A.RenderCharts(clock());return ok
+end
+function A.BeginChartDrag(which)
+ if A.TargetingLocked()then return end
+ local _,_,minimum,maximum=A.GetChartRange(A.period,clock());if minimum==maximum then return end
+ A.chartFromInput:ClearFocus();A.chartToInput:ClearFocus();A.chartDragging=which
+end
+function A.DragChartRange()
+ if not A.chartDragging then return end
+ if A.TargetingLocked()or(type(IsMouseButtonDown)=='function'and not A.Safe(IsMouseButtonDown,'LeftButton'))then A.chartDragging=nil;return end
+ local x=A.Safe(GetCursorPosition);local left=A.chartSlider:GetLeft();local scale=A.chartSlider:GetEffectiveScale();local width=A.chartSlider:GetWidth()
+ if type(x)~='number'or not left or not scale or scale<=0 or width<=0 then return end
+ local _,_,minimum,maximum=A.GetChartRange(A.period,clock())
+ local fraction=math.max(0,math.min(1,(x/scale-left)/width));local day=minimum+math.floor(fraction*(maximum-minimum)+0.5)
+ if A.SetChartHandle(A.period,clock(),A.chartDragging,day)then A.chartDateError=nil;A.chartDatesDirty=nil;A.RenderCharts(clock())end
+end
+function A.RefreshChartRangeControls(first,last,minimum,maximum)
+ if not A.chartDateError and not A.chartDatesDirty then
+  if not A.chartFromInput:HasFocus()then A.chartFromInput:SetText(chartDate(first))end
+  if not A.chartToInput:HasFocus()then A.chartToInput:SetText(chartDate(last))end
+ end
+ A.chartMinimumLabel:SetText(chartDate(minimum));A.chartMaximumLabel:SetText(chartDate(maximum))
+ local width=A.chartSlider:GetWidth();local span=maximum-minimum
+ local x1=span>0 and(first-minimum)/span*width or width/2;local x2=span>0 and(last-minimum)/span*width or width/2
+ A.chartStartHandle:ClearAllPoints();A.chartStartHandle:SetPoint('CENTER',A.chartSlider,'LEFT',x1,6)
+ A.chartEndHandle:ClearAllPoints();A.chartEndHandle:SetPoint('CENTER',A.chartSlider,'LEFT',x2,-6)
+ A.chartSelectedBand:ClearAllPoints();A.chartSelectedBand:SetPoint('LEFT',A.chartSlider,'LEFT',x1,0);A.chartSelectedBand:SetWidth(math.max(2,x2-x1))
+ if span>0 then A.chartStartHandle:Enable();A.chartEndHandle:Enable()else A.chartStartHandle:Disable();A.chartEndHandle:Disable()end
+end
+function A.EnsureChartSamples(count)
+ for i=#A.lineDots+1,math.min(A.RETENTION,math.max(1,count))do
+  if i>1 then local line=A.linePlot:CreateLine(nil,'OVERLAY');line:SetThickness(2);line:SetColorTexture(0.94,0.62,0.20,1);A.lineSegments[i-1]=line end
+  local dot=CreateFrame('Frame',nil,A.linePlot);dot:SetSize(8,8);dot:EnableMouse(true)
+  local mark=dot:CreateTexture(nil,'OVERLAY');mark:SetSize(5,5);mark:SetPoint('CENTER');mark:SetColorTexture(1,0.74,0.30,1)
+  dot:SetScript('OnEnter',function(self)if self.data and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText(chartDate(self.data.day)..' UTC');GameTooltip:AddLine(self.data.kills..' recorded kills',1,0.74,0.30);GameTooltip:Show()end end)
+  dot:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end);A.lineDots[i]=dot
+ end
 end
 function A.RenderCharts(now)
  if A.TargetingLocked()then return end
@@ -93,9 +142,12 @@ function A.RenderCharts(now)
   if r then row.label:SetText(i..'. '..r.name);row.bar:SetMinMaxValues(0,math.max(1,peak));row.bar:SetValue(r.k);row.value:SetText(tostring(r.k));row.label:Show();row.bar:Show();row.value:Show()
   else row.label:Hide();row.bar:Hide();row.value:Hide() end
  end
- local graph=A.KillsLine(A.period,now,350,164);A.lineData=graph
- A.trendSubtitle:SetText('Your account | latest '..#graph.points..' days in '..A.period)
- A.trendPeak:SetText('Y: Kills per day | peak '..graph.peak)
+ local first,last,minimum,maximum=A.GetChartRange(A.period,now)
+ local graph=A.KillsLine(A.period,now,350,120,first,last);A.lineData=graph
+ A.EnsureChartSamples(#graph.points);A.RefreshChartRangeControls(first,last,minimum,maximum)
+ A.trendSubtitle:SetText(chartDate(first)..' to '..chartDate(last)..' | '..#graph.points..' days UTC')
+ A.trendPeak:SetText(A.chartDateError or('Y: Recorded kills/day | peak '..graph.peak))
+ if A.chartDateError then A.trendPeak:SetTextColor(1,0.35,0.3)else A.trendPeak:SetTextColor(0.85,0.9,0.95)end
  for i,value in ipairs(graph.ticks) do A.lineYTicks[i]:SetText(tostring(value)) end
  for i,dot in ipairs(A.lineDots) do
   local p=graph.points[i];dot.data=p
@@ -277,23 +329,39 @@ function A.CreateUI()
   hit:HookScript('OnClick',function(_,_,down)local r=row.data;if not down and not A.TargetingLocked()and r and #r.children>1 then A.expanded[r.id]=true;A.OpenView('Leaderboard',false)end end)
  end
  local trend=panel(A.chartsPane,472,0,452,320);A.trendChart=trend
- text(trend,'normal',14,-12,420):SetText('KILLS OVER TIME');A.trendSubtitle=text(trend,'small',14,-34,420);A.trendPeak=text(trend,'small',14,-56,420)
- local plot=CreateFrame('Frame',nil,trend);A.linePlot=plot;plot:SetPoint('TOPLEFT',70,-78);plot:SetSize(350,164)
+ text(trend,'normal',14,-12,420):SetText('KILLS OVER TIME');A.trendSubtitle=text(trend,'small',14,-34,420);A.trendPeak=text(trend,'small',14,-84,420);A.trendPeak:SetWordWrap(true);A.trendPeak:SetHeight(20)
+ text(trend,'small',14,-61,34):SetText('From');text(trend,'small',174,-61,22):SetText('To')
+ local function dateInput(x)
+  local input=CreateFrame('EditBox',nil,trend,'InputBoxTemplate');input:SetPoint('TOPLEFT',x,-55);input:SetSize(108,22);input:SetAutoFocus(false);input:SetMaxLetters(10)
+  input:SetScript('OnEnterPressed',A.ApplyChartDates)
+  input:SetScript('OnTextChanged',function(_,userInput)if userInput then A.chartDatesDirty=true end end)
+  input:SetScript('OnEscapePressed',function(self)self:ClearFocus();A.chartDateError=nil;A.chartDatesDirty=nil;A.RenderCharts(clock())end)
+  return input
+ end
+ A.chartFromInput=dateInput(54);A.chartToInput=dateInput(202);A.chartApplyButton=button(trend,'Apply dates',320,-54,116,A.ApplyChartDates,'Enter YYYY-MM-DD UTC dates within the selected PERIOD. Changes only the daily time chart.')
+ local plot=CreateFrame('Frame',nil,trend);A.linePlot=plot;plot:SetPoint('TOPLEFT',70,-106);plot:SetSize(350,120)
  A.lineYTicks={};A.lineXTicks={};A.lineDots={};A.lineSegments={}
  for i=0,4 do
-  local y=i/4*164;local grid=plot:CreateLine(nil,'BACKGROUND');grid:SetThickness(1);grid:SetColorTexture(0.18,0.23,0.28,1);grid:SetStartPoint('BOTTOMLEFT',plot,0,y);grid:SetEndPoint('BOTTOMLEFT',plot,350,y)
+  local y=i/4*120;local grid=plot:CreateLine(nil,'BACKGROUND');grid:SetThickness(1);grid:SetColorTexture(0.18,0.23,0.28,1);grid:SetStartPoint('BOTTOMLEFT',plot,0,y);grid:SetEndPoint('BOTTOMLEFT',plot,350,y)
   local tick=text(trend,'small',0,0,52);tick:ClearAllPoints();tick:SetPoint('RIGHT',plot,'BOTTOMLEFT',-10,y);tick:SetJustifyH('RIGHT');A.lineYTicks[i+1]=tick
   local label=text(trend,'small',0,0,62);label:SetJustifyH('CENTER');A.lineXTicks[i+1]=label
  end
- local axis=plot:CreateLine(nil,'BACKGROUND');axis:SetThickness(1);axis:SetColorTexture(0.45,0.50,0.55,1);axis:SetStartPoint('BOTTOMLEFT',plot,0,0);axis:SetEndPoint('BOTTOMLEFT',plot,0,164)
- for i=1,29 do local line=plot:CreateLine(nil,'OVERLAY');line:SetThickness(2);line:SetColorTexture(0.94,0.62,0.20,1);A.lineSegments[i]=line end
- for i=1,30 do
-  local dot=CreateFrame('Frame',nil,plot);dot:SetSize(12,12);dot:EnableMouse(true)
-  local mark=dot:CreateTexture(nil,'OVERLAY');mark:SetSize(5,5);mark:SetPoint('CENTER');mark:SetColorTexture(1,0.74,0.30,1)
-  dot:SetScript('OnEnter',function(self)if self.data and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText(date('!%Y-%m-%d',self.data.day*86400)..' UTC');GameTooltip:AddLine(self.data.kills..' kills recorded',1,0.74,0.30);GameTooltip:Show()end end)
-  dot:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end);A.lineDots[i]=dot
+ local axis=plot:CreateLine(nil,'BACKGROUND');axis:SetThickness(1);axis:SetColorTexture(0.45,0.50,0.55,1);axis:SetStartPoint('BOTTOMLEFT',plot,0,0);axis:SetEndPoint('BOTTOMLEFT',plot,0,120)
+ A.EnsureChartSamples(30)
+ A.lineXAxis=text(trend,'small',14,-252,420);A.lineXAxis:SetText('X: Time (UTC) | drag start/end handles below')
+ local track=CreateFrame('Frame',nil,trend);A.chartSlider=track;track:SetPoint('TOPLEFT',70,-266);track:SetSize(350,26);track:EnableMouse(true)
+ local rail=track:CreateTexture(nil,'BACKGROUND');rail:SetPoint('CENTER');rail:SetSize(350,4);rail:SetColorTexture(0.25,0.3,0.35,1)
+ local band=track:CreateTexture(nil,'ARTWORK');A.chartSelectedBand=band;band:SetHeight(4);band:SetColorTexture(0.94,0.62,0.20,0.9)
+ local function handle(which,r,g,b)
+  local h=CreateFrame('Button',nil,track);h:SetSize(14,14);local fill=h:CreateTexture(nil,'ARTWORK');fill:SetAllPoints(h);fill:SetColorTexture(r,g,b,1);A.AddNameHover(h)
+  h:SetScript('OnMouseDown',function(_,key)if key=='LeftButton'then A.BeginChartDrag(which)end end)
+  h:SetScript('OnMouseUp',function()A.chartDragging=nil end)
+  h:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText(which=='first'and'Start date (upper handle)'or'End date (lower handle)');GameTooltip:AddLine('Drag to choose an inclusive UTC day. PERIOD sets the outer bounds.',0.85,0.9,0.95,true);GameTooltip:Show()end end)
+  h:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end);return h
  end
- A.lineXAxis=text(trend,'small',14,-291,420);A.lineXAxis:SetText('X: Time (UTC date) | hover a point for its kill count')
+ A.chartStartHandle=handle('first',1,0.70,0.25);A.chartEndHandle=handle('last',0.25,0.8,1)
+ track:SetScript('OnUpdate',A.DragChartRange);track:SetScript('OnHide',function()A.chartDragging=nil end)
+ A.chartMinimumLabel=text(trend,'small',70,-300,150);A.chartMaximumLabel=text(trend,'small',270,-300,150);A.chartMaximumLabel:SetJustifyH('RIGHT')
  A.settingsPane=panel(w,18,-276,924,320)
  text(A.settingsPane,'normal',20,-18,880):SetText('ACCOUNT PROFILE')
  text(A.settingsPane,'small',20,-45,880):SetText('One nickname for your known alts. Renaming preserves statistics; identical nicknames do not merge unrelated accounts.')
@@ -356,7 +424,7 @@ function A.CreateUI()
  UISpecialFrames[#UISpecialFrames+1]='BIHGGKTCopyReport';copy:Hide()
  w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)if A.mode=='Leaderboard' or A.mode=='Encounters' then A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end end)
  A.period='Lifetime';for _,p in ipairs(A.frames)do if p==A.db.options.period then A.period=p end end;A.mode='Leaderboard';A.sort='kills';A.page=1
- w:SetScript('OnHide',function()A.db.options.period=A.period;preview:Hide();copy:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
+ w:SetScript('OnHide',function()A.chartDragging=nil;A.chartFromInput:ClearFocus();A.chartToInput:ClearFocus();A.db.options.period=A.period;preview:Hide();copy:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
  -- Secure state transitions can hide a window containing protected target
  -- buttons during lockdown; an insecure PLAYER_REGEN_DISABLED Hide cannot.
  if type(RegisterStateDriver)=='function'then

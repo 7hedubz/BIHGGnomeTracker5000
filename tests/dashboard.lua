@@ -20,7 +20,7 @@ A.members['Alt-Realm']=true
 A.account.characters['NonGuild-Realm']={total=999,deaths=999,days={[day]=999},deathDays={[day]=999},seen={}}
 local trend=A.ActivityTrend('7 days',now)
 assert(#trend==7 and trend[7].kills==6 and trend[7].deaths==3,'trend aggregates account alts by UTC day')
-assert(#A.ActivityTrend('Lifetime',now)==30,'lifetime trend is labeled last thirty days')
+assert(#A.ActivityTrend('Lifetime',now)==3,'lifetime trend starts at oldest retained own-account day')
 local sent={};A.Safe=function(fn,...)return fn and fn(...)end;A.Secret=function()return false end
 IsInInstance=function()return false end
 SendChatMessage=function(msg,channel)sent[#sent+1]={msg,channel}end

@@ -25,6 +25,11 @@ methods.SetMultiLine=function(self,value)self.multiline=value end
 methods.SetFocus=function(self)self.focused=true end
 methods.ClearFocus=function(self)self.focused=false end
 methods.HighlightText=function(self)self.selectedAll=true end
+methods.HasFocus=function(self)return rawget(self,'focused')or false end
+methods.SetSize=function(self,w,h)self.width=w;self.height=h end
+methods.GetWidth=function(self)return rawget(self,'width')or 800 end
+methods.GetHeight=function(self)return rawget(self,'height')or 600 end
+methods.GetLeft=function(self)return rawget(self,'left')or 0 end
 methods.CreateLine=obj
 methods.SetStartPoint=function(self,...)self.start={...}end
 methods.SetEndPoint=function(self,...)self.finish={...}end
@@ -209,6 +214,35 @@ A.SelectPeriod('7 days')
 assert(A.lineSegments[6]:IsShown() and not A.lineSegments[7]:IsShown(),'seven daily points form six connected line segments')
 assert(A.lineSegments[1].start[3]==0 and A.lineSegments[6].finish[3]==350,'line runs from earliest to latest date')
 assert(A.lineYTicks[1].text=='0' and A.lineXAxis.text:find('Time',1,true),'numeric kill axis and date axis are labeled')
+assert(A.chartFromInput and A.chartToInput and A.chartSlider and A.chartStartHandle and A.chartEndHandle,'chart provides typed dates and two independent range handles')
+local today=A.Day(now)
+local typedStart=date('!%Y-%m-%d',(today-4)*86400)
+assert(type(A.chartFromInput.scripts.OnTextChanged)=='function','date editors track user changes independently of keyboard focus')
+A.chartFromInput:SetText(typedStart);A.chartFromInput.scripts.OnTextChanged(A.chartFromInput,true);A.chartFromInput:ClearFocus();A.RenderCharts(now)
+assert(A.chartFromInput:GetText()==typedStart,'periodic refresh preserves unapplied typed dates after moving focus to the other field')
+A.chartFromInput:SetText(date('!%Y-%m-%d',(today-4)*86400));A.chartToInput:SetText(date('!%Y-%m-%d',(today-2)*86400));A.chartApplyButton.scripts.OnClick()
+assert(#A.lineData.points==3 and A.lineData.points[1].day==today-4 and A.lineData.points[3].day==today-2,'entered inclusive dates update the visible daily chart')
+A.chartFromInput:SetText('2023-02-30');A.chartApplyButton.scripts.OnClick();assert(A.chartDateError and #A.lineData.points==3,'invalid calendar input shows an error without changing the selected window')
+A.SelectPeriod('This year');assert(#A.lineData.points>30 and A.lineData.points[1].day==A.FirstDay('This year',now),'PERIOD sets full calendar bounds without the old thirty-day truncation')
+assert(A.lineDots[#A.lineData.points]:IsShown(),'full retained/calendar ranges render every daily point, not just the first thirty')
+A.SelectPeriod('7 days');local rangeFirst,rangeLast,minimum,maximum=A.GetChartRange(A.period,now)
+assert(rangeFirst==minimum and rangeLast==maximum and minimum==today-6 and maximum==today,'changing PERIOD resets handles to its full outer bounds')
+local cursorX,mouseDown=0,true;local oldCursor,oldMouse=GetCursorPosition,IsMouseButtonDown
+GetCursorPosition=function()return cursorX,0 end;IsMouseButtonDown=function()return mouseDown end;A.chartSlider.left=100
+A.chartStartHandle.scripts.OnMouseDown(A.chartStartHandle,'LeftButton');cursorX=100+350*2/6;A.chartSlider.scripts.OnUpdate()
+assert(select(1,A.GetChartRange(A.period,now))==today-4,'dragging start handle updates the left chart date using actual slider coordinates')
+local beforeTyping=A.chartFromInput:GetText();A.chartFromInput:SetFocus();A.chartFromInput:SetText('2023-02-30');A.chartFromInput.scripts.OnTextChanged(A.chartFromInput,true);A.chartFromInput.scripts.OnEscapePressed(A.chartFromInput)
+assert(not A.chartFromInput.focused and not A.chartDatesDirty and A.chartFromInput:GetText()==beforeTyping,'Escape discards pending date edits and restores the actual graph range')
+cursorX=100+700;A.chartSlider.scripts.OnUpdate();local left,right=A.GetChartRange(A.period,now);assert(left==right,'start handle cannot cross the end handle')
+mouseDown=false;A.chartSlider.scripts.OnUpdate();assert(not A.chartDragging,'releasing outside the handle stops dragging')
+A.SelectPeriod('7 days');mouseDown=true;A.chartSlider.GetEffectiveScale=function()return 0.5 end
+A.chartEndHandle.scripts.OnMouseDown(A.chartEndHandle,'LeftButton');cursorX=(100+350*4/6)*0.5;A.chartSlider.scripts.OnUpdate()
+assert(select(2,A.GetChartRange(A.period,now))==today-2,'end handle moves independently and accounts for effective UI scale')
+cursorX=0;A.chartSlider.scripts.OnUpdate();left,right=A.GetChartRange(A.period,now);assert(left==right and left==today-6,'end handle cannot cross the start handle')
+A.chartEndHandle.scripts.OnMouseUp();A.chartSlider.GetEffectiveScale=nil
+A.SelectPeriod('Today');assert(#A.lineData.points==1 and A.lineData.points[1].x==175,'single-day PERIOD produces a centered chart point')
+A.chartStartHandle.scripts.OnMouseDown(A.chartStartHandle,'LeftButton');assert(not A.chartDragging,'single-day outer bounds cannot initiate a range drag')
+GetCursorPosition,IsMouseButtonDown=oldCursor,oldMouse;A.SelectPeriod('7 days')
 A.OpenView('Leaderboard',false);assert(A.tablePane:IsShown() and not A.chartsPane:IsShown(),'returning from charts restores table')
 local chat={};local clicking=false;local outsideClick=0
 SendChatMessage=function(msg,channel)if channel=='GUILD'and not clicking then outsideClick=outsideClick+1;error('guild chat requires player action')end;chat[#chat+1]={msg,channel}end
@@ -399,10 +433,13 @@ assert(A.window.template:find('SecureHandlerStateTemplate',1,true)and stateDrive
 A.OpenView('Settings',false);A.OpenSoundPicker('alliance');A.preview:Show()
 playerRank='Council of BIHG';A.db.options.lastTopPost=nil;assert(A.StartTopPost({'heading','ranked person'},now),'manual progress exists before combat auto-close')
 assert(A.ShowCopyReport()and A.copyReportEdit.focused,'export text holds focus before combat auto-close')
+A.chartFromInput:SetFocus();A.chartDragging='first';local beforeCombatPeriod=A.period
 assert(A.window:IsShown()and A.soundPicker:IsShown(),'settings and picker open before combat')
 local secureSnippet=assert(loadstring(A.window.attrs['_onstate-'..stateDrivers[A.window].id]))
 combat=true;setfenv(secureSnippet,{self=A.window,newstate='closed'});secureSnippet()
 assert(not A.window:IsShown()and not A.preview:IsShown()and not A.soundPicker:IsShown(),'entering combat securely closes dashboard, report preview and config picker')
+assert(not A.chartFromInput.focused and not A.chartDragging,'combat closure releases date-editor focus and stops range dragging')
+A.SelectPeriod('Today');assert(A.period==beforeCombatPeriod,'PERIOD/range controls remain frozen during combat')
 assert(not A.copyReportFrame:IsShown()and not A.copyReportEdit.focused,'combat/menu closure dismisses export and releases text focus')
 assert(not A.postJob,'combat auto-close cancels remaining manual report lines without deferral')
 assert(A.nearbyFrame:IsShown(),'combat auto-close leaves independent Nearby overlay available')

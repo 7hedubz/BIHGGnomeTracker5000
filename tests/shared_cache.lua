@@ -1,4 +1,6 @@
 local root=arg[1]or'.';local now=1700000000;date=os.date
+-- Parser/account tests explicitly run in the readable native world contract.
+function IsInInstance()return false,'none'end
 local function addon()
  local A={};for _,f in ipairs({'Core.lua','Accounts.lua','Sync.lua','GroupTracker.lua','Identity.lua','Dashboard.lua'})do assert(loadfile(root..'/'..f))('BIHGGnomeKillTracker5000',A)end
  A.Safe=function(fn,...)if type(fn)=='function'then local ok,v=pcall(fn,...);if ok then return v end end end;A.Secret=function()return false end

@@ -4,7 +4,17 @@
 
 Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and automatic guild leaderboards.
 
-## Current qualification (1.4.0)
+## Open-world-only new kill credit (1.7.14)
+
+New **locally observed** personal and independently qualified guild-group/pet Gnome kills count only in the open world. Battlegrounds, arenas, dungeons, raids, scenarios and any other instances are excluded. Both participation and confirmed death must be observed in the same uninterrupted eligible world context. The native `IsInInstance()` pair must be readable and exactly `false, "none"`; missing, throwing, secret or inconsistent results fail closed, without guessing from zone names or PvP flags.
+
+World/area/login boundaries clear temporary kill participation and accepted-aura caches **before** scans. Blocked deaths do not mark the kill corpse cache. A fresh, confirmed living world observation after exit can qualify again, including the same opponent GUID/aura; an exit corpse alone cannot revive discarded credit. Incoming-death evidence and pending recaps are isolated at location boundaries too, but **deaths remain eligible everywhere** under the unchanged strictly-greater-than-50% Gnome damage rule. Fresh instance-side incoming evidence still counts deaths normally. Neither these resets nor the new kill gate erase saved statistics.
+
+**Historical/peer limits:** existing totals have no recorded location and are preserved, not relabeled world-only. Wire schemas, legacy aggregate merging, received guild witness history, replay/adoption and synchronization are unchanged. Receiving a remote event while inside an instance does not invalidate that event. Old clients can still synchronize instance-inclusive observations/totals; **all guild participants should upgrade** to apply the same new local observation policy. This is not a server-enforced or retroactive world-only leaderboard.
+
+Alliance encounter history, Nearby, detection audio/party alerts, instance-side synchronization and authorized out-of-combat reports continue independently. There are no layout, chart/date/report or TOC load-list changes. Apply with `/reload` out of combat after normal review/install. Native API readability, real zone-event ordering and multi-client delivery still require in-game validation; synthetic combat parser tests do not establish a native combat stream. Existing best-effort three-second witnessed-death correlation limits remain.
+
+## Contribution qualification (1.4.0)
 
 Each guild participant independently needs **at least 2% effective attributed damage OR any successfully applied harmful debuff**, followed by a confirmed hostile Gnome-player death within the participation window. This includes Faerie Fire and curses. The lowered threshold and expanded debuff rule apply to new observations; previously unrecorded participation cannot be backfilled. Existing statistics are preserved.
 
@@ -40,7 +50,7 @@ The fallback counts **confirmed guild-character/pet debuff + confirmed enemy dea
 
 ## Statistics
 
-- **Gnome kills:** a hostile Gnome player dies within 120 seconds of your last contribution, after you dealt at least 2% of its observed peak maximum health in effective damage or successfully applied any harmful debuff. Current guild player/pet damage and debuffs qualify; overkill is excluded. Cast-success, misses/resists, other players' debuffs and nearby deaths alone do not qualify.
+- **Gnome kills (new local observations: open world only):** a hostile Gnome player dies within 120 seconds of your last contribution, after you dealt at least 2% of its observed peak maximum health in effective damage or successfully applied any harmful debuff. Current guild player/pet damage and debuffs qualify; overkill is excluded. Cast-success, misses/resists, other players' debuffs and nearby deaths alone do not qualify.
 - **Deaths to Gnomes:** an actual death after readable Gnome-player damage, combined across confirmed Gnome sources, exceeds **50% of the victim's observed maximum health during that combat**. Exactly 50% is not enough; a Gnome need not land the final blow, and survival never increments deaths. Unknown/secret source or amount, NPC/pet ownership guesses, stale recaps and health-loss inference do not qualify. Partial records can establish a sufficient lower bound, not prove complete fight coverage. Existing historical and peer-reported totals are not retroactively regraded.
 - **Gnomes encountered:** unique Gnome player GUIDs, not scan count. Repeated sightings count once per selected period; lifetime remains unique across reloads and sessions.
 - **Alliance log:** saves GUID, name, race, first/last seen, and encounter dates. Gnomes are highlighted and ordered first by default. Detection uses nameplates, target, focus, and mouseover, not radar for units the client has not exposed. Enable enemy nameplates for better coverage. Newly discovered Gnomes optionally trigger chat alerts.

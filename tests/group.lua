@@ -1,4 +1,6 @@
 local root=arg[1] or '.'
+-- Parser/account tests explicitly run in the readable native world contract.
+function IsInInstance()return false,'none'end
 local now=1700000000;date=os.date
 local units={player={name='Me',guid='Player-me',guild='Guild'},pet={guid='Pet-me'},party1={name='Friend',guid='Player-friend',guild='Guild'},partypet1={guid='Pet-friend'},party2={name='Guest',guid='Player-guest',guild='Other'}}
 function UnitExists(u)return units[u]~=nil end

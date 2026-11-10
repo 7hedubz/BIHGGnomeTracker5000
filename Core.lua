@@ -1,7 +1,40 @@
 local _, A = ...
-A.VERSION='1.7.13'
+A.VERSION='1.7.14'
 A.RETENTION = 400
 A.DAMAGE_FRACTION = 0.02
+-- IsInInstance has two independent returns; Safe intentionally keeps only one.
+-- Never infer world from a missing, protected, or contradictory return.
+local function openWorld()
+ if type(IsInInstance)~='function' then return false end
+ local ok,inside,kind=pcall(IsInInstance)
+ if not ok then return false end
+ local function readable(v)
+  if type(issecretvalue)~='function' then return true end
+  local good,hidden=pcall(issecretvalue,v)
+  return good and hidden==false
+ end
+ if not readable(inside) or not readable(kind) then return false end
+ return type(inside)=='boolean' and inside==false and type(kind)=='string' and kind=='none'
+end
+function A.RefreshKillLocation(boundary)
+ local allowed=openWorld();local previous=A.killLocation
+ if boundary or previous~=allowed or not allowed then
+  A.encounters={};A.groupTargets={};A.auras={}
+  -- Retain saved corpse dedup until a readable living observation proves a
+  -- new life. A corpse on login/exit must never rearm the same old death.
+  A.killBoundaryDead=A.killBoundaryDead or {}
+  for guid in pairs(A.db and A.db.dead or {})do A.killBoundaryDead[guid]=true end
+ end
+ A.killLocation=allowed
+ if (boundary or (previous~=nil and previous~=allowed)) and A.ResetIncomingLocation then A.ResetIncomingLocation() end
+ return allowed
+end
+function A.OpenWorldKillsAllowed()return A.RefreshKillLocation(false)end
+function A.ObserveKillLife(g,dead)
+ if dead==false and A.killBoundaryDead and A.killBoundaryDead[g] then
+  A.db.dead[g]=nil;A.killBoundaryDead[g]=nil
+ end
+end
 A.frames = {'Lifetime','7 days','30 days','Today','This week','This month','This year'}
 function A.Day(t) return math.floor(t / 86400) end
 function A.Init(db, owner, now)
@@ -22,9 +55,11 @@ function A.Init(db, owner, now)
  for _,r in pairs(db.seen or {}) do for d in pairs(r.days or {}) do if d<A.Day(now)-A.RETENTION+1 then r.days[d]=nil end end end
 end
 function A.Award(now)
+ if not A.OpenWorldKillsAllowed() then return false end
  local r=A.db.owners[A.owner]; local d=A.Day(now)
  r.total=r.total+1; r.days[d]=(r.days[d] or 0)+1
  if A.Changed then A.Changed() end
+ return true
 end
 local deathDamageEvents={SWING_DAMAGE=true,RANGE_DAMAGE=true,SPELL_DAMAGE=true,SPELL_PERIODIC_DAMAGE=true,DAMAGE_SHIELD=true}
 local function deathSecret(v) return A.Secret and A.Secret(v) end
@@ -114,7 +149,9 @@ function A.Score(r,frame,now,metric)
 end
 A.WINDOW=120
 function A.Observe(g,race,hostile,hp,now,dead)
+ if not A.OpenWorldKillsAllowed() then return end
  if type(g)~='string' or not g:match('^Player%-') or race~='Gnome' or hostile~=true then return end
+ A.ObserveKillLife(g,dead)
  if dead==false and A.db.dead[g] and now-A.db.dead[g]>2 then A.db.dead[g]=nil end
  if A.db.dead[g] then return end
  local e=A.encounters[g]
@@ -123,18 +160,22 @@ function A.Observe(g,race,hostile,hp,now,dead)
  if type(hp)=='number' and hp>0 then e.hp=math.max(e.hp or 0,hp) end
 end
 function A.Damage(g,amount,overkill,own,now)
+ if not A.OpenWorldKillsAllowed() then return end
  local e=A.encounters[g]
  if not e or not own or type(amount)~='number' or amount<0 then return end
  if e.last and now-e.last>A.WINDOW then e.damage=0; e.cc=nil end
  e.damage=e.damage+math.max(0,amount-math.max(0,tonumber(overkill) or 0)); e.last=now
 end
 function A.Death(g,now)
+ if not A.OpenWorldKillsAllowed() then return false end
  local e=A.encounters[g]; A.encounters[g]=nil
  if not e or A.db.dead[g] or not e.last or now-e.last>A.WINDOW then return false end
  if A.auras then A.auras[g]=nil end
+ local qualified=e.cc or (e.hp and e.damage>=e.hp*A.DAMAGE_FRACTION)
+ -- Reserve the corpse before Award invokes synchronous Changed callbacks.
  A.db.dead[g]=now
- if e.cc or (e.hp and e.damage>=e.hp*A.DAMAGE_FRACTION) then A.Award(now); return true end
- return false
+ if qualified and not A.Award(now) then A.db.dead[g]=nil;return false end
+ return qualified and true or false
 end
 -- Legacy known-effect helper; live parsers may confirm any harmful aura.
 A.CCSpells={}
@@ -149,6 +190,7 @@ for _,id in ipairs({118,12824,12825,12826,28271,28272,61305,61721,61780,20066,
 5246,20549,12355,12809,
 770,778,9749,9907,16857,17390,17391,17392}) do A.CCSpells[id]=true end
 function A.CC(g,id,own,now,harmful)
+ if not A.OpenWorldKillsAllowed() then return false end
  local e=A.encounters[g]
  if not e or not own or type(id)~='number'or id<1 or id%1~=0 or harmful==false or(not A.CCSpells[id]and harmful~=true)then return false end
  if e.last and now-e.last>A.WINDOW then e.damage=0 end

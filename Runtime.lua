@@ -6,6 +6,13 @@ function A.Safe(fn,...)
 end
 local function now()return A.Safe(GetServerTime) or time() end
 local function readable(v)if not A.Secret(v) then return v end end
+-- Location boundaries invalidate evidence, not saved statistics or incoming
+-- death eligibility. Fresh in-instance incoming damage still uses the same rule.
+function A.ResetIncomingLocation()
+ A.groupIncoming={};A.pendingDeath=nil;A.killingBlow=nil
+ local t=now();local clock=A.Safe(GetTime)
+ A.deathFight={started=t+0.001,clockStart=type(clock)=='number' and clock+0.001 or nil,health=0}
+end
 function A.DisplayName(name)
  if A.Secret(name) or type(name)~='string' or name=='' then return 'Unknown' end
  return name:match('^([^-]+)') or name
@@ -28,6 +35,7 @@ local function own(unit)
  return unit and (A.Safe(UnitIsUnit,unit,'player')==true or A.Safe(UnitIsUnit,unit,'pet')==true)
 end
 function A.Scan(unit)
+ A.RefreshKillLocation(false)
  if not A.db or not A.Safe(UnitExists,unit) or not A.Safe(UnitIsPlayer,unit) then return end
  local g=A.Safe(UnitGUID,unit); if type(g)~='string' or not g:match('^Player%-') then return end
  local ok,_,race=pcall(UnitRace,unit); if not ok or A.Secret(race) then race=nil end
@@ -95,6 +103,7 @@ function A.ObserveOwnDeathHealth(newCombat)
  end
 end
 function A.ScanVisible()
+ A.RefreshKillLocation(false)
  A.ObserveOwnDeathHealth()
  if A.RefreshGroupActors then A.RefreshGroupActors()end
  for _,u in ipairs({'target','focus','mouseover'}) do A.Scan(u) end
@@ -291,6 +300,7 @@ local function login()
 end
 local function handler(_,event,...)
  local arg1,arg2,arg3,arg4=...
+ if event=='PLAYER_LOGIN' or event=='PLAYER_ENTERING_WORLD' or event=='ZONE_CHANGED_NEW_AREA' then A.RefreshKillLocation(true) end
  if event=='PLAYER_LOGIN' or event=='PLAYER_ENTERING_WORLD' then login() end
  if event=='ADDON_ACTION_BLOCKED'or event=='ADDON_ACTION_FORBIDDEN'then
   if not A.Secret(arg1)and arg1=='BIHGGnomeKillTracker5000'then

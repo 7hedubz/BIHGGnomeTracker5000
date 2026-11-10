@@ -127,7 +127,9 @@ function A.CarryOwnGuildHistory(now)
  A.groupBulk=oldBulk;if changed and A.QueueShare then A.QueueShare(true)end
 end
 function A.GroupObserve(g,race,hostile,hp,now,dead)
+ if not A.OpenWorldKillsAllowed() then return end
  if not A.guildKey or not player(g)or race~='Gnome'then return end
+ A.ObserveKillLife(g,dead)
  if dead==false and A.db.dead[g]and now-A.db.dead[g]>2 then A.db.dead[g]=nil end
  if A.db.dead[g]then return end
  local e=A.groupTargets[g]
@@ -146,15 +148,18 @@ local function participant(g,source,now)
  p.last=now;return p
 end
 function A.GroupDamage(g,amount,overkill,source,now)
+ if not A.OpenWorldKillsAllowed() then return false end
  if type(amount)~='number'or amount<0 then return false end
  local p=participant(g,source,now);if not p then return false end
  p.damage=p.damage+math.max(0,amount-math.max(0,tonumber(overkill)or 0));return true
 end
 function A.GroupCC(g,spell,source,now,harmful)
+ if not A.OpenWorldKillsAllowed() then return false end
  if type(spell)~='number'or spell<1 or spell%1~=0 or harmful==false or(not A.CCSpells[spell]and harmful~=true)then return false end
  local p=participant(g,source,now);if not p then return false end;p.cc=true;return true
 end
 function A.GroupDeath(g,now)
+ if not A.OpenWorldKillsAllowed() then return false end
  if not player(g)then return false end
  local e=A.groupTargets[g];A.groupTargets[g]=nil
  if not e or A.db.dead[g]then return false end

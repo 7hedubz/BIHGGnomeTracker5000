@@ -1,4 +1,6 @@
 local root = arg[1] or '.'
+-- Parser/account tests explicitly run in the readable native world contract.
+function IsInInstance()return false,'none'end
 local A = {}
 local passed = 0
 local function eq(a,b,why) assert(a==b, (why or '')..' expected '..tostring(b)..', got '..tostring(a)) end

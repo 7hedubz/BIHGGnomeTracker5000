@@ -68,7 +68,7 @@ function GetNumSubgroupMembers()return units.party1 and 2 or 0 end
 function GetNumGroupMembers()return units.party1 and 3 or 0 end
 function IsInRaid()return false end
 C_GuildInfo={GuildRoster=noop}
-function IsInInstance()return inside,'none' end
+function IsInInstance()return inside,inside and 'party' or 'none' end
 function GetPlayerInfoByGUID(g)if g=='Player-gnome' then return 'Mage','MAGE','Gnome','Gnome',2,'Tiny','Realm' end end
 C_UnitAuras={GetAuraDataByIndex=function(u,i)if u=='target' and i==1 and not units.target.dead then return {spellId=118,sourceUnit='player',auraInstanceID=1,expirationTime=now+10} end end}
 C_ChatInfo={RegisterAddonMessagePrefix=noop,SendAddonMessage=function(p,m,c)sent[#sent+1]={p,m,c};return result end}
@@ -126,6 +126,8 @@ combat=false;result=3;A.request=false;A.lastRequest=now;A.Pump(now);assert(A.out
 result=0;for i=1,50 do A.Pump(now+i);if not A.outgoing and not A.dirty and not A.request then break end end;assert(not A.outgoing and not A.dirty,'successful retry flushes complete metadata/history queue')
 A.Receive('2|S|7|3|'..A.Day(now)..'|2|1','GUILD','Friend-Realm',now)
 A.RefreshUI();assert(A.PeerRecords()['Friend-Realm'].total==7,'guild peer record merged')
+-- Return from the explicit dungeon sync test before local PvP parser tests.
+inside=false;event('PLAYER_ENTERING_WORLD')
 -- Exercise the optional exact-damage path without aura qualification.
 C_UnitAuras.GetAuraDataByIndex=function()return nil end
 units.target={guid='Player-damage',name='Other',race='Gnome',faction='Alliance',hp=1000,enemy=true}

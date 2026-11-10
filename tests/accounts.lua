@@ -1,4 +1,6 @@
 local root=arg[1] or '.'
+-- Parser/account tests explicitly run in the readable native world contract.
+function IsInInstance()return false,'none'end
 local A={};local function load(f)assert(loadfile(root..'/'..f))('BIHGGnomeKillTracker5000',A)end
 load('Core.lua')
 local f=io.open(root..'/Accounts.lua');assert(f,'Account-wide aliases are not implemented');f:close();load('Accounts.lua');load('Sync.lua')

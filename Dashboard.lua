@@ -29,19 +29,24 @@ function A.ParseChartDate(text)
  for month=1,m-1 do days=days+lengths[month]end
  return days+d-1-719162
 end
-local function chartRecords(now)
- local records={};local members=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
- for name,r in pairs(A.account and A.account.characters or {[A.owner]=A.db.owners[A.owner]})do
+local function chartRecords(now,scope)
+ if scope==nil then scope=A.chartScope end
+ local records,source={},{};local members=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
+ if scope=='Guild'then for name,r in pairs(A.ViewPeerRecords())do source[name]=r end end
+ -- Exact character keys override stale self echoes; this is member credit,
+ -- not a count of unique enemy deaths across the guild.
+ for name,r in pairs(A.account and A.account.characters or {[A.owner]=A.db.owners[A.owner]})do source[name]=r end
+ for name,r in pairs(source)do
   if members[name]then records[#records+1]=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r end
  end
  return records
 end
 local function integer(n)return type(n)=='number'and n==n and n~=math.huge and n~=-math.huge and n%1==0 end
-function A.ChartBounds(period,now)
+function A.ChartBounds(period,now,scope)
  local today=A.Day(now);local floor=today-A.RETENTION+1
  if period~='Lifetime'then return math.min(today,math.max(floor,A.FirstDay(period,now))),today end
  local first=today
- for _,r in ipairs(chartRecords(now))do
+ for _,r in ipairs(chartRecords(now,scope))do
   for _,key in ipairs({'days','deathDays'})do
    for day,n in pairs(r[key]or{})do
     if integer(day)and day>=floor and day<first and type(n)=='number'and n>0 then first=day end
@@ -54,8 +59,8 @@ local function clamp(n,min,max)return math.max(min,math.min(max,n))end
 local function validRange(first,last,min,max)
  return integer(first)and integer(last)and first>=min and last<=max and first<=last
 end
-function A.GetChartRange(period,now)
- local min,max=A.ChartBounds(period,now);local r=A.chartRange
+function A.GetChartRange(period,now,scope)
+ local min,max=A.ChartBounds(period,now,scope);local r=A.chartRange
  local first,last=min,max
  if r and r.period==period and integer(r.first)and integer(r.last)and r.first<=r.last and not(r.first==r.min and r.last==r.max)then
   first,last=clamp(r.first,min,max),clamp(r.last,min,max)
@@ -63,28 +68,28 @@ function A.GetChartRange(period,now)
  A.chartRange={period=period,first=first,last=last,min=min,max=max}
  return first,last,min,max
 end
-function A.ResetChartRange(period,now)
+function A.ResetChartRange(period,now,scope)
  A.chartRange=nil
- return A.GetChartRange(period,now)
+ return A.GetChartRange(period,now,scope)
 end
-function A.SetChartRange(period,now,first,last)
- local min,max=A.ChartBounds(period,now)
+function A.SetChartRange(period,now,first,last,scope)
+ local min,max=A.ChartBounds(period,now,scope)
  if not validRange(first,last,min,max)then return false,'Choose ordered whole dates within the selected period.'end
  A.chartRange={period=period,first=first,last=last,min=min,max=max}
  return true
 end
-function A.SetChartHandle(period,now,which,day)
+function A.SetChartHandle(period,now,which,day,scope)
  if(which~='first'and which~='last')or type(day)~='number'or day~=day or day==math.huge or day==-math.huge then return false end
- local first,last,min,max=A.GetChartRange(period,now);day=math.floor(day+0.5)
+ local first,last,min,max=A.GetChartRange(period,now,scope);day=math.floor(day+0.5)
  if which=='first'then day=clamp(day,min,last);if day==first then return false end;first=day
  else day=clamp(day,first,max);if day==last then return false end;last=day end
- return A.SetChartRange(period,now,first,last)
+ return A.SetChartRange(period,now,first,last,scope)
 end
-function A.ActivityTrend(period,now,first,last)
- local min,max=A.ChartBounds(period,now);local data={}
+function A.ActivityTrend(period,now,first,last,scope)
+ local min,max=A.ChartBounds(period,now,scope);local data={}
  if first==nil and last==nil then first,last=min,max end
  if not validRange(first,last,min,max)then return data end
- local records=chartRecords(now)
+ local records=chartRecords(now,scope)
  for day=first,last do
   local k,d=0,0
   for _,r in ipairs(records)do k=k+((r.days or {})[day]or 0);d=d+((r.deathDays or {})[day]or 0)end
@@ -92,8 +97,8 @@ function A.ActivityTrend(period,now,first,last)
  end
  return data
 end
-function A.KillsLine(period,now,width,height,first,last)
- local data=A.ActivityTrend(period,now,first,last);local peak=0
+function A.KillsLine(period,now,width,height,first,last,scope)
+ local data=A.ActivityTrend(period,now,first,last,scope);local peak=0
  for _,d in ipairs(data) do peak=math.max(peak,d.kills) end
  local step=math.max(1,math.ceil(peak/4));local ceiling=step*4
  local result={points={},ticks={},peak=peak,ceiling=ceiling}

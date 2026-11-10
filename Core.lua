@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.7.15'
+A.VERSION='1.7.16'
 A.RETENTION = 400
 A.DAMAGE_FRACTION = 0.02
 -- IsInInstance has two independent returns; Safe intentionally keeps only one.

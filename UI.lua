@@ -84,6 +84,12 @@ function A.SelectPeriod(period)
  if A.chartFromInput then A.chartFromInput:ClearFocus();A.chartToInput:ClearFocus()end
  A.RefreshUI()
 end
+function A.SelectChartScope(scope)
+ if A.TargetingLocked()or(scope~='Personal'and scope~='Guild')then return false end
+ A.chartScope=scope;A.db.options.chartScope=scope;A.chartDragging=nil;A.chartDateError=nil;A.chartDatesDirty=nil
+ A.chartFromInput:ClearFocus();A.chartToInput:ClearFocus()
+ A.RefreshUI();return true
+end
 local function chartDate(day)return date('!%Y-%m-%d',day*86400)end
 function A.ApplyChartDates()
  if A.TargetingLocked()then return false end
@@ -126,12 +132,13 @@ function A.EnsureChartSamples(count)
   if i>1 then local line=A.linePlot:CreateLine(nil,'OVERLAY');line:SetThickness(2);line:SetColorTexture(0.94,0.62,0.20,1);A.lineSegments[i-1]=line end
   local dot=CreateFrame('Frame',nil,A.linePlot);dot:SetSize(8,8);dot:EnableMouse(true)
   local mark=dot:CreateTexture(nil,'OVERLAY');mark:SetSize(5,5);mark:SetPoint('CENTER');mark:SetColorTexture(1,0.74,0.30,1)
-  dot:SetScript('OnEnter',function(self)if self.data and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText(chartDate(self.data.day)..' UTC');GameTooltip:AddLine(self.data.kills..' recorded kills',1,0.74,0.30);GameTooltip:Show()end end)
+  dot:SetScript('OnEnter',function(self)if self.data and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText(chartDate(self.data.day)..' UTC');GameTooltip:AddLine(self.data.kills..' recorded '..(A.chartScope=='Guild'and'guild member'or'personal account')..' kill credits',1,0.74,0.30);GameTooltip:Show()end end)
   dot:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end);A.lineDots[i]=dot
  end
 end
 function A.RenderCharts(now)
  if A.TargetingLocked()then return end
+ style(A.chartPersonalButton,A.chartScope~='Guild');style(A.chartGuildButton,A.chartScope=='Guild')
  local top=A.TopKillers(A.period,now);local peak=top[1] and top[1].k or 1
  A.topChartSubtitle:SetText(A.period..' | cached guild aliases | kills')
  A.chartEmpty:SetText(#top==0 and 'No recorded kills for this period.' or '')
@@ -145,7 +152,7 @@ function A.RenderCharts(now)
  local first,last,minimum,maximum=A.GetChartRange(A.period,now)
  local graph=A.KillsLine(A.period,now,350,120,first,last);A.lineData=graph
  A.EnsureChartSamples(#graph.points);A.RefreshChartRangeControls(first,last,minimum,maximum)
- A.trendSubtitle:SetText(chartDate(first)..' to '..chartDate(last)..' | '..#graph.points..' days UTC')
+ A.trendSubtitle:SetText((A.chartScope=='Guild'and'Guild'or'Personal')..' | '..chartDate(first)..' to '..chartDate(last)..' | '..#graph.points..' days UTC')
  A.trendPeak:SetText(A.chartDateError or('Y: Recorded kills/day | peak '..graph.peak))
  if A.chartDateError then A.trendPeak:SetTextColor(1,0.35,0.3)else A.trendPeak:SetTextColor(0.85,0.9,0.95)end
  for i,value in ipairs(graph.ticks) do A.lineYTicks[i]:SetText(tostring(value)) end
@@ -193,7 +200,7 @@ function A.RefreshUI()
  A.status:SetText(syncStatus)
  A.membershipStatusLabel:SetText(A.rosterStatus or'Guild roster pending.')
  if A.mode=='Charts' then
-  A.heading:SetText('CHARTS | Guild ranking and your recorded daily activity');A.pageLabel:SetText('Recorded data only');A.RenderCharts(now);return
+  A.heading:SetText('CHARTS | Guild ranking and recorded daily kill activity');A.pageLabel:SetText('Recorded data only');A.RenderCharts(now);return
  elseif A.mode=='Settings' then
   A.heading:SetText('SETTINGS | Account identity and local notifications');A.pageLabel:SetText('Account-wide alias');return
  end
@@ -329,7 +336,9 @@ function A.CreateUI()
   hit:HookScript('OnClick',function(_,_,down)local r=row.data;if not down and not A.TargetingLocked()and r and #r.children>1 then A.expanded[r.id]=true;A.OpenView('Leaderboard',false)end end)
  end
  local trend=panel(A.chartsPane,472,0,452,320);A.trendChart=trend
- text(trend,'normal',14,-12,420):SetText('KILLS OVER TIME');A.trendSubtitle=text(trend,'small',14,-34,420);A.trendPeak=text(trend,'small',14,-84,420);A.trendPeak:SetWordWrap(true);A.trendPeak:SetHeight(20)
+ text(trend,'normal',14,-12,205):SetText('KILLS OVER TIME');A.trendSubtitle=text(trend,'small',14,-34,420);A.trendPeak=text(trend,'small',14,-84,420);A.trendPeak:SetWordWrap(true);A.trendPeak:SetHeight(20)
+ A.chartPersonalButton=button(trend,'Personal',228,-5,96,function()A.SelectChartScope('Personal')end,'Daily recorded kill credit for your account\'s current guild-member characters. Uses the same PERIOD and date controls.')
+ A.chartGuildButton=button(trend,'Guild',334,-5,102,function()A.SelectChartScope('Guild')end,'Sum of recorded daily kill credit for current guild members, including cached reports and witnessed credit. Not unique enemy deaths or guaranteed complete guild coverage. Date controls still apply.')
  text(trend,'small',14,-61,34):SetText('From');text(trend,'small',174,-61,22):SetText('To')
  local function dateInput(x)
   local input=CreateFrame('EditBox',nil,trend,'InputBoxTemplate');input:SetPoint('TOPLEFT',x,-55);input:SetSize(108,22);input:SetAutoFocus(false);input:SetMaxLetters(10)
@@ -423,6 +432,7 @@ function A.CreateUI()
  button(copy,'Close',500,-394,160,function()copy:Hide()end)
  UISpecialFrames[#UISpecialFrames+1]='BIHGGKTCopyReport';copy:Hide()
  w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)if A.mode=='Leaderboard' or A.mode=='Encounters' then A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end end)
+ A.chartScope=A.db.options.chartScope=='Guild'and'Guild'or'Personal'
  A.period='Lifetime';for _,p in ipairs(A.frames)do if p==A.db.options.period then A.period=p end end;A.mode='Leaderboard';A.sort='kills';A.page=1
  w:SetScript('OnHide',function()A.chartDragging=nil;A.chartFromInput:ClearFocus();A.chartToInput:ClearFocus();A.db.options.period=A.period;preview:Hide();copy:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
  -- Secure state transitions can hide a window containing protected target

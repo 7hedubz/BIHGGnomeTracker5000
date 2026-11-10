@@ -2,6 +2,7 @@ local root=arg[1] or '.'
 local now=1700000000
 local frames={}; local timers={}; local sent={}; local inside=false; local result=0;local forbiddenRegistrations=0
 local combat=false;function InCombatLockdown()return combat end
+local restricted=false
 local stateDrivers={};function RegisterStateDriver(frame,id,condition)stateDrivers[frame]={id=id,condition=condition}end
 local soundCalls={};function PlaySoundFile(file,channel)soundCalls[#soundCalls+1]={file,channel};return true,1 end
 function GetLocale()return'enUS'end
@@ -44,10 +45,37 @@ methods.SetAttribute=function(self,k,v)assert(not combat,'protected attribute mu
 methods.RegisterForClicks=function(self,...)self.clickEvents={...}end
 methods.HookScript=function(self,k,fn)local old=self.scripts[k];self.scripts[k]=function(...)if old then old(...)end;fn(...)end end
 methods.SetHeight=function(self,h)self.height=h end
-methods.StartMoving=function(self)self.moves=(rawget(self,'moves')or 0)+1 end
-function CreateFrame(_,name,parent,template)local o=obj();o.template=template;if template and template:find('SecureActionButtonTemplate',1,true)then o.scripts.OnClick=noop end;frames[#frames+1]=o;if name then _G[name]=o end;return o end
+methods.StartMoving=function(self)self.moves=(rawget(self,'moves')or 0)+1;self.moving=true end
+methods.StopMovingOrSizing=function(self)self.moving=false;self.stops=(rawget(self,'stops')or 0)+1 end
+function CreateFrame(_,name,parent,template)local o=obj();o.parent=parent;o.template=template;if template and template:find('Secure',1,true)then assert(not combat,'secure construction in combat');o.protected=true;local a=parent;while a and a~=UIParent do a.protected=true;a=rawget(a,'parent')end end;if template and template:find('SecureActionButtonTemplate',1,true)then o.scripts.OnClick=noop end;frames[#frames+1]=o;if name then _G[name]=o end;return o end
 UIParent=obj();Minimap=obj();UISpecialFrames={};SlashCmdList={};BackdropTemplateMixin={}
+methods.GetFrameLevel=function()return 1 end
+methods.GetTop=function(self)return rawget(self,'top')or 600 end
+methods.EnableMouse=function(self,value)self.mouse=value end
+methods.IsVisible=function(self)return self.shown and(not rawget(self,'parent')or self.parent:IsVisible())end
+-- Enforce protection on parents and anchor dependencies, not just attributes.
+for _,key in ipairs({'Show','Hide','SetSize','SetWidth','SetHeight','SetPoint','ClearAllPoints','SetAlpha','SetScale','SetScript','StartMoving','StopMovingOrSizing'})do
+ local original=methods[key]or noop
+ methods[key]=function(self,...)
+  assert(not(combat and rawget(self,'protected')and not restricted),'locked protected write: '..key)
+  if key=='SetPoint'then local _,relative=...;if type(relative)=='table'and rawget(self,'protected')then
+   local a=relative;while a and a~=UIParent do a.protected=true;a=rawget(a,'parent')end
+  end end
+  return original(self,...)
+ end
+end
+local function driverState(value)
+ for frame,d in pairs(stateDrivers)do
+  local snippet=assert(loadstring(frame.attrs['_onstate-'..d.id]))
+  setfenv(snippet,{self=frame,newstate=value});restricted=true;snippet();restricted=false
+ end
+end
+local function transition(value)
+ combat=value;driverState(value and'closed'or'available')
+end
+
 GameTooltip={
+ GetOwner=function(self)return self.owner end,
  SetOwner=function(self,owner,anchor)self.owner=owner;self.anchor=anchor end,
  SetText=function(self,text)self.text=text;self.lines={}end,
  AddLine=function(self,text,...)self.lines[#self.lines+1]={text,...}end,
@@ -420,15 +448,29 @@ assert(GameTooltip.lines[1][1]=='Level 60 | Mage | Gnome','tooltip includes full
 assert(tooltipRow.frame.attrs.macrotext1==tooltipMacro,'hover must not change secure target bindings')
 tooltipRow.frame.scripts.OnLeave(tooltipRow.frame);assert(not GameTooltip.shown,'actual row OnLeave hides its tooltip')
 A.NearbyNotice(tooltipRow.data.guid,originalNearbyName,'Gnome','Alliance',now,false,true,60,'Mage');A.RefreshNearby(now)
-local frozenLevel,frozenClass=A.nearbyRows[1].level.text,A.nearbyRows[1].class.text
-local frozenName=A.nearbyRows[1].data.name;local frozenMacro=A.nearbyRows[1].frame.attrs.macrotext1
-combat=true;A.NearbyNotice('Player-combat-new','NewEnemy-Realm','Gnome','Alliance',now+5,false,true);A.RefreshNearby(now+5);A.RefreshUI()
-assert(A.nearbyRows[1].data.name==frozenName and A.nearbyRows[1].frame.attrs.macrotext1==frozenMacro,'combat cannot reorder displayed names away from protected click bindings')
-assert(A.nearbyRows[1].level.text==frozenLevel and A.nearbyRows[1].class.text==frozenClass,'combat freezes the added identity labels alongside the target name')
+local frozenMacro=A.nearbyRows[1].frame.attrs.macrotext1
+transition(true);A.NearbyNotice('Player-combat-new','NewEnemy-Realm','Gnome','Alliance',now+5,false,true,55,'Rogue');A.RefreshNearby(now+5);A.RefreshUI()
+assert(A.nearbyRows[1].data.name=='NewEnemy-Realm','new combat contact must immediately replace the first displayed row')
+assert(A.nearbyRows[1].level.text:find('55',1,true)and A.nearbyRows[1].class.text:find('Rogue',1,true),'combat metadata remains live')
+assert(A.nearbyRows[1].frame.attrs.macrotext1==frozenMacro,'combat display changes never rebind secure actions')
+assert(not rawget(A.nearbyFrame,'protected'),'display root must have no protected descendants or anchor dependents')
+for _,row in ipairs(A.nearbyRows)do
+ assert(row.displayFrame.parent==A.nearbyFrame and row.displayFrame.mouse==false and not rawget(row.displayFrame,'highlightTexture')and not row.displayFrame.scripts.OnEnter,'display rows have neither mouse nor hover feedback')
+ assert(row.hitFrame.parent==A.nearbyClickLayer and not row.hitFrame:IsVisible(),'all old/new native click and highlight areas inherit securely hidden state')
+end
+assert(not GameTooltip.shown,'combat entry closes the old target tooltip')
+GameTooltip:SetOwner(A.nearbyButtons.clear,'ANCHOR_TOP');GameTooltip:SetText('Clear help');GameTooltip:Show();A.RefreshNearby(now+5)
+assert(GameTooltip.shown,'combat row refresh must not dismiss unrelated/control tooltips')
+GameTooltip:Hide()
+transition(false);assert(not A.nearbyClickLayer:IsShown(),'driver must not expose stale targets on combat exit')
+event('PLAYER_REGEN_ENABLED')
+assert(A.nearbyClickLayer:IsShown()and A.nearbyRows[1].hitFrame.attrs.macrotext1:find('NewEnemy-Realm',1,true),'regen event immediately binds current identities before exposing clicks')
+frozenMacro=A.nearbyRows[1].hitFrame.attrs.macrotext1
+transition(true)
 A.nearbyEnableCheck:SetChecked(false);A.nearbyEnableCheck.scripts.OnClick(A.nearbyEnableCheck)
 assert(A.nearbyEnableLabel.text=='OFF'and not A.nearbyEnableCheck:GetChecked()and A.nearbyRows[1].frame.attrs.macrotext1==frozenMacro,'master OFF remains obvious in combat without rebinding protected targets')
 A.nearbyEnableCheck:SetChecked(true);A.nearbyEnableCheck.scripts.OnClick(A.nearbyEnableCheck)
-combat=false;A.ForgetNearby('Player-combat-new');A.RefreshNearby(now)
+transition(false);assert(not A.nearbyClickLayer:IsShown(),'available state never reopens stale actions');A.ForgetNearby('Player-combat-new');A.RefreshNearby(now)
 local savedEncounter=A.db.seen['Player-near-gnome'];local savedKills=A.db.owners[A.owner].total
 local soundsBeforeClear=#soundCalls
 assert(A.nearbyButtons.clear,'Nearby needs an explicit Clear button')
@@ -536,7 +578,7 @@ DEFAULT_CHAT_FRAME.AddMessage=function(_,text)debugOutput[#debugOutput+1]=text e
 local publicBefore=#partyMessages;local addonBefore=#sent
 event('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','SendChatMessage()');SlashCmdList.BIHGGKT('debug')
 local debugText=table.concat(debugOutput,' ')
-assert(A.VERSION=='1.8.0','combined correctness and workload release version')
+assert(A.VERSION=='1.8.1'and tocVersion==A.VERSION,'live combat Nearby release metadata matches actual TOC')
 assert(debugText:find('BIHG own death outcomes',1,true)and debugText:find('counted',1,true),'actual slash exposes persisted own death diagnostics')
 assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
 assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')
@@ -548,7 +590,7 @@ assert(A.ShowCopyReport()and A.copyReportEdit.focused,'export text holds focus b
 A.chartFromInput:SetFocus();A.chartDragging='first';local beforeCombatPeriod=A.period
 assert(A.window:IsShown()and A.soundPicker:IsShown(),'settings and picker open before combat')
 local secureSnippet=assert(loadstring(A.window.attrs['_onstate-'..stateDrivers[A.window].id]))
-combat=true;setfenv(secureSnippet,{self=A.window,newstate='closed'});secureSnippet()
+transition(true)
 assert(not A.window:IsShown()and not A.preview:IsShown()and not A.soundPicker:IsShown(),'entering combat securely closes dashboard, report preview and config picker')
 assert(not A.chartFromInput.focused and not A.chartDragging,'combat closure releases date-editor focus and stops range dragging')
 A.SelectPeriod('Today');assert(A.period==beforeCombatPeriod,'PERIOD/range controls remain frozen during combat')
@@ -556,7 +598,7 @@ local lockedScope=A.chartScope;assert(not A.SelectChartScope(lockedScope=='Guild
 assert(not A.copyReportFrame:IsShown()and not A.copyReportEdit.focused,'combat/menu closure dismisses export and releases text focus')
 assert(not A.postJob,'combat auto-close cancels remaining manual report lines without deferral')
 assert(A.nearbyFrame:IsShown(),'combat auto-close leaves independent Nearby overlay available')
-combat=false;setfenv(secureSnippet,{self=A.window,newstate='available'});secureSnippet();tick()
+transition(false);tick()
 assert(not A.window:IsShown(),'leaving combat does not reopen config automatically')
 A.OpenView('Settings',false);assert(A.window:IsShown(),'user can reopen normally after combat')
 A.account.characters['CacheAlt-Realm']={total=0,deaths=0,days={},deathDays={},seen={['Player-alt-history']={name='SharedAltSight',race='Gnome',first=now-1,last=now,days={[A.Day(now)]=true}}}}
@@ -612,5 +654,81 @@ A.NearbyNotice('Player-fair-budget','FairBudget-Realm','Gnome','Alliance',now,fa
 for i=1,6 do tick()end
 assert(fairParty==1 and fairAddon>0,'runtime must deliver queued party alert without starving paced history, or vice versa')
 A.ScanVisible=priorScan;C_ChatInfo.SendAddonMessage=priorAddonSend;SendChatMessage=priorPartySend;GetNumSubgroupMembers=priorSubgroup;IsInRaid=priorRaid
+-- Isolated live-overlay transitions through the actual TOC implementation.
+A.ClearNearby();A.nearbyPage=1;A.db.options.nearbyCollapsed=false
+A.NearbyNotice('Player-live-old','Old-Realm','Human','Alliance',now,false,true,60,'Warrior');A.RefreshNearby(now)
+A.nearbyRows[1].hitFrame.scripts.OnEnter(A.nearbyRows[1].hitFrame);assert(GameTooltip.shown)
+local oldAttrs=A.nearbyRows[1].hitFrame.attrs.macrotext1
+local createdBefore=#frames
+transition(true)
+for i=1,10 do A.NearbyNotice('Player-live-'..i,'Live'..i..'-Realm',i==10 and'Gnome'or'Human','Alliance',now+i,false,true,40+i,'Mage')end
+A.RefreshNearby(now+10)
+assert(#frames==createdBefore and A.nearbyRows[1].data.name=='Live10-Realm','combat reuses all precreated rows with live Gnome-first sorting')
+A.nearbyButtons.next.scripts.OnClick();assert(A.nearbyPage==2 and A.nearbyRows[1].data,'combat paging remains live')
+A.nearbyButtons.collapse.scripts.OnClick();assert(A.nearbyFrame.height==24 and not A.nearbyRows[1].displayFrame:IsShown(),'combat collapse changes only the unprotected display')
+A.nearbyButtons.collapse.scripts.OnClick();A.ToggleNearby(false);assert(not A.nearbyFrame:IsShown());A.ToggleNearby(true)
+A.NearbyNotice('Player-live-10','Live10-Realm','Gnome','Alliance',now+11,true,true)
+A.nearbyPage=1;A.RefreshNearby(now+11);assert(A.nearbyRows[1].data.name=='Live9-Realm','combat corpse removal immediately reorders rows')
+A.RefreshNearby(now+50);assert(A.nearbyCount==0 and A.nearbyFrame.height==24,'combat TTL expiration clears the live display')
+assert(A.nearbyRows[1].hitFrame.attrs.macrotext1==oldAttrs and not A.nearbyClickLayer:IsVisible(),'expired protected data stays inaccessible and untouched')
+A.ClearNearby();A.SetNearbyEnabled(false);A.SetNearbyEnabled(true)
+A.NearbyNotice('Player-live-current','Current-Surname','Gnome','Alliance',now,false,true,60,'Rogue');A.RefreshNearby(now)
+transition(false);assert(not A.nearbyClickLayer:IsShown(),'no automatic ghost targets on available state')
+event('PLAYER_REGEN_ENABLED')
+assert(A.nearbyRows[1].hitFrame:IsVisible()and A.nearbyRows[1].hitFrame.attrs.macrotext1:find('Current-Surname',1,true),'only current identity becomes clickable after combat')
+for i=2,A.NEARBY_ROWS do local hit=A.nearbyRows[i].hitFrame;assert(not hit:IsVisible()and not hit.attrs.type1 and not hit.attrs.macrotext1,'all unused stale actions cleared before layer shows')end
+assert(not rawget(A.nearbyFrame,'protected')and A.nearbyFrame:GetWidth()==340 and A.nearbyRows[1].displayFrame:GetWidth()==332)
+A.nearbyFrame.left=73;A.nearbyFrame.top=412;A.nearbyFrame.GetEffectiveScale=function()return 0.5 end
+A.RefreshNearby(now)
+assert(A.nearbyClickLayer.coords[2]==UIParent and A.nearbyClickLayer.coords[4]==36.5 and A.nearbyClickLayer.coords[5]==206,'secure geometry follows actual post-clamp coordinates and scale')
+assert(stateDrivers[A.nearbyClickLayer].condition=='[combat] closed; available','native state driver owns combat concealment')
+A.nearbyFrame.GetTop=function()return nil end;A.RefreshNearby(now)
+assert(A.nearbyClickLayer.coords[1]=='CENTER'and A.nearbyClickLayer.coords[2]==UIParent and A.nearbyClickLayer.coords[3]=='CENTER','unavailable geometry uses a wellformed UIParent-relative fallback')
+A.nearbyFrame.GetTop=nil
+A.nearbyHeader.scripts.OnDragStart();assert(not A.nearbyClickLayer:IsVisible(),'dragging removes stale hitboxes before moving')
+A.RefreshNearby(now);assert(not A.nearbyClickLayer:IsVisible(),'timer refresh cannot expose mid-drag hitboxes');A.nearbyHeader.scripts.OnDragStop();assert(A.nearbyClickLayer:IsVisible())
+-- A drag released after combat starts must finish without touching secure hits.
+do
+ local w,layer=A.nearbyFrame,A.nearbyClickLayer
+ local stops=w.stops;local oldMacro=A.nearbyRows[1].hitFrame.attrs.macrotext1
+ A.nearbyHeader.scripts.OnDragStart()
+ assert(A.nearbyDragging and w.moving and not layer:IsVisible(),'real drag callback starts movement and conceals hits')
+ transition(true);event('PLAYER_REGEN_DISABLED')
+ w.left=244;w.top=354
+ w.GetPoint=function()return 'TOPLEFT',UIParent,'BOTTOMLEFT',244,354 end
+ A.NearbyNotice('Player-drag-current','AfterDrag-Realm','Gnome','Alliance',now+1,false,true,59,'Mage')
+ A.RefreshNearby(now+1)
+ A.nearbyHeader.scripts.OnDragStop()
+ assert(not A.nearbyDragging,'combat-interrupted drag release must clear Nearby dragging state')
+ assert(not w.moving and w.stops==stops+1,'combat-interrupted drag release must stop display movement')
+ local pos=A.db.options.nearbyPosition
+ assert(pos[1]=='TOPLEFT'and pos[2]=='BOTTOMLEFT'and pos[3]==244 and pos[4]==354,'combat drag release persists the final display position')
+ assert(not layer:IsVisible()and A.nearbyRows[1].hitFrame.attrs.macrotext1==oldMacro,'combat drag release keeps secure hits hidden and bindings untouched')
+ transition(false)
+ assert(not layer:IsVisible(),'combat exit cannot auto-show stale pre-drag bindings')
+ local shows=0;local show=methods.Show
+ layer.Show=function(self)
+  shows=shows+1
+  assert(self.coords[2]==UIParent and self.coords[4]==122 and self.coords[5]==177,'post-combat hits align to final dragged display geometry before showing')
+  for _,row in ipairs(A.nearbyRows)do
+   assert(row.hitFrame.attrs.macrotext1==A.TargetMacro(row.data and row.data.name),'every secure identity is fresh before the layer reopens')
+  end
+  return show(self)
+ end
+ event('PLAYER_REGEN_ENABLED')
+ assert(shows==1 and layer:IsVisible()and A.nearbyRows[1].hitFrame:IsVisible()and A.nearbyRows[1].data.name=='AfterDrag-Realm','regen restores current clickable rows without a second manual drag')
+ layer.Show=nil;w.GetPoint=nil
+ tick();assert(layer:IsVisible()and not A.nearbyDragging,'runtime refresh retains recovered clickability')
+ print('PASS combat-interrupted Nearby drag: release stops movement, clears state, defers protected writes and restores fresh aligned clicks on regen')
+end
+-- Login-in-combat defers every constructor; unavailable drivers fail closed.
+A.nearbyFrame=nil;A.nearbyClickLayer=nil;createdBefore=#frames;transition(true);A.CreateNearbyUI()
+assert(not A.nearbyFrame and #frames==createdBefore,'login combat never constructs protected or display rows')
+transition(false);event('PLAYER_REGEN_ENABLED');assert(A.nearbyFrame and A.nearbyClickLayer,'regen creates deferred overlay')
+local originalDriver=RegisterStateDriver;RegisterStateDriver=nil;A.nearbyFrame=nil;A.nearbyClickLayer=nil
+A.CreateNearbyUI();assert(A.nearbyFrame and not A.nearbyClickLayer,'missing driver leaves usable display only')
+for _,row in ipairs(A.nearbyRows)do assert(not row.hitFrame and row.frame==row.displayFrame and not row.frame.mouse and not rawget(row.frame,'highlightTexture'),'no driver means no click or highlight targets')end
+transition(true);A.ClearNearby();A.NearbyNotice('Player-no-driver','NoDriver','Gnome','Alliance',now,false,true);A.RefreshNearby(now)
+assert(A.nearbyRows[1].data.name=='NoDriver','fail-closed display stays live during combat');transition(false);RegisterStateDriver=originalDriver
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, protected targeting, persistent scores, rank-gated guild reports, independent party detection chat, local-only report diagnostics and guarded APIs')

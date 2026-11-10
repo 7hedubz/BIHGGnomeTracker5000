@@ -4,6 +4,14 @@
 
 Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and automatic guild leaderboards.
 
+## Live Nearby rows in combat (1.8.1)
+
+Nearby continues updating new contacts, level/class, Gnome-first sorting, age, expiry and corpse removal during combat. Clear, pause, paging, collapse and visibility controls remain live, at the unchanged 340px window / 332px row widths. **All Nearby contact rows are unclickable and have no hover highlight or tooltip in combat**, including contacts already shown before combat.
+
+After combat, the current displayed identities are rebound before the separate secure click layer is revealed; unused target actions are cleared first. Out of combat, native amber hover feedback, full-name/detail tooltips and hardware click-to-target return. Moving the header hides hit areas until drag-stop alignment is refreshed. Clients without secure state-driver support keep a display-only Nearby list. Combat login defers frame creation until safe.
+
+Kill/death credit, history, synchronization, audio and party-alert policies are unchanged. Actual-TOC regressions exercise restricted hide-only state snippets and protected parent/anchor restrictions; native rendering, taint behavior and exact targeting still require an in-game check after review/install.
+
 ## Tracking correctness and workload controls (1.8.0)
 
 - **Low-traffic synchronization:** light queries remain every 60 seconds, but they no longer trigger a lifetime-history replay each minute. Session hints (`2|H|token`) request bounded/coalesced catchup for newly loaded clients; legacy peers retain a 15-minute fallback. Initial load, guild changes, and explicit **Refresh data** / `/gkt sync` can request full catchup. Fresh sightings and ordinary same-guild world entry queue lightweight metadata, not full history. Large first-time catchups can take time.
@@ -87,8 +95,8 @@ Open **`/gkt`**, `/gnomekills`, `/bihg`, or use the minimap gear.
 - Rows show **level → character name → localized class**, followed by race/age, within the unchanged **340px** window and **332px** rows. Fields stay single-line and truncate to fit; hover shows full name, level, class and race. Unknown metadata displays `?`; the native higher/unknown-level sentinel displays `??`. Secure targeting still uses the actual character name, never the decorated display text.
 - The header's saved checkbox is **checked + green ON** when Nearby detection is running, **unchecked + red OFF** when paused. This is separate from hiding the window; pausing leaves the header accessible. It defaults ON and retains an explicitly saved OFF setting.
 - OFF clears current Nearby contacts and cancels pending general/Gnome sounds and party sighting announcements. It also suppresses local sighting chat. Re-enabling resumes detection on the next scan without resetting contact-repeat suppression. Explicit sound Preview remains usable.
-- This switch **does not pause open-world kill/death recording, persistent encounter history, or guild synchronization**. During combat, status/checkbox can change immediately while existing protected target rows remain frozen until it is safe to refresh.
-- Automated tests cover actual native scan-to-label wiring, unchanged widths/column order, unknown/secret metadata, row cleanup, checkbox callbacks, saved state, alert cancellation/resume, combat freezing, and continuing kill recording while Nearby is OFF. Native clipping/readability and checkbox appearance still need an in-game check.
+- This switch **does not pause open-world kill/death recording, persistent encounter history, or guild synchronization**. During combat, the entire Nearby display remains live; all contact targeting/hover hit areas are securely hidden until fresh bindings are ready after combat.
+- Automated tests cover actual native scan-to-label wiring, unchanged widths/column order, unknown/secret metadata, row cleanup, checkbox callbacks, saved state, alert cancellation/resume, live display-only combat transitions, and continuing kill recording while Nearby is OFF. Native clipping/readability and checkbox appearance still need an in-game check.
 
 ### Spy-style Nearby Alliance window (1.4.0)
 
@@ -99,7 +107,7 @@ A separate compact overlay is enabled by default, independently of the dashboard
 - Names omit internal realm suffixes. Rows show race and last-seen age; hover for known level and sighting details. Up to eight rows are displayed per page, with paging controls for longer lists.
 - Drag the header to move it; **L/U** locks/unlocks its position. **-/+** collapses/expands, **H** opens the separate historical Alliance encounter log, **< / >** pages, and **X** hides it. Position, lock, collapse and visibility are remembered per character.
 - Restore/toggle with **`/gkt nearby`** or **Settings → Nearby overlay**. **`/gkt nearby clear`** clears only this temporary list; persistent encounter history is untouched. Hiding the overlay does not stop tracking or guild sync.
-- The overlay is a display/hover list; it does not implement protected click-to-target or automated targeting/casting. It has no dependency on Spy and does not modify Spy's files/settings.
+- The overlay supports secure hardware click-to-target out of combat and display-only rows during combat; it never automatically targets or casts. It has no dependency on Spy and does not modify Spy's files/settings.
 
 Nearby opponents are not leaderboard participants. The guild-only qualification/tally rules remain unchanged. Nearby cache contents themselves are not broadcast or rehydrated from historical SavedVariables.
 
@@ -236,7 +244,7 @@ Upgrade from 1.6.0 with **`/reload` out of combat**; the TOC file load list is u
 - Guild-roster and live-unit GUIDs link alternate name formats. Received sender names are resolved through established GUID links before creating records or filtering self echoes, so late legacy summaries cannot recreate a duplicate physical character. Local self-summary echoes never move the authoritative local history baseline.
 - Left-click names in Nearby, encounter history, character rows, or single-character chart entries to **attempt targeting the actual character**. A single-character alias header targets its child, not the alias string; multi-character aliases expand/open the character list instead of guessing an alt.
 - Targeting uses pre-bound secure hardware-click buttons and exact name alternatives for Forever's first/surname transport and known realm suffixes. This does not rewrite stored identities, use fuzzy first-name matching, cast spells, or start attacks. Unavailable/out-of-range characters may not resolve; the attempt clears the previous target before trying the exact alternatives.
-- Protected rows and their matching labels/layout freeze in combat; already-bound targets remain clickable, while new bindings and layout changes apply after combat. Nearby shows **combat locked**. Clear/collapse/hide changes to the protected nearby list may be visually deferred. Tracking/sounds continue. Opening/switching the main views is unavailable during combat.
+- Main dashboard protected rows remain unavailable during combat. Nearby instead keeps its unprotected display and controls live, with every contact hit area securely hidden: no contact clicks or hover highlights until fresh bindings are prepared after combat. Tracking/sounds continue. Opening/switching the main views is unavailable during combat.
 - Upgrading from 1.5.1 changes existing loaded Lua files only: use **`/reload` while out of combat**. Older versions that lack the 1.5.0 files/libraries still require a full client relaunch.
 
 ### Louder bundled alarms (1.5.1)

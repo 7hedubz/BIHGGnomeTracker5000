@@ -438,7 +438,10 @@ local function handler(_,event,...)
   A.ObserveOwnDeathHealth(true)
   local guid=A.Safe(UnitGUID,'player');if guid and A.groupIncoming then A.groupIncoming[guid]=nil end
   if A.RefreshGroupActors then A.RefreshGroupActors()end
- elseif event=='PLAYER_REGEN_ENABLED'then if A.deathFight then A.deathFight.ended=now()end
+ elseif event=='PLAYER_REGEN_ENABLED'then
+  if A.deathFight then A.deathFight.ended=now()end
+  if A.CreateNearbyUI and not A.nearbyFrame then A.CreateNearbyUI()end
+  if A.RefreshNearby then A.RefreshNearby(now())end
  elseif event=='PLAYER_TARGET_CHANGED' then A.Scan('target')
  elseif event=='UPDATE_MOUSEOVER_UNIT' then A.Scan('mouseover')
  elseif event=='PLAYER_FOCUS_CHANGED' then A.Scan('focus')

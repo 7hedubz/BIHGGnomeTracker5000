@@ -145,19 +145,31 @@ function A.PumpPartyAlerts(now)
  if A.db.options.nearbyEnabled==false then A.partyAlertPending={};return end
  if not A.partyAlertPending then return end
  if not A.db.options.partyAllianceAlerts or not partyReady()then A.partyAlertPending={};return end
+ if A.partySendBudget and now<A.partySendBudget.at then
+  A.partySendBudget.at=now;A.partySendBudget.tokens=0;A.partyAlertNext=now+2;A.partyRetryAt=nil;A.partyFailures=0
+ end
  for guid,c in pairs(A.db.partyAlertContacts)do if type(c)~='table'or type(c.seen)~='number'or now-c.seen>600 or c.seen>now+120 then A.db.partyAlertContacts[guid]=nil end end
  local pending={}
  for guid,p in pairs(A.partyAlertPending)do
   if not(A.nearbySeen and A.nearbySeen[guid])or now-p.at>30 then A.partyAlertPending[guid]=nil else pending[#pending+1]=p end
  end
- if now<A.partyAlertNext or #pending==0 then return end
+ if now<A.partyAlertNext or (A.partyRetryAt and now<A.partyRetryAt)or #pending==0 then return end
  table.sort(pending,function(a,b)if(a.entry.race=='Gnome')~=(b.entry.race=='Gnome')then return a.entry.race=='Gnome'end;if a.at~=b.at then return a.at<b.at end;return a.entry.guid<b.entry.guid end)
- local p=pending[1];local e=p.entry;A.partyAlertPending[e.guid]=nil;A.partyAlertNext=now+2
- A.db.partyAlertContacts[e.guid]={seen=e.seen,gnome=e.race=='Gnome'}
+ local p=pending[1];local e=p.entry
  local message=A.PartyAllianceMessage(e,p.location);local send=SendChatMessage or(C_ChatInfo and C_ChatInfo.SendChatMessage)
- if not message or type(send)~='function'then A.partyAlertStatus='Party alert unavailable; no automatic retry';return end
+ if not message or type(send)~='function'then A.partyAlertPending[e.guid]=nil;A.partyAlertStatus='Party alert unavailable; no automatic retry';return end
+ local b=A.partySendBudget
+ if not b then b={at=now,tokens=4};A.partySendBudget=b end
+ if now<b.at then b.at=now;b.tokens=0;A.partyAlertNext=now+2;return end
+ b.tokens=math.min(4,b.tokens+(now-b.at)/10);b.at=now
+ if b.tokens<1 then A.partyAlertStatus='Party alert waiting for global allowance';return end
+ if A.TrySendBudget and not A.TrySendBudget(now,#message)then A.partyAlertStatus='Party alert waiting for shared send allowance';return end
+ b.tokens=b.tokens-1;A.partyAlertPending[e.guid]=nil;A.partyAlertNext=now+2
+ A.db.partyAlertContacts[e.guid]={seen=e.seen,gnome=e.race=='Gnome'}
  local ok,result=pcall(send,message,'PARTY')
  local accepted=ok and not A.Secret(result)and(result==nil or result==true or result==0)
+ if accepted then A.partyFailures=0;A.partyRetryAt=nil
+ else A.partyFailures=math.min((A.partyFailures or 0)+1,6);A.partyRetryAt=now+math.min(60,2^A.partyFailures)end
  A.partyAlertStatus=accepted and'Latest sighting handed to party chat'or'Party alert failed; no automatic retry'
 end
 function A.RefreshSoundSettings()

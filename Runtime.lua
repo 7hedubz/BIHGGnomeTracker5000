@@ -6,12 +6,26 @@ function A.Safe(fn,...)
 end
 local function now()return A.Safe(GetServerTime) or time() end
 local function readable(v)if not A.Secret(v) then return v end end
--- Location boundaries invalidate evidence, not saved statistics or incoming
--- death eligibility. Fresh in-instance incoming damage still uses the same rule.
+local function recapID()
+ local link=C_DeathRecap and A.Safe(C_DeathRecap.GetRecapLink)
+ return type(link)=='string' and link:match('death:(%d+)') or nil
+end
+-- Only readable actual instance-context changes isolate live incoming data.
+-- Kill-policy unknown/world-area refreshes never reset frozen dead-life data.
 function A.ResetIncomingLocation()
- A.groupIncoming={};A.pendingDeath=nil;A.killingBlow=nil
+ A.groupIncoming={};A.killingBlow=nil
  local t=now();local clock=A.Safe(GetTime)
- A.deathFight={started=t+0.001,clockStart=type(clock)=='number' and clock+0.001 or nil,health=0}
+ A.deathFight={started=t,clockStart=type(clock)=='number' and clock or nil,health=0}
+ A.deathExcludedRecap=recapID()
+end
+function A.RefreshDeathLocation()
+ if type(IsInInstance)~='function' then return end
+ local ok,inside,kind=pcall(IsInInstance)
+ if not ok or A.Secret(inside) or A.Secret(kind) or type(inside)~='boolean' or type(kind)~='string' then return end
+ if (inside and (kind=='' or kind=='none')) or (not inside and kind~='none') then return end
+ local key=(inside and 'instance:' or 'world:')..kind
+ if A.deathLocation and A.deathLocation~=key then A.ResetIncomingLocation()end
+ A.deathLocation=key
 end
 function A.DisplayName(name)
  if A.Secret(name) or type(name)~='string' or name=='' then return 'Unknown' end
@@ -34,12 +48,17 @@ end
 local function own(unit)
  return unit and (A.Safe(UnitIsUnit,unit,'player')==true or A.Safe(UnitIsUnit,unit,'pet')==true)
 end
-function A.Scan(unit)
+function A.Scan(unit,seen,forceAura)
  A.RefreshKillLocation(false)
  if not A.db or not A.Safe(UnitExists,unit) or not A.Safe(UnitIsPlayer,unit) then return end
  local g=A.Safe(UnitGUID,unit); if type(g)~='string' or not g:match('^Player%-') then return end
+ local dead=A.Safe(UnitIsDeadOrGhost,unit)
+ local previous=seen and seen[g]
+ if previous and previous.complete and (dead~=true or previous.dead==true)then return end
+ local scanState={dead=dead,complete=type(dead)=='boolean'};if seen then seen[g]=scanState end
  local ok,_,race=pcall(UnitRace,unit); if not ok or A.Secret(race) then race=nil end
  if not race then race=A.Race(g)end
+ if not race then scanState.complete=false end
  local faction=A.Safe(UnitFactionGroup,unit)
  local name,realm
  if UnitName then local good,n,r=pcall(UnitName,unit); if good then name=readable(n);realm=readable(r) end end
@@ -48,7 +67,7 @@ function A.Scan(unit)
   name=A.Name(name)
  end
  local t=now()
- local dead=A.Safe(UnitIsDeadOrGhost,unit);local selfGUID=A.Safe(UnitGUID,'player')
+ local selfGUID=A.Safe(UnitGUID,'player')
  if A.NearbyNotice and g~=selfGUID then
   -- Explicitly invisible units must not refresh the list; otherwise use the
   -- readable unit exposure, like Spy, without claiming an exact distance.
@@ -58,41 +77,58 @@ function A.Scan(unit)
  if faction=='Alliance' and g~=selfGUID and A.members and A.members[A.owner]then
   local fresh=A.Encounter(g,name,race,faction,t)
   if fresh then
-   A.QueueShare(true)
+   A.QueueShare(false)
+   if A.RequestUIRefresh then A.RequestUIRefresh()end
    if A.db.options.nearbyEnabled~=false and A.db.options.alerts~=false and DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage('|cffffb347BIHG: Gnome encountered:|r '..A.DisplayName(name)) end
   end
  end
  local hostile=A.Safe(UnitCanAttack,'player',unit)
+ if type(hostile)~='boolean' then scanState.complete=false end
  local hp=A.Safe(UnitHealthMax,unit)
  if A.GroupObserve then A.GroupObserve(g,race,hostile,hp,t,dead)else A.Observe(g,race,hostile,hp,t,dead)end
  -- Corpses and mind-controlled targets may no longer be attackable. Preserve
  -- hostility established while alive; never infer hostile credit from a corpse.
  local encounter=A.GroupObserve and A.groupTargets[g]or A.encounters[g]
  if race~='Gnome' or not (hostile or (encounter and encounter.hostile)) then return end
- if dead then if A.GroupDeath then A.GroupDeath(g,t)else A.Death(g,t)end;return end
+ if dead then if A.GroupDeath then A.GroupDeath(g,t,true)else A.Death(g,t,true)end;return end
  if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+  local clock=A.Safe(GetTime)or t
+  A.auraPoll=A.auraPoll or {};local last=A.auraPoll[g]
+  if not forceAura and not(previous and not previous.complete)and last and clock>=last and clock-last<1 then return end
+  A.auraPoll[g]=clock
+  local present,complete,unreadableRow={},false,false
   for i=1,80 do
-   local a=A.Safe(C_UnitAuras.GetAuraDataByIndex,unit,i,'HARMFUL')
-   if not a then break end
-   if type(a)=='table' and not (issecrettable and issecrettable(a)) then
-    local id=readable(a.spellId); local source=readable(a.sourceUnit)
-    local instance=readable(a.auraInstanceID); local expires=readable(a.expirationTime)
-    local sourceGUID=type(source)=='string'and A.Safe(UnitGUID,source)
-    local eligible=A.GroupCC and sourceGUID and A.groupSources[sourceGUID]or(not A.GroupCC and own(source))
-    local helpful=a.isHelpful;local harmful=a.isHarmful
-    local explicitBuff=(not A.Secret(helpful)and helpful==true)or(not A.Secret(harmful)and harmful==false)
-    if type(id)=='number'and id>0 and not explicitBuff and type(source)=='string' and eligible then
-     -- Re-observing the same aura is not another successful application.
-     local key=tostring(id)..':'..tostring(sourceGUID or '')..':'..tostring(instance or '')..':'..tostring(expires or '')
-     A.auras[g]=A.auras[g] or {}
-     if not A.auras[g][key]then
-      local accepted;if A.GroupCC then accepted=A.GroupCC(g,id,sourceGUID,t,true)else accepted=A.CC(g,id,true,t,true)end
-      if accepted then A.auras[g][key]=t end
-     end
-     A.coverage.cc=true
+   local ok,a=pcall(C_UnitAuras.GetAuraDataByIndex,unit,i,'HARMFUL')
+   if not ok then break end
+   if A.Secret(a) or (type(a)=='table' and issecrettable and issecrettable(a))then unreadableRow=true
+   elseif a==nil then complete=not unreadableRow;break
+   elseif type(a)~='table' then unreadableRow=true
+   elseif A.Secret(a.spellId)or A.Secret(a.sourceUnit)or A.Secret(a.auraInstanceID)or A.Secret(a.expirationTime)or A.Secret(a.isHelpful)or A.Secret(a.isHarmful)then unreadableRow=true
+   else
+   local id,source=a.spellId,a.sourceUnit
+   local instance,expires=a.auraInstanceID,a.expirationTime
+   local sourceGUID=type(source)=='string'and A.Safe(UnitGUID,source)
+   if type(id)~='number'or type(source)~='string'or not sourceGUID then unreadableRow=true end
+   local eligible=sourceGUID and ((A.GroupCC and A.groupSources[sourceGUID])or(not A.GroupCC and own(source)))
+   local helpful,harmful=a.isHelpful,a.isHarmful
+   if A.Secret(helpful)or A.Secret(harmful)then break end
+   local explicitBuff=helpful==true or harmful==false
+   if type(id)=='number'and id>0 and not explicitBuff and type(source)=='string' and eligible then
+    local key=tostring(id)..':'..tostring(sourceGUID or '')..':'..tostring(instance or '')..':'..tostring(expires or '')
+    present[key]=true
+    A.auras[g]=A.auras[g] or {}
+    if not A.auras[g][key]then
+     local accepted;if A.GroupCC then accepted=A.GroupCC(g,id,sourceGUID,t,true)else accepted=A.CC(g,id,true,t,true)end
+     if accepted then A.auras[g][key]=t end
     end
+    A.coverage.cc=true
+   end
    end
   end
+  -- Errors, secret rows and the enumeration cap never prove absence.
+  -- A readable aura list cannot complete missing identity/life/hostility evidence.
+  scanState.complete=scanState.complete and complete
+  if complete then for key in pairs(A.auras[g]or {})do if not present[key]then A.auras[g][key]=nil end end end
  end
 end
 function A.ObserveOwnDeathHealth(newCombat)
@@ -103,19 +139,20 @@ function A.ObserveOwnDeathHealth(newCombat)
  end
 end
 function A.ScanVisible()
+ A.RefreshDeathLocation()
  A.RefreshKillLocation(false)
  A.ObserveOwnDeathHealth()
  if A.RefreshGroupActors then A.RefreshGroupActors()end
- for _,u in ipairs({'target','focus','mouseover'}) do A.Scan(u) end
- for u in pairs(A.plates) do if A.Safe(UnitExists,u) then A.Scan(u) else A.plates[u]=nil end end
- for _,u in ipairs(A.groupUnits or {})do A.Scan(u..'target')end
+ local seen={}
+ for _,u in ipairs({'target','focus','mouseover'}) do A.Scan(u,seen) end
+ for u in pairs(A.plates) do if A.Safe(UnitExists,u) then A.Scan(u,seen) else A.plates[u]=nil end end
+ for _,u in ipairs(A.groupUnits or {})do A.Scan(u..'target',seen)end
  local t=now()
  for g,e in pairs(A.encounters) do if t-(e.last or e.seen or 0)>A.WINDOW then A.encounters[g]=nil end end
  for g,e in pairs(A.groupTargets or {})do if t-e.seen>A.WINDOW then A.groupTargets[g]=nil end end
- for g,keys in pairs(A.auras) do
-  for k,stamp in pairs(keys) do if t-stamp>600 then keys[k]=nil end end
-  if not next(keys) then A.auras[g]=nil end
- end
+ -- Dedup keys describe applications, not timed contributions. Aging a key
+ -- would turn an unchanged long-lived aura into a new application. Complete
+ -- absence, readable new lives, deaths and location boundaries clear them.
 end
 function A.GuildMembershipCache()
  if not A.guildKey then return end
@@ -203,7 +240,7 @@ function A.Roster(confirmed)
  if A.ReconcileGuildMembership then A.ReconcileGuildMembership()end
  -- Membership controls presentation only: never delete persisted peer history.
  if A.RefreshGroupActors then if A.CarryOwnGuildHistory then A.CarryOwnGuildHistory(now())end;A.RebuildOwnGuildTotals(now())end
- if A.RefreshUI then A.RefreshUI()end
+ if A.RequestUIRefresh then A.RequestUIRefresh()elseif A.RefreshUI then A.RefreshUI()end
 end
 function A.ReadCombatLog()
  if not CombatLogGetCurrentEventInfo then return end
@@ -237,56 +274,127 @@ function A.ReadCombatLog()
  elseif event=='SPELL_DAMAGE' or event=='SPELL_PERIODIC_DAMAGE' or event=='RANGE_DAMAGE' or event=='DAMAGE_SHIELD' then A.Damage(dst,v[15],v[16],true,t)
  elseif(event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'or event=='SPELL_AURA_APPLIED_DOSE')and v[15]=='DEBUFF'then A.CC(dst,v[12],true,t,true)end
 end
-function A.Recap()
- if not A.pendingDeath then return end
- local pending=A.pendingDeath; local t=now()
- if t-pending.time>8 then A.pendingDeath=nil;return end
- local fight=A.deathFight
- if fight and fight.ended and pending.time-fight.ended>2 then A.pendingDeath=nil;return end
- local proof;local recap=C_DeathRecap
+local deathReasons={['pending recap']=true,['counted']=true,['insufficient confirmed Gnome damage']=true,
+ ['unreadable/missing attribution']=true,['stale/unavailable recap']=true,['membership rejection']=true,
+ ['credit rejected (deduplication or validation)']=true}
+local function deathRecord(e)
+ if A.Secret(e) or type(e)~='table' or (issecrettable and issecrettable(e)) then return end
+ local at,reason=e.time,e.reason
+ if not A.Secret(at) and type(at)=='number' and at==at and at>0 and at<math.huge
+  and not A.Secret(reason) and type(reason)=='string' and deathReasons[reason] then return at,reason end
+end
+function A.InitDeathOutcomes()
+ local list=A.db.deathOutcomes;local clean={}
+ if not A.Secret(list) and type(list)=='table' and not(issecrettable and issecrettable(list)) then
+  for i=math.max(1,#list-31),#list do
+   local at,reason=deathRecord(list[i])
+   if at then clean[#clean+1]={time=at,reason=reason=='pending recap' and 'stale/unavailable recap' or reason}end
+  end
+ end
+ A.db.deathOutcomes=clean
+end
+local function deathOutcome(p,reason)
+ if not p.outcome then
+  local list=A.db.deathOutcomes
+  if A.Secret(list) or type(list)~='table' or (issecrettable and issecrettable(list)) then list={};A.db.deathOutcomes=list end
+  p.outcome={time=p.time};list[#list+1]=p.outcome
+  while #list>32 do table.remove(list,1)end
+ end
+ p.outcome.reason=reason
+end
+function A.DeathDebugLines()
+ local lines={'BIHG own death outcomes (local; last 32 attempts):'}
+ local list=A.db and A.db.deathOutcomes
+ if A.Secret(list) or type(list)~='table' or (issecrettable and issecrettable(list)) then return lines end
+ for i=math.max(1,#list-31),#list do
+  local at,reason=deathRecord(list[i])
+  if at then lines[#lines+1]='BIHG death '..at..': '..reason end
+ end
+ return lines
+end
+local function recapPending(pending)
+ local t=now()
+ local clock=A.Safe(GetTime)
+ local age=t-pending.time
+ if type(clock)=='number' and clock==clock and clock<math.huge and type(pending.clock)=='number' and clock>=pending.clock then age=clock-pending.clock end
+ if age>8 then deathOutcome(pending,pending.reason or 'stale/unavailable recap');return true end
+ local fight=pending.fight
+ if fight and fight.ended and pending.time-fight.ended>2 then deathOutcome(pending,'stale/unavailable recap');return true end
+ local proof,provenRecap;local recap=C_DeathRecap
  if recap and recap.GetRecapEvents then
   local link=A.Safe(recap.GetRecapLink)
   local id=type(link)=='string' and link:match('death:(%d+)')
   local events=A.Safe(recap.GetRecapEvents,id and tonumber(id))
   if type(events)=='table' and not (issecrettable and issecrettable(events)) then
-   local stamp
+   local stamp,first
    for _,e in ipairs(events)do if not A.Secret(e)and type(e)=='table'and not(issecrettable and issecrettable(e))then
-    local v=readable(e.timestamp);if type(v)=='number'and v==v and v<math.huge then stamp=math.max(stamp or v,v)end
+    local v=readable(e.timestamp);if type(v)=='number'and v==v and v<math.huge then stamp=math.max(stamp or v,v);first=math.min(first or v,v)end
    end end
    local diedAt,start=pending.time,fight and fight.started or pending.time-10
-   local fresh=stamp and math.abs(stamp-diedAt)<=10
-   if not fresh and stamp and type(pending.clock)=='number'and math.abs(stamp-pending.clock)<=10 then
-    diedAt=pending.clock;start=fight and fight.clockStart or diedAt-10;fresh=true
+   local previous,following=pending.previousTime,pending.nextTime
+   if stamp and type(pending.clock)=='number'and math.abs(stamp-pending.clock)<=10 then
+    diedAt=pending.clock;start=fight and fight.clockStart or diedAt-10
+    previous,following=pending.previousClock,pending.nextClock
+    -- A reset/backward monotonic clock cannot bound a different clock era.
+    if previous and previous>diedAt then previous=nil end
+    if following and following<diedAt then following=nil end
    end
+   -- Never admit later-life rows through a +1-second tolerance. A payload
+   -- crossing a prior death, or two indistinguishable death timestamps, has
+   -- no defensible life owner. Reject it without consuming its native ID.
+   local fresh=stamp and stamp>=start and stamp<=diedAt and diedAt-stamp<=10
+    and(not previous or first>previous or(first==previous and pending.excludedRecap and id~=pending.excludedRecap))
+    and(not following or following>diedAt)
    A.db.deathRecapsSeen=A.db.deathRecapsSeen or{}
-   if id and fresh and(pending.recapID==id or not A.db.deathRecapsSeen[id])then
-    pending.recapID=id;A.db.deathRecapsSeen[id]=pending.time
-    for key,at in pairs(A.db.deathRecapsSeen)do if t-at>86400 then A.db.deathRecapsSeen[key]=nil end end
+   if id and id~=pending.excludedRecap and fresh and(pending.recapID==id or not A.db.deathRecapsSeen[id])then
+    pending.recapID=id
     local hp=A.Safe(recap.GetRecapMaxHealth,tonumber(id));if type(hp)~='number'or hp<=0 or hp>=math.huge then hp=pending.health end
     if type(hp)=='number'then hp=math.max(hp,pending.health or 0,fight and fight.health or 0)end
-    proof=A.GnomeDeathEvidence(events,hp,diedAt,start)
+    proof,pending.reason=A.GnomeDeathEvidence(events,hp,diedAt,start)
+    pending.reason=pending.reason or 'unreadable/missing attribution'
     A.coverage.recap=true
-    if proof then proof.time=pending.time end
+    if proof then proof.time=pending.time;provenRecap=id end
    end
   end
  end
- if not proof and A.IncomingDeathEvidence then proof=A.IncomingDeathEvidence(A.Safe(UnitGUID,'player'),pending.time)end
+ if not proof then proof=pending.incoming end
  if proof then
-  A.PlayerDeath('death:'..pending.time,'Gnome',pending.time,proof.source,proof);A.pendingDeath=nil
+  local membership=not pending.memberEligible or pending.guildKey~=A.guildKey or pending.owner~=A.owner
+   or pending.ownerGUID~=A.Safe(UnitGUID,'player')
+   or not A.guildKey or A.guildUnverified or not(A.members and A.members[A.owner])
+  local counted=not membership and A.PlayerDeath('death:'..pending.time,'Gnome',pending.time,proof.source,proof)
+  if counted and provenRecap then
+   A.db.deathRecapsSeen[provenRecap]=pending.time
+   for key,at in pairs(A.db.deathRecapsSeen)do if t-at>86400 then A.db.deathRecapsSeen[key]=nil end end
+  end
+  deathOutcome(pending,counted and 'counted' or (membership and 'membership rejection' or 'credit rejected (deduplication or validation)'))
+  return true
+ else deathOutcome(pending,pending.reason or 'pending recap')
  end
+end
+function A.Recap()
+ local queue=A.pendingDeaths or {}
+ -- Resolve overlapping windows oldest-first; a later life must not steal
+ -- an earlier delayed recap merely because its combat start overlaps.
+ local i=1
+ while i<=#queue do if recapPending(queue[i])then table.remove(queue,i)else i=i+1 end end
+ A.pendingDeath=queue[#queue]
 end
 function A.Changed()
  if A.account then A.SnapshotAccount(now()) end
  A.QueueShare(false)
- if A.RefreshUI then A.RefreshUI() end
+ if A.RequestUIRefresh then A.RequestUIRefresh()elseif A.RefreshUI then A.RefreshUI()end
 end
 local frame=CreateFrame('Frame'); A.eventFrame=frame
 local function login()
  if A.db then return end
- local name=A.Safe(UnitName,'player'); if not name then return end
- BIHGGKTDB=BIHGGKTDB or {}; A.Init(BIHGGKTDB,A.Name(name),now())
+ local name
+ if A.LocalCharacterName then name=A.LocalCharacterName()else name=A.Name(A.Safe(UnitName,'player'))end
+ local identity=A.Safe(UnitGUID,'player')
+ if not name or type(identity)~='string'or not identity:match('^Player%-[%w%-]+$')then return end
+ BIHGGKTDB=BIHGGKTDB or {}; A.Init(BIHGGKTDB,name,now())
+ A.InitDeathOutcomes()
  BIHGGKTAccountDB=BIHGGKTAccountDB or {}
- local identity=A.Safe(UnitGUID,'player') or A.owner:gsub('[^%w_%-]',''):sub(1,50)
  A.InitAccount(BIHGGKTAccountDB,identity..'-'..now(),now())
  if A.BindLocalCharacter then A.BindLocalCharacter(A.Safe(UnitGUID,'player'),now())end
  if A.InitGroupTracking then A.InitGroupTracking(now())end
@@ -300,7 +408,7 @@ local function login()
 end
 local function handler(_,event,...)
  local arg1,arg2,arg3,arg4=...
- if event=='PLAYER_LOGIN' or event=='PLAYER_ENTERING_WORLD' or event=='ZONE_CHANGED_NEW_AREA' then A.RefreshKillLocation(true) end
+ if event=='PLAYER_LOGIN' or event=='PLAYER_ENTERING_WORLD' or event=='ZONE_CHANGED_NEW_AREA' then A.RefreshKillLocation(true);A.RefreshDeathLocation() end
  if event=='PLAYER_LOGIN' or event=='PLAYER_ENTERING_WORLD' then login() end
  if event=='ADDON_ACTION_BLOCKED'or event=='ADDON_ACTION_FORBIDDEN'then
   if not A.Secret(arg1)and arg1=='BIHGGnomeKillTracker5000'then
@@ -310,16 +418,21 @@ local function handler(_,event,...)
   return
  end
  if not A.db then return end
- if event=='PLAYER_ENTERING_WORLD' then if A.ClearNearby then A.ClearNearby()end;A.Roster();A.QueueShare(true);A.ScanVisible()
+ if event=='PLAYER_ENTERING_WORLD' then if A.ClearNearby then A.ClearNearby()end;A.Roster();A.QueueShare(false);A.ScanVisible()
  elseif event=='ZONE_CHANGED_NEW_AREA'then if A.ClearNearby then A.ClearNearby()end;A.ScanVisible()
  elseif event=='GUILD_ROSTER_UPDATE' or event=='PLAYER_GUILD_UPDATE' then A.Roster(event=='GUILD_ROSTER_UPDATE')
  elseif event=='GROUP_ROSTER_UPDATE'or event=='UNIT_PET'then if A.RefreshGroupActors then A.RefreshGroupActors()end
  elseif event=='NAME_PLATE_UNIT_ADDED' then if not A.Secret(arg1) and type(arg1)=='string' then A.plates[arg1]=true;A.Scan(arg1) end
- elseif event=='NAME_PLATE_UNIT_REMOVED' then if not A.Secret(arg1) then A.plates[arg1]=nil end
+ elseif event=='NAME_PLATE_UNIT_REMOVED' then if not A.Secret(arg1) and type(arg1)=='string'then
+  -- Removal is not death. Only inspect a still-readable actual corpse;
+  -- never retarget, mutate secure buttons, or manufacture a vanished unit.
+  if A.Safe(UnitExists,arg1)==true and A.Safe(UnitIsDeadOrGhost,arg1)==true then A.Scan(arg1)end
+  A.plates[arg1]=nil
+ end
  elseif event=='UNIT_AURA' or event=='UNIT_HEALTH' or event=='UNIT_FLAGS' or event=='UNIT_MAXHEALTH' then if not A.Secret(arg1) and type(arg1)=='string' then
   if arg1=='player'then A.ObserveOwnDeathHealth()end
   if(event=='UNIT_FLAGS'or event=='UNIT_MAXHEALTH')and A.RefreshGroupActors then A.RefreshGroupActors()end
-  A.Scan(arg1)
+  A.Scan(arg1,nil,event=='UNIT_AURA')
  end
  elseif event=='PLAYER_REGEN_DISABLED'then
   A.ObserveOwnDeathHealth(true)
@@ -333,9 +446,28 @@ local function handler(_,event,...)
  elseif event=='PARTY_KILL' then if not A.Secret(arg2)then if A.ForgetNearby then A.ForgetNearby(arg2)end;if A.GroupDeath then A.GroupDeath(arg2,now())else A.Death(arg2,now())end end
  elseif event=='PLAYER_DEAD' then
   if A.deathActive then return end
-  A.ObserveOwnDeathHealth();A.deathActive=true;A.pendingDeath={time=now(),clock=A.Safe(GetTime),health=A.ownHealth}
+  A.ObserveOwnDeathHealth();A.deathActive=true
+  local f=A.deathFight;local diedAt=now();local incoming,reason
+  if A.IncomingDeathEvidence then incoming,reason=A.IncomingDeathEvidence(A.Safe(UnitGUID,'player'),diedAt)end
+  A.pendingDeath={time=diedAt,clock=A.Safe(GetTime),health=A.ownHealth,incoming=incoming,reason=reason,excludedRecap=A.deathExcludedRecap,
+   guildKey=A.guildKey,owner=A.owner,ownerGUID=A.Safe(UnitGUID,'player'),
+   memberEligible=not not(A.guildKey and not A.guildUnverified and A.members and A.members[A.owner]),
+   fight=f and {started=f.started,clockStart=f.clockStart,health=f.health,ended=f.ended}}
+  local previous=A.lastDeathContext
+  if previous then
+   A.pendingDeath.previousTime=previous.time;A.pendingDeath.previousClock=previous.clock
+   previous.nextTime=diedAt;previous.nextClock=A.pendingDeath.clock
+  end
+  A.lastDeathContext=A.pendingDeath
+  A.pendingDeaths=A.pendingDeaths or {};table.insert(A.pendingDeaths,A.pendingDeath)
+  if #A.pendingDeaths>4 then local old=table.remove(A.pendingDeaths,1);deathOutcome(old,old.reason or 'stale/unavailable recap')end
   A.Recap(); if C_Timer then C_Timer.After(0.5,A.Recap);C_Timer.After(2,A.Recap) end
- elseif event=='PLAYER_ALIVE' or event=='PLAYER_UNGHOST' then A.killingBlow=nil;A.deathActive=false;A.pendingDeath=nil;A.deathFight=nil
+ elseif event=='PLAYER_ALIVE' or event=='PLAYER_UNGHOST' then
+  A.killingBlow=nil;A.deathActive=false;A.ownHealth=nil
+  local at=now();local clock=A.Safe(GetTime)
+  A.deathFight={started=at,clockStart=type(clock)=='number' and clock or nil,health=0}
+  A.deathExcludedRecap=recapID()
+  local guid=A.Safe(UnitGUID,'player');if guid and A.groupIncoming then A.groupIncoming[guid]=nil end
  elseif event=='CHAT_MSG_ADDON' then
   if A.Secret(arg1) or A.Secret(arg2) or A.Secret(arg3) or A.Secret(arg4) then return end
   if arg1==A.PREFIX then A.Receive(arg2,arg3,A.Name(arg4),now()) end
@@ -353,7 +485,15 @@ frame:SetScript('OnUpdate',function(_,dt)
  elapsed=elapsed+dt; if elapsed<0.5 or not A.db then return end;elapsed=0
  local ok,err=pcall(function()
   if A.TargetingLocked and not A.TargetingLocked()then if not A.window and A.CreateUI then A.CreateUI()end;if not A.nearbyFrame and A.CreateNearbyUI then A.CreateNearbyUI()end end
-  A.ScanVisible();A.Pump(now());if A.window and A.window:IsShown()then A.RefreshUI()end;if A.RefreshNearby then A.RefreshNearby(now())end;if A.PumpNearbySounds then A.PumpNearbySounds(now())end;if A.PumpPartyAlerts then A.PumpPartyAlerts(now())end
+  A.ScanVisible();A.Recap();local t=now()
+  -- Sparse, independently throttled party alerts get a budget slot before
+  -- bulk history; otherwise a full queue can consume every available slot.
+  if A.PumpPartyAlerts then A.PumpPartyAlerts(t)end;A.Pump(t)
+  if A.window and A.window:IsShown()then
+   if A.uiDirty or A.uiDay~=A.Day(t)or(A.mode=='Encounters'and A.uiMinute~=math.floor(t/60))then A.RefreshUI()
+   elseif A.RefreshUIStatus and(A.uiSyncStatus~=A.syncStatus or A.uiRosterStatus~=A.rosterStatus)then A.RefreshUIStatus()end
+  end
+  if A.RefreshNearby then A.RefreshNearby(t)end;if A.PumpNearbySounds then A.PumpNearbySounds(t)end
  end)
  if not ok then A.lastError=tostring(err) end
 end)

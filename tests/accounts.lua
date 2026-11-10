@@ -65,4 +65,7 @@ eq(C.Receive('4|R|'..A.EncodeAlias('Peer-Realm')..'|2|S|999|0|'..day..'|999|0','
 account.characters['Second-Realm'].days[day-500]=99
 A.InitAccount(account,'ignored',now+6)
 eq(account.characters['Second-Realm'].days[day-500],nil,'account alt daily history is bounded')
+local dirty=0;C.RequestUIRefresh=function()dirty=dirty+1 end;C.RefreshUI=function()error('incoming alt must not eagerly refresh UI')end
+assert(C.ReceiveAlt('4|R|'..A.EncodeAlias('Second-Realm')..'|2|S|1|1|'..day..'|1|1','First-Realm',now+7))
+assert(dirty>=1,'incoming alt update requests coalesced refresh instead of eagerly rebuilding UI')
 print('PASS account aliases: defaults, alt inheritance, migration, rename, grouping, unique encounters, guild identity sync, nickname collision isolation')

@@ -104,7 +104,7 @@ test('actual runtime transitions isolate lives and clear eligibility before scan
    assert(not next(A.groupTargets),'transition must discard world eligibility before instance scans')
    assert(not next(A.auras),'transition must discard aura acceptance keys')
    for _,state in pairs(A.groupIncoming)do assert(#state.events==0,'incoming evidence cannot cross location boundary')end
-   assert(not A.pendingDeath,'delayed pre-boundary recap cannot cross location boundary')
+   assert(A.pendingDeath and A.pendingDeath.time==t,'kill boundary must not erase already-frozen own death')
    event('PARTY_KILL','Player-me','Player-same')
    assert(not A.db.dead['Player-same'],'blocked corpse never marks dedup')
    IsInInstance=function()return false,'none'end;event(eventName)

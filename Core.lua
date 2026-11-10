@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.7.16'
+A.VERSION='1.8.0'
 A.RETENTION = 400
 A.DAMAGE_FRACTION = 0.02
 -- IsInInstance has two independent returns; Safe intentionally keeps only one.
@@ -19,21 +19,29 @@ end
 function A.RefreshKillLocation(boundary)
  local allowed=openWorld();local previous=A.killLocation
  if boundary or previous~=allowed or not allowed then
-  A.encounters={};A.groupTargets={};A.auras={}
+  A.encounters={};A.groupTargets={};A.auras={};A.auraPoll={};A.killLifeAfter={}
   -- Retain saved corpse dedup until a readable living observation proves a
   -- new life. A corpse on login/exit must never rearm the same old death.
   A.killBoundaryDead=A.killBoundaryDead or {}
   for guid in pairs(A.db and A.db.dead or {})do A.killBoundaryDead[guid]=true end
  end
  A.killLocation=allowed
- if (boundary or (previous~=nil and previous~=allowed)) and A.ResetIncomingLocation then A.ResetIncomingLocation() end
  return allowed
 end
 function A.OpenWorldKillsAllowed()return A.RefreshKillLocation(false)end
-function A.ObserveKillLife(g,dead)
- if dead==false and A.killBoundaryDead and A.killBoundaryDead[g] then
-  A.db.dead[g]=nil;A.killBoundaryDead[g]=nil
+function A.ObserveKillLife(g,dead,now)
+ if dead~=false or A.killAwardActive then return end
+ local previous=A.db.dead[g]
+ if previous and (not now or now<=previous) and not(A.killBoundaryDead and A.killBoundaryDead[g])then return end
+ if previous then
+  -- Readable living state rearms observation, not credit. A new encounter
+  -- starts empty and still needs fresh attributable participation.
+  A.killLifeAfter=A.killLifeAfter or {};A.killLifeAfter[g]=previous
+  A.db.dead[g]=nil
+  if A.auras then A.auras[g]=nil end
+  if A.auraPoll then A.auraPoll[g]=nil end
  end
+ if A.killBoundaryDead then A.killBoundaryDead[g]=nil end
 end
 A.frames = {'Lifetime','7 days','30 days','Today','This week','This month','This year'}
 function A.Day(t) return math.floor(t / 86400) end
@@ -41,7 +49,7 @@ function A.Init(db, owner, now)
  db.version=1; db.owners=db.owners or {}; db.dead=db.dead or {}; db.options=db.options or {}
  A.db=db; A.owner=owner; A.now=now
  db.owners[owner]=db.owners[owner] or {total=0,days={}}
- A.encounters={}
+ A.encounters={};A.killLifeAfter={};A.auraPoll={}
  local records={}
  for _,r in pairs(db.owners) do records[#records+1]=r end
  for _,guild in pairs(db.guilds or {}) do for _,r in pairs(guild) do records[#records+1]=r end end
@@ -92,22 +100,28 @@ local function deathRow(e,deathTime,combatStart)
  if not overkill or not absorbed or not resisted or not blocked then return end
  if type(A.Race)~='function' then return end
  local ok,race=pcall(A.Race,g)
- if not ok or deathSecret(race) or race~='Gnome' then return end
- return g,math.max(0,amount-overkill-absorbed-resisted-blocked)
+ if not ok or deathSecret(race) or type(race)~='string' or race=='' then return end
+ if race~='Gnome' then return nil,0,true end
+ return g,math.max(0,amount-overkill-absorbed-resisted-blocked),true
 end
 function A.GnomeDeathEvidence(events,maxHealth,deathTime,combatStart)
  if not deathTable(events) or not deathNumber(maxHealth) or maxHealth<=0
   or not deathNumber(deathTime) or not deathNumber(combatStart) or combatStart>deathTime then return nil end
  local total,sources=0,{}
+ local rows,unreadable=0,false
  for _,e in pairs(events) do
-  local guid,damage=deathRow(e,deathTime,combatStart)
+  local guid,damage,confirmed=deathRow(e,deathTime,combatStart)
+  rows=rows+1;if not confirmed then unreadable=true end
   if guid then
    total=total+damage
    if not deathNumber(total) then return nil end
    sources[guid]=(sources[guid] or 0)+damage
   end
  end
- if total<=maxHealth*0.5 then return nil end
+ if total<=maxHealth*0.5 then
+  if rows==0 then return nil end
+  return nil,unreadable and 'unreadable/missing attribution' or 'insufficient confirmed Gnome damage'
+ end
  local source,best=nil,0
  for guid,damage in pairs(sources) do
   if damage>best or (damage==best and (not source or guid<source)) then source,best=guid,damage end
@@ -151,8 +165,7 @@ A.WINDOW=120
 function A.Observe(g,race,hostile,hp,now,dead)
  if not A.OpenWorldKillsAllowed() then return end
  if type(g)~='string' or not g:match('^Player%-') or race~='Gnome' or hostile~=true then return end
- A.ObserveKillLife(g,dead)
- if dead==false and A.db.dead[g] and now-A.db.dead[g]>2 then A.db.dead[g]=nil end
+ A.ObserveKillLife(g,dead,now)
  if A.db.dead[g] then return end
  local e=A.encounters[g]
  if not e or (e.last and now-e.last>A.WINDOW) then e={damage=0}; A.encounters[g]=e end
@@ -166,15 +179,19 @@ function A.Damage(g,amount,overkill,own,now)
  if e.last and now-e.last>A.WINDOW then e.damage=0; e.cc=nil end
  e.damage=e.damage+math.max(0,amount-math.max(0,tonumber(overkill) or 0)); e.last=now
 end
-function A.Death(g,now)
+function A.Death(g,now,corpseConfirmed)
  if not A.OpenWorldKillsAllowed() then return false end
+ if not corpseConfirmed and A.killLifeAfter and A.killLifeAfter[g] and now-A.killLifeAfter[g]<=3 then return false end
  local e=A.encounters[g]; A.encounters[g]=nil
  if not e or A.db.dead[g] or not e.last or now-e.last>A.WINDOW then return false end
  if A.auras then A.auras[g]=nil end
  local qualified=e.cc or (e.hp and e.damage>=e.hp*A.DAMAGE_FRACTION)
  -- Reserve the corpse before Award invokes synchronous Changed callbacks.
  A.db.dead[g]=now
- if qualified and not A.Award(now) then A.db.dead[g]=nil;return false end
+ if qualified then
+  A.killAwardActive=true;local awarded=A.Award(now);A.killAwardActive=nil
+  if not awarded then A.db.dead[g]=nil;return false end
+ end
  return qualified and true or false
 end
 -- Legacy known-effect helper; live parsers may confirm any harmful aura.

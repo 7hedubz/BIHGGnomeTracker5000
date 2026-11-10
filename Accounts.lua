@@ -7,12 +7,25 @@ function A.DecodeAlias(value)
  if alias:find('[%c|]') or alias:match('^%s*$') then return nil end
  return alias
 end
+local function clone(t)
+ if type(t)~='table'then return t end;local out={};for k,v in pairs(t)do out[k]=clone(v)end;return out
+end
 local function merge(target,source)
  target=target or {total=0,deaths=0,days={},deathDays={}}
  target.total=math.max(target.total or 0,source.total or 0);target.deaths=math.max(target.deaths or 0,source.deaths or 0)
  for _,key in ipairs({'days','deathDays'}) do
   target[key]=target[key] or {}
   for day,n in pairs(source[key] or {}) do target[key][day]=math.max(target[key][day] or 0,n) end
+ end
+ if source.guildBase and target~=source then
+  local b=source.guildBase;local a=target.guildBase
+  if not a then target.guildBase=clone(b)else
+   local aHas=(a.total or 0)>0 or(a.deaths or 0)>0
+   local bHas=(b.total or 0)>0 or(b.deaths or 0)>0
+   local since=math.max(a.since or 0,b.since or 0)
+   if aHas~=bHas then since=aHas and(a.since or 0)or(b.since or 0)end
+   merge(a,b);a.since=since
+  end
  end
  return target
 end
@@ -38,7 +51,15 @@ function A.InitAccount(account,id,now)
  account.version=1;account.id=account.id or id;account.alias=account.alias or short(A.owner)
  account.aliasRev=account.aliasRev or now;account.characters=account.characters or {};account.guilds=account.guilds or {}
  A.account=account
- local r=merge(account.characters[A.owner],A.db.owners[A.owner]);account.characters[A.owner]=r;A.db.owners[A.owner]=r
+ if A.PrepareLocalIdentity then A.PrepareLocalIdentity(account,now)end
+ local current,source=account.characters[A.owner],A.db.owners[A.owner]
+ if current and current.characterGUID and source.characterGUID and current.characterGUID~=source.characterGUID then
+  -- Without a readable full local identity there is no safe destination key.
+  -- Leave both snapshots untouched rather than overwrite one with the other.
+  A.identityConflict=true;return false
+ end
+ A.identityConflict=nil
+ local r=merge(current,source);account.characters[A.owner]=r;A.db.owners[A.owner]=r
  local seen=r.seen or {};for guid,entry in pairs(A.db.seen or {}) do
   local old=seen[guid]
   if not old then seen[guid]=entry else
@@ -72,7 +93,7 @@ function A.InitAccount(account,id,now)
  for _,entry in pairs(A.KnownEncounters())do for day in pairs(entry.days or{})do if day<firstDay then entry.days[day]=nil end end end
 end
 function A.SnapshotAccount(now)
- if not A.account then return end
+ if not A.account or A.identityConflict then return end
  local r=A.db.owners[A.owner];r.seen=A.db.seen or {};r.updated=now
  A.account.characters[A.owner]=r
  for _,record in pairs(A.account.characters) do
@@ -87,7 +108,7 @@ function A.SetAlias(alias,now)
  A.SnapshotAccount(now)
  A.outgoing=nil -- Rebuild the queue so an old multipart job cannot delay a rename.
  if A.QueueShare then A.QueueShare(true) end
- if A.RefreshUI then A.RefreshUI() end
+ if A.RefreshUI then A.RefreshUI()end
  return true
 end
 function A.AccountEncounterCount(period,now,members)
@@ -238,12 +259,33 @@ function A.AltPackets(now)
  end
  return packets
 end
+function A.ReplayAltScores(sender,name,now)
+ local pending=A.pendingAltScores or {};local keep={}
+ for _,p in ipairs(pending)do
+  if now-p.time<=60 and p.guild==A.guildKey then
+   if p.sender==sender and p.name==name then
+    local source=A.PeerRecords()[sender]
+    if source and source.accountID==p.accountID then A.ReceiveAlt(p.msg,sender,now)end
+   else keep[#keep+1]=p end
+  end
+ end
+ A.pendingAltScores=keep
+end
 function A.ReceiveAlt(msg,sender,now)
  local encoded,payload=msg:match('^4|R|(%x+)|(2|[SE]|.+)$')
  local name=encoded and A.DecodeAlias(encoded)
  if name and A.CanonicalCharacterName then local old=A.PeerRecords()[name];name=A.CanonicalCharacterName(name,old and old.characterGUID)end
  local source=A.PeerRecords()[sender]
- if not name or name==A.owner or name==sender or not A.members[name] or not source or not source.accountID or not source.bindingDirect then return false end
+ if not name or not source or not source.accountID or not source.bindingDirect then return false end
+ if not A.members[name]then
+  -- Scores contain no GUID: retain a bounded, short-lived untrusted payload,
+  -- never a member/record, until the same validated account supplies metadata.
+  local pending={};for _,p in ipairs(A.pendingAltScores or {})do if now-p.time<=60 and p.guild==A.guildKey and p.msg~=msg then pending[#pending+1]=p end end
+  while #pending>=64 do table.remove(pending,1)end
+  pending[#pending+1]={sender=sender,accountID=source.accountID,name=A.DecodeAlias(encoded),msg=msg,time=now,guild=A.guildKey};A.pendingAltScores=pending
+  return false
+ end
+ if name==A.owner or name==sender then return false end
  if A.account and A.account.characters[name] and source.accountID~=A.account.id then return false end
  local peers=A.PeerRecords();local existing=peers[name]
  if existing and existing.accountID and existing.accountID~=source.accountID then return false end
@@ -251,6 +293,6 @@ function A.ReceiveAlt(msg,sender,now)
  if not ok then return false end
  local r=peers[name];r.accountID=source.accountID
  if not r.aliasRev or (source.aliasRev or 0)>=r.aliasRev then r.alias=source.alias;r.aliasRev=source.aliasRev end
- if A.RefreshUI then A.RefreshUI() end
+ if A.RequestUIRefresh then A.RequestUIRefresh()elseif A.RefreshUI then A.RefreshUI()end
  return true
 end

@@ -42,9 +42,12 @@ end
 function A.IncomingDeathEvidence(guid,t)
  local state=(A.groupIncoming or{})[guid]
  if not state or(state.ended and t-state.ended>2)then return end
- local health=state.health
- if guid==A.Safe(UnitGUID,'player')and A.deathFight then health=math.max(health,A.deathFight.health or 0)end
- return A.GnomeDeathEvidence(state.events,health,t,state.started)
+ local health,start=state.health,state.started
+ if guid==A.Safe(UnitGUID,'player')and A.deathFight then
+  health=math.max(health,A.deathFight.health or 0)
+  start=math.max(start,A.deathFight.started or start)
+ end
+ return A.GnomeDeathEvidence(state.events,health,t,start)
 end
 function A.RefreshGroupActors()
  A.groupSources={};A.groupOwners={};A.groupUnits={}
@@ -86,7 +89,14 @@ function A.GuildEffectiveRecord(name,r,now,guildKey)
  end
  for _,set in ipairs({{preK,postK,'days','total'},{preD,postD,'deathDays','deaths'}})do
   local pre,post,key,total=set[1],set[2],set[3],set[4]
-  for day,n in pairs(pre)do local old=result[key][day]or 0;local extra=math.max(0,n-old);result[key][day]=old+extra;result[total]=result[total]+extra end
+  -- The lifetime baseline may contain history whose daily buckets expired
+  -- before initialization. Allocate that unknown budget against pre-cutoff
+  -- evidence before adding anything: missing dates do not prove disjointness.
+  -- Keep daily maxima, so genuinely dated disjoint evidence is not discarded.
+  local dated,extra=0,0;for _,n in pairs(b[key]or{})do dated=dated+n end
+  local unknown=math.max(0,(b[total]or 0)-dated)
+  for day,n in pairs(pre)do local old=result[key][day]or 0;extra=extra+math.max(0,n-old);result[key][day]=math.max(old,n)end
+  result[total]=result[total]+math.max(0,extra-unknown)
   for day,n in pairs(post)do result[key][day]=(result[key][day]or 0)+n;result[total]=result[total]+n end
  end
  local first=A.Day(now)-A.RETENTION+1
@@ -98,7 +108,7 @@ function A.RebuildOwnGuildTotals(now)
  local r=A.db.owners[A.owner];local effective=A.GuildEffectiveRecord(A.owner,r,now)
  r.total=effective.total;r.deaths=effective.deaths;r.days=effective.days;r.deathDays=effective.deathDays
 end
-function A.AddGuildEvent(kind,name,actor,target,at,contribution,now)
+function A.AddGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter)
  if A.guildUnverified then return false end
  if A.CanonicalCharacterName then name=A.CanonicalCharacterName(name,actor)end
  if not A.guildKey or not A.members[name] or not player(actor)or not player(target)or(kind~='K'and kind~='D')then return false end
@@ -106,7 +116,8 @@ function A.AddGuildEvent(kind,name,actor,target,at,contribution,now)
  if at>now+5 or at<1000000000 or contribution>at+1 or contribution<at-A.WINDOW then return false end
  local s,index=store();local pair=eventPair(kind,actor,target)
  for _,old in ipairs(index.pairs[pair]or {})do
-  if math.abs(old.time-at)<=3 and (kind=='D' or (contribution<=old.time+1 and old.contribution<=at+1))then return false end
+  local newLocalLife=kind=='K' and lifeAfter==old.time and contribution>old.time
+  if not newLocalLife and math.abs(old.time-at)<=3 and (kind=='D' or (contribution<=old.time+1 and old.contribution<=at+1))then return false end
  end
  local id=pair..':'..at
  if s.events[id]then return false end
@@ -115,6 +126,7 @@ function A.AddGuildEvent(kind,name,actor,target,at,contribution,now)
  local peers=A.PeerRecords();if name~=A.owner and not peers[name]then peers[name]=record();peers[name].observerOnly=true end
  A.groupPending[A.guildKey]=A.groupPending[A.guildKey]or {};A.groupPending[A.guildKey][id]=true
  if not A.groupBulk then A.RebuildOwnGuildTotals(now);if A.QueueShare then A.QueueShare(false)end end
+ if A.RequestUIRefresh then A.RequestUIRefresh()end
  return true
 end
 function A.CarryOwnGuildHistory(now)
@@ -129,8 +141,7 @@ end
 function A.GroupObserve(g,race,hostile,hp,now,dead)
  if not A.OpenWorldKillsAllowed() then return end
  if not A.guildKey or not player(g)or race~='Gnome'then return end
- A.ObserveKillLife(g,dead)
- if dead==false and A.db.dead[g]and now-A.db.dead[g]>2 then A.db.dead[g]=nil end
+ A.ObserveKillLife(g,dead,now)
  if A.db.dead[g]then return end
  local e=A.groupTargets[g]
  if not e and hostile==true and not dead then e={actors={},seen=now};A.groupTargets[g]=e end
@@ -138,7 +149,7 @@ function A.GroupObserve(g,race,hostile,hp,now,dead)
  local active=false;for _,p in pairs(e.actors)do if now-p.last<=A.WINDOW then active=true;break end end
  if not active then e.actors={};e.hp=nil end
  e.seen=now;if type(hp)=='number'and hp>0 then e.hp=math.max(e.hp or 0,hp)end
- if dead then return A.GroupDeath(g,now)end
+ if dead then return A.GroupDeath(g,now,true)end
 end
 local function participant(g,source,now)
  local e=A.groupTargets[g];local actor=A.groupSources[source]
@@ -158,15 +169,18 @@ function A.GroupCC(g,spell,source,now,harmful)
  if type(spell)~='number'or spell<1 or spell%1~=0 or harmful==false or(not A.CCSpells[spell]and harmful~=true)then return false end
  local p=participant(g,source,now);if not p then return false end;p.cc=true;return true
 end
-function A.GroupDeath(g,now)
+function A.GroupDeath(g,now,corpseConfirmed)
  if not A.OpenWorldKillsAllowed() then return false end
  if not player(g)then return false end
+ -- GUID-only callbacks inside the cross-client replay window cannot prove
+ -- that a newly observed living life died. Preserve it for a readable corpse.
+ if not corpseConfirmed and A.killLifeAfter and A.killLifeAfter[g] and now-A.killLifeAfter[g]<=3 then return false end
  local e=A.groupTargets[g];A.groupTargets[g]=nil
  if not e or A.db.dead[g]then return false end
  if A.auras then A.auras[g]=nil end
  A.db.dead[g]=now;local awarded=false
  for _,p in pairs(e.actors)do
-  if now-p.last<=A.WINDOW and(p.cc or(e.hp and p.damage>=e.hp*A.DAMAGE_FRACTION))then if A.AddGuildEvent('K',p.name,p.guid,g,now,p.last,now)then awarded=true end end
+  if now-p.last<=A.WINDOW and(p.cc or(e.hp and p.damage>=e.hp*A.DAMAGE_FRACTION))then if A.AddGuildEvent('K',p.name,p.guid,g,now,p.last,now,A.killLifeAfter and A.killLifeAfter[g])then awarded=true end end
  end
  return awarded
 end
@@ -232,7 +246,7 @@ function A.ReceiveGroup(msg,sender,now)
   if not name or not at or not contribution then return false end
   local ok=A.AddGuildEvent(f[3],name,f[5],f[6],at,contribution,now)
   -- Replayed well-formed observations are harmless and acknowledged.
-  if A.RefreshUI then A.RefreshUI()end
+  if A.RequestUIRefresh then A.RequestUIRefresh()elseif A.RefreshUI then A.RefreshUI()end
   return ok
  elseif f[2]=='B'and #f==9 then
   local name=A.DecodeAlias(f[3]);if name and A.CanonicalCharacterName then local old=A.PeerRecords()[name];name=A.CanonicalCharacterName(name,old and old.characterGUID)end
@@ -246,7 +260,7 @@ function A.ReceiveGroup(msg,sender,now)
   local b=target.guildBase
   if not b then b={since=since,total=0,deaths=0,days={},deathDays={}};target.guildBase=b end
   b.since=math.min(b.since,since);b.total=math.max(b.total,total);b.deaths=math.max(b.deaths,deaths);b.days[day]=math.max(b.days[day]or 0,kills);b.deathDays[day]=math.max(b.deathDays[day]or 0,dd)
-  target.observerOnly=false;A.RebuildOwnGuildTotals(now);if A.RefreshUI then A.RefreshUI()end;return true
+  target.observerOnly=false;A.RebuildOwnGuildTotals(now);if A.RequestUIRefresh then A.RequestUIRefresh()elseif A.RefreshUI then A.RefreshUI()end;return true
  end
  return false
 end

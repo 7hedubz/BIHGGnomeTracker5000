@@ -170,12 +170,22 @@ function A.RenderCharts(now)
   if p and not seen[index] then label:ClearAllPoints();label:SetPoint('TOP',A.linePlot,'BOTTOMLEFT',p.x,-10);label:SetText(date('!%d %b',p.day*86400));label:Show();seen[index]=true else label:Hide()end
  end
 end
+function A.RequestUIRefresh()A.uiDirty=true end
+function A.RefreshUIStatus()
+ if not A.window or not A.window:IsShown()or A.TargetingLocked()then return end
+ local status=(A.syncStatus or(A.guildKey and'Waiting for peers'or'Waiting for guild membership')):gsub(' %- member reports unverified$','')
+ A.status:SetText(status);A.membershipStatusLabel:SetText(A.rosterStatus or'Guild roster pending.')
+ A.uiSyncStatus=A.syncStatus;A.uiRosterStatus=A.rosterStatus
+end
 function A.RefreshUI()
- if not A.window or not A.db then return end
+ A.uiDirty=true
+ if not A.window or not A.db or not A.window:IsShown() then return end
  if A.TargetingLocked()then
   if not A.CanPostTopReport()then A.reportButton:Hide();if A.preview then A.preview:Hide()end end
   return
  end
+ A.uiDirty=false;A.uiDay=A.Day(clock());A.uiMinute=math.floor(clock()/60)
+ A.uiSyncStatus=A.syncStatus;A.uiRosterStatus=A.rosterStatus
  local now=clock();local period=A.period or 'Lifetime';local me=A.db.owners[A.owner];local kills,deaths=0,0
  if A.RefreshTopPostControls then A.RefreshTopPostControls()end
  local viewMembers=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
@@ -196,9 +206,7 @@ function A.RefreshUI()
  A.alertButton:SetText(A.db.options.alerts~=false and 'New-Gnome chat messages: ON' or 'New-Gnome chat messages: OFF')
  A.nearbyToggleButton:SetText(A.db.options.nearbyShown and'Nearby overlay: ON'or'Nearby overlay: OFF')
  if A.RefreshSoundSettings then A.RefreshSoundSettings()end
- local syncStatus=(A.syncStatus or(A.guildKey and'Waiting for peers'or'Waiting for guild membership')):gsub(' %- member reports unverified$','')
- A.status:SetText(syncStatus)
- A.membershipStatusLabel:SetText(A.rosterStatus or'Guild roster pending.')
+ A.RefreshUIStatus()
  if A.mode=='Charts' then
   A.heading:SetText('CHARTS | Guild ranking and recorded daily kill activity');A.pageLabel:SetText('Recorded data only');A.RenderCharts(now);return
  elseif A.mode=='Settings' then
@@ -400,7 +408,7 @@ function A.CreateUI()
  A.previousButton=button(w,'< Previous',18,-617,105,function()A.page=(A.page or 1)-1;A.RefreshUI()end)
  A.nextButton=button(w,'Next >',133,-617,85,function()A.page=(A.page or 1)+1;A.RefreshUI()end)
  A.pageLabel=text(w,'small',232,-625,255)
- A.syncButton=button(w,'Refresh data',500,-617,140,function()A.request=true;A.QueueShare(true);A.syncStatus='Manual refresh queued; automatic sync remains on';A.RefreshUI()end,'Optional manual refresh. Automatic sync already runs at login, on score/profile changes and every minute out of combat. No guild chat messages.')
+ A.syncButton=button(w,'Refresh data',500,-617,140,function()A.RequestFullSync();A.syncStatus='Manual catchup queued; automatic sync remains on';A.RefreshUI()end,'Request a paced local/remote catchup. Automatic queries remain every minute out of combat without replaying all history each minute. No guild chat messages.')
  A.copyReportButton=button(w,'Copy report...',650,-617,140,A.ShowCopyReport,'Open editable report text for Ctrl+C (copy) or Ctrl+X (cut). One player per line. This never posts to chat.')
  A.reportButton=button(w,'Post to guild...',800,-617,142,A.ShowTopPreview,'Preview and confirm a guild-chat ranking for the selected period. Separate from silent automatic addon sync.')
  A.status=text(w,'small',20,-653,740);A.membershipStatusLabel=text(w,'small',20,-670,740)
@@ -452,8 +460,8 @@ end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
- if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG '..A.VERSION..' | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
- elseif msg=='sync' then A.request=true;A.QueueShare(true)
+ if msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG '..A.VERSION..' | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end;for _,line in ipairs(A.DeathDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
+ elseif msg=='sync' then A.RequestFullSync()
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()
  elseif msg=='encounters' then A.OpenView('Encounters',false)

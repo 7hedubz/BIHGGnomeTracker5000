@@ -34,4 +34,26 @@ A.db.options.nearbyEnabled=false;A.PumpPartyAlerts(now+90)
 assert(#sent==beforePaused and not next(A.partyAlertPending),'Nearby OFF cancels queued party detection announcements')
 A.NotePartyAlliance({guid='Player-paused-direct',name='Paused',race='Gnome',seen=now+91},now+91);assert(not next(A.partyAlertPending),'OFF suppresses direct party detection scheduling')
 A.SetNearbyEnabled(true);notice('Player-resume-party','Resume-Realm','Gnome',now+92);A.PumpPartyAlerts(now+92);assert(#sent==beforePaused+1,'party detection can resume normally')
+-- A stream of new GUIDs cannot bypass the global public-chat allowance.
+SendChatMessage=function(text,channel)sent[#sent+1]={text,channel};return nil end;C_ChatInfo=nil
+A.InitPartyAlerts();A.db.options.nearbyEnabled=true;local start=#sent
+for i=0,300 do notice('Player-stream-'..i,'Stream-Realm','Human',now+100+i);A.PumpPartyAlerts(now+100+i)end
+assert(#sent-start<=34,'global public alert budget must bound changing contacts: '..(#sent-start))
+-- Sync and automatic alerts share one native-call pacing budget when loaded.
+assert(loadfile(root..'/Sync.lua'))('Test',A);A.guildKey='Guild';InCombatLockdown=function()return false end
+C_ChatInfo={SendAddonMessage=function()return 0 end};A.partyAlertNext=0
+notice('Player-shared','Shared-Realm','Gnome',now+500);assert(A.SendPacket('2|Q',now+500))
+local shared=#sent;A.PumpPartyAlerts(now+500);assert(#sent==shared,'same-clock addon send defers automatic public send')
+A.PumpPartyAlerts(now+501);assert(#sent==shared+1,'deferred eligible party alert can use budget later')
+print('PASS party global allowance and shared addon/public pacing')
+-- Unique failed messages are not retried, and do not hammer a failing API.
+A.TrySendBudget=nil;A.partySendBudget=nil;A.partyAlertNext=0;A.partyAlertPending={};local failures=0
+SendChatMessage=function()failures=failures+1;return false end
+for i=0,300 do notice('Player-failure-stream-'..i,'Fail-Realm','Human',now+600+i);A.PumpPartyAlerts(now+600+i)end
+assert(failures<=10,'unique public API failures need capped exponential backoff: '..failures)
+A.partyAlertPending={};SendChatMessage=function(text,ch)sent[#sent+1]={text,ch}end
+notice('Player-clock','Clock-Realm','Gnome',now+100);local reset=#sent
+for i=0,70 do A.PumpPartyAlerts(now+100+i)end
+assert(#sent==reset+1,'clock reversal must not indefinitely stall new party alerts')
+print('PASS public failure backoff and clock recovery')
 print('PASS party alerts: default/toggle, exact Gnome prefix, readable details/location, GUID suppression across Clear/reload, rearm, solo/raid/party-loss guards, dead contacts, failed-send suppression and modern API')

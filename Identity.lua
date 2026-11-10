@@ -1,4 +1,15 @@
 local _,A=...
+-- Forever's second UnitName return is the surname, not the realm. Do not
+-- trim/repair tokens or fall back to a short name when identity is unreadable.
+function A.LocalCharacterName()
+ A.localCharacterGUID=nil;A.localCharacterName=nil
+ if type(UnitName)~='function'or type(UnitGUID)~='function'or type(GetNormalizedRealmName)~='function'then return end
+ local ok,first,last=pcall(UnitName,'player');local good,guid=pcall(UnitGUID,'player');local realmOK,realm=pcall(GetNormalizedRealmName)
+ local function text(v)return not(A.Secret and A.Secret(v))and type(v)=='string'and v~=''and not v:find('[%c|%-]')and not v:match('^%s')and not v:match('%s$')end
+ if not ok or not good or not realmOK or not text(first)or not text(last)or not text(realm)or(A.Secret and A.Secret(guid))or type(guid)~='string'or not guid:match('^Player%-[%w%-]+$')then return end
+ A.localCharacterGUID=guid;A.localCharacterName=first..' '..last..'-'..realm
+ return A.localCharacterName
+end
 local function player(g)return type(g)=='string'and g:match('^Player%-[%w%-]+$')~=nil end
 local function clone(t,seen)
  if type(t)~='table'then return t end;seen=seen or {};if seen[t]then return seen[t]end
@@ -45,12 +56,30 @@ function A.CanonicalCharacterName(name,guid)
  local r=root();if not r then return name end
  local s=scope()
  if guid then return(r.characterNamesByGUID and r.characterNamesByGUID[guid])or(s and s.guids[guid])or name end
+ if(r.ambiguousCharacterNames or{})[name]then return name end
  local g=(r.characterGUIDs and r.characterGUIDs[name])or(s and s.names[name])
  return g and((r.characterNamesByGUID and r.characterNamesByGUID[g])or(s and s.guids[g]))or name
 end
 local function archive(r,guid,name,record)
  r.identityArchives=r.identityArchives or {};r.identityArchives[guid]=r.identityArchives[guid]or {}
  if not r.identityArchives[guid][name]then r.identityArchives[guid][name]=clone(record)end
+end
+function A.PrepareLocalIdentity(r,now)
+ if A.localCharacterName~=A.owner or not player(A.localCharacterGUID)then return end
+ for name,record in pairs(A.db.owners)do if player(record.characterGUID)then
+  local other=r.characters[name];local mapped=(r.characterGUIDs or{})[name]
+  local conflict=other and other.characterGUID and other.characterGUID~=record.characterGUID or mapped and mapped~=record.characterGUID
+  if not conflict then for guid,records in pairs(r.identityArchives or{})do if guid~=record.characterGUID and records[name]then conflict=true;break end end end
+  if conflict then r.ambiguousCharacterNames=r.ambiguousCharacterNames or {};r.ambiguousCharacterNames[name]=true end
+  if conflict and not record.identityUncertain then
+   archive(r,record.characterGUID,name,record)
+   if other and player(other.characterGUID)then archive(r,other.characterGUID,name,other)end
+   -- A legacy key collision proves neither that its six old kills are new nor
+   -- that they belong to this GUID. Keep the original, credit only actor events.
+   record.total=0;record.deaths=0;record.days={};record.deathDays={}
+   record.guildBase={since=0,total=0,deaths=0,days={},deathDays={}};record.identityUncertain=true
+  end
+ end end
 end
 local function rewriteEvents(r,guid,canonical,onlyGuild)
  local aliases={}
@@ -60,8 +89,8 @@ local function rewriteEvents(r,guid,canonical,onlyGuild)
  A.groupIndexes={};return aliases
 end
 function A.BindLocalCharacter(guid,now)
- if not player(guid)or not A.account then return false end
- local r=A.account;local canonical=A.owner;local target=A.db.owners[canonical];if not target then return false end
+ if not player(guid)or not A.account or A.identityConflict then return false end
+ local r=A.account;local canonical=A.owner;local target=A.db.owners[canonical];if not target or(target.characterGUID and target.characterGUID~=guid)then return false end
  r.characterGUIDs=r.characterGUIDs or {};r.characterNamesByGUID=r.characterNamesByGUID or {}
  local aliases=rewriteEvents(r,guid,canonical)
  for name,record in pairs(A.db.owners)do if not record.characterGUID or record.characterGUID==guid then aliases[name]=true end end
@@ -69,10 +98,19 @@ function A.BindLocalCharacter(guid,now)
  for _,s in pairs(r.guildIdentities or {})do for name,g in pairs(s.names or {})do if g==guid then aliases[name]=true end end end
  aliases[canonical]=true
  for name in pairs(aliases)do
-  local own=r.characters[name]or A.db.owners[name]
-  if own and(not own.characterGUID or own.characterGUID==guid)then
-   if name~=canonical then archive(r,guid,name,own);merge(target,own,now);r.characters[name]=nil;A.db.owners[name]=nil end
-   r.characterGUIDs[name]=guid
+  -- Inspect both copies: the same legacy key may denote distinct GUIDs in
+  -- independently serialized character/account files.
+  local copies={r.characters[name],A.db.owners[name]}
+  for i=1,2 do local own=copies[i]
+   if own and(not own.characterGUID or own.characterGUID==guid)then
+    if name~=canonical then
+     archive(r,guid,name,own);merge(target,own,now)
+     if r.characters[name]==own then r.characters[name]=nil end
+     if A.db.owners[name]==own then A.db.owners[name]=nil end
+    end
+    local other=r.characters[name]
+    if not other or not other.characterGUID or other.characterGUID==guid then r.characterGUIDs[name]=guid end
+   end
   end
   for _,peers in pairs(r.guilds or {})do
    local peer=peers[name]
@@ -86,7 +124,10 @@ function A.BindLocalCharacter(guid,now)
  r.characterNamesByGUID[guid]=canonical;r.characterGUIDs[canonical]=guid
  target.characterGUID=guid;target.accountID=r.id;target.alias=r.alias;target.aliasRev=r.aliasRev;target.observerOnly=false
  r.characters[canonical]=target;A.db.owners[canonical]=target;A.db.seen=target.seen or A.db.seen or {};target.seen=A.db.seen
- if A.members then A.members[canonical]=true end
+ if A.members then
+  A.members[canonical]=true
+  for name in pairs(r.ambiguousCharacterNames or{})do A.members[name]=nil end
+ end
  A.SnapshotAccount(now);A.outgoing=nil;if A.QueueShare then A.QueueShare(true)end;return true
 end
 function A.ReconcileGuildMembership()
@@ -96,6 +137,7 @@ end
 function A.ObserveGuildCharacter(name,guid,now)
  if not player(guid)then return A.CanonicalCharacterName(name)end
  local r,s=root(),scope();if not s then return name end
+ A.rosterGUIDs=A.rosterGUIDs or {};A.rosterGUIDs[A.guildKey]=A.rosterGUIDs[A.guildKey]or {};A.rosterGUIDs[A.guildKey][guid]=name
  local peers=A.PeerRecords();local canonical=(r.characterNamesByGUID or {})[guid]or s.guids[guid]
  if not canonical then for n,record in pairs(peers)do if record.characterGUID==guid and record.bindingDirect then canonical=n;break end end end
  canonical=canonical or name
@@ -122,15 +164,29 @@ function A.CharacterIdentityPacket()
  local r=A.account and A.account.characters[A.owner]
  if r and player(r.characterGUID)then return'6|C|'..r.characterGUID end
 end
+-- Validate the literal name before following the claimed GUID: canonicalizing
+-- first can hide a conflict by selecting the unrelated GUID's valid record.
+local function conflictingClaim(name,guid)
+ local r,s=root(),scope()
+ if (r.characterGUIDs or{})[name]and r.characterGUIDs[name]~=guid then return true end
+ if s and s.names[name]and s.names[name]~=guid then return true end
+ for known,rosterName in pairs(A.rosterGUIDs and A.rosterGUIDs[A.guildKey]or{})do if rosterName==name and known~=guid then return true end end
+ for _,records in ipairs({A.PeerRecords(),r.characters or{}})do
+  local old=records[name];if old and old.characterGUID and old.characterGUID~=guid then return true end
+ end
+ return false
+end
 local function bindGuildCharacter(guid,sender,direct,now,isDirect)
+ if conflictingClaim(sender,guid)then return false end
  local peers=A.PeerRecords();local subject=peers[sender]
  if subject and subject.characterGUID and subject.characterGUID~=guid then return false end
  local r=root();local s=scope();if not s then return false end
  local owned=r.characterNamesByGUID and r.characterNamesByGUID[guid]
  if owned and direct.accountID~=r.id then return false end
  local canonical=owned or s.guids[guid]or sender;local previous=peers[canonical]
+ if conflictingClaim(canonical,guid)then return false end
  if previous and previous.accountID and previous.accountID~=direct.accountID then return false end
- local target=previous or direct;local aliases=rewriteEvents(r,guid,canonical,A.guildKey);aliases[sender]=true
+ local target=previous or(isDirect and direct)or {total=0,deaths=0,days={},deathDays={}};local aliases=rewriteEvents(r,guid,canonical,A.guildKey);aliases[sender]=true
  for name,record in pairs(peers)do if record.characterGUID==guid then aliases[name]=true end end
  for name in pairs(aliases)do
   local old=peers[name]
@@ -139,11 +195,38 @@ local function bindGuildCharacter(guid,sender,direct,now,isDirect)
    s.names[name]=guid
   end
  end
- s.guids[guid]=canonical;s.names[canonical]=guid
+ s.guids[guid]=canonical;s.names[canonical]=guid;s.names[sender]=guid
  target.characterGUID=guid;target.accountID=direct.accountID
  if not target.aliasRev or(direct.aliasRev or 0)>=target.aliasRev then target.alias=direct.alias;target.aliasRev=direct.aliasRev end
  target.bindingDirect=target.bindingDirect or isDirect;target.observerOnly=false;peers[canonical]=target
  A.members[canonical]=true;A.ReconcileGuildMembership();return true
+end
+function A.ResolveGuildSender(msg,channel,sender,now)
+ if channel~='GUILD'or A.guildUnverified or not A.guildKey or type(sender)~='string'or type(msg)~='string'or #msg>255 or not A.members then return sender end
+ local canonical=A.CanonicalCharacterName(sender)
+ if A.members[canonical]then return canonical end
+ local s=scope();local guid=msg:match('^6|C|(Player%-[%w%-]+)$')
+ local roster=guid and A.rosterGUIDs and(A.rosterGUIDs[A.guildKey]or{})[guid]
+ if roster and A.members[roster]then
+  -- The exact two-component Forever spelling is deterministic, not a search
+  -- over first names/nicknames. Never link a conflicting existing GUID.
+  local first,last=roster:match('^([^%s%-]+) ([^%-]+)%-[^%-]+$')
+  local old=A.PeerRecords()[sender]
+  if first and sender==first..'-'..last and not(old and old.characterGUID and old.characterGUID~=guid)then
+   canonical=A.CanonicalCharacterName(roster,guid)
+   if not A.members[canonical]then return sender end
+   s.names[sender]=guid
+   for _,p in ipairs(A.pendingGuildIdentities or{})do
+    if p.sender==sender and p.guild==A.guildKey and now-p.time<=60 then A.ReceiveAccount(p.msg,canonical,now)end
+   end
+   return canonical
+  end
+ elseif msg:match('^3|I|[%w_%-]+|%x+|%d+$')then
+  local pending={};for _,p in ipairs(A.pendingGuildIdentities or{})do if now-p.time<=60 and p.guild==A.guildKey and p.sender~=sender then pending[#pending+1]=p end end
+  while #pending>=32 do table.remove(pending,1)end
+  pending[#pending+1]={msg=msg,sender=sender,guild=A.guildKey,time=now};A.pendingGuildIdentities=pending
+ end
+ return sender
 end
 function A.ReceiveCharacterIdentity(msg,sender,now)
  local peers=A.PeerRecords();local source=peers[sender]
@@ -151,9 +234,16 @@ function A.ReceiveCharacterIdentity(msg,sender,now)
  local guid=msg:match('^6|C|(Player%-[%w%-]+)$')
  if guid then return bindGuildCharacter(guid,sender,source,now,true)end
  local encoded,altGUID=msg:match('^6|R|(%x+)|(Player%-[%w%-]+)$');local name=encoded and A.DecodeAlias(encoded)
- if not name or name==sender or not A.members[name]then return false end
- local target=peers[name]
- if not target or target.accountID~=source.accountID then return false end
- if A.account and A.account.characters[name]and source.accountID~=A.account.id then return false end
- return bindGuildCharacter(altGUID,name,source,now,false)
+ if not name or name==sender or conflictingClaim(name,altGUID)then return false end
+ local roster=A.rosterGUIDs and(A.rosterGUIDs[A.guildKey]or{})[altGUID]
+ local canonical=A.CanonicalCharacterName(name,altGUID)
+ if not A.members[name]and not(roster and A.members[roster]and A.members[canonical])then return false end
+ local target=peers[canonical]or peers[name]
+ if target and target.accountID and target.accountID~=source.accountID then return false end
+ if target and target.characterGUID and target.characterGUID~=altGUID then return false end
+ if A.account and A.account.characters[canonical]and source.accountID~=A.account.id then return false end
+ if not bindGuildCharacter(altGUID,name,source,now,false)then return false end
+ -- Commit buffered score packets only after metadata establishes the GUID link.
+ if A.ReplayAltScores then A.ReplayAltScores(sender,name,now)end
+ return true
 end

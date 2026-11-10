@@ -74,7 +74,7 @@ function GetRealmName()return 'Realm' end
 function GetGuildInfo(u)return units[u or 'player']and(units[u or 'player'].guild or 'Guild'),playerRank,1 end
 function IsInGuild()return true end
 function GetNumGuildMembers()return units.party1 and 3 or 2 end
-function GetGuildRosterInfo(i)if i==1 then return 'Tester-Realm'elseif i==2 then return 'Friend-Realm'else return 'NoAddon-Realm'end end
+function GetGuildRosterInfo(i)if i==1 then return 'Tester Realm-Realm'elseif i==2 then return 'Friend-Realm'else return 'NoAddon-Realm'end end
 function GetNumSubgroupMembers()return units.party1 and 2 or 0 end
 function GetNumGroupMembers()return units.party1 and 3 or 0 end
 function IsInRaid()return false end
@@ -97,8 +97,53 @@ local function tick()
 end
 local function delayed()local t=timers;timers={};for _,fn in ipairs(t)do fn()end end
 event('ADDON_LOADED','BIHGGnomeKillTracker5000');event('PLAYER_LOGIN');event('PLAYER_ENTERING_WORLD');tick()
-assert(A.db and A.owner=='Tester-Realm','login initializes persistence')
-assert(A.account and A.account.alias=='Tester','account identity initializes with first toon')
+do
+ local writes=0;local original=methods.SetText
+ methods.SetText=function(...)writes=writes+1;return original(...)end
+ A.mode='Charts';A.RefreshUI()
+ assert(writes==0,'hidden dashboard must not mutate text or render charts')
+ assert(A.uiDirty,'hidden refresh must leave a pending visible redraw')
+ methods.SetText=original;A.mode='Leaderboard'
+end
+do
+ local renders=0;local render=A.RenderCharts
+ A.RenderCharts=function(...)renders=renders+1;return render(...)end
+ A.mode='Charts';A.window:Show();A.RefreshUI();renders=0
+ assert(A.AddGuildEvent('K','Friend-Realm','Player-friend','Player-workload',now,now,now))
+ assert(A.uiDirty,'new local witnessed score must dirty the visible dashboard without drawing')
+ local accepted=0
+ for i=1,1000 do if A.Receive('2|S|0|0|'..A.Day(now)..'|0|0','GUILD','Friend-Realm',now)then accepted=accepted+1 end end
+ assert(accepted==450,'native receive path enforces its real per-sender packet budget')
+ A.Changed()
+ assert(renders==0,'incoming refresh requests and runtime changes must coalesce, not draw synchronously')
+ tick();assert(renders==1,'dirty visible dashboard draws once on runtime tick')
+ tick();assert(renders==1,'clean dashboard must not redraw charts each runtime tick')
+ A.window:Hide();A.mode='Leaderboard';A.RenderCharts=render
+ now=now+60 -- subsequent transport checks run outside this deliberate receive flood window
+end
+do
+ local calls=0;local original=C_UnitAuras.GetAuraDataByIndex
+ C_UnitAuras.GetAuraDataByIndex=function(...)calls=calls+1;return original(...)end
+ units.focus=units.target;units.mouseover=units.target;units.nameplate1=units.target;units.playertarget=units.target;A.plates.nameplate1=true
+ now=now+1;A.ScanVisible()
+ assert(calls==2,'one GUID exposed through five tokens must get only one aura enumeration per visible scan; got '..calls)
+ calls=0
+ for i=1,100 do event('UNIT_HEALTH','target')end
+ assert(calls==0,'health bursts must not repeatedly enumerate unchanged auras')
+ event('UNIT_AURA','target');assert(calls==2,'explicit aura notification must inspect fresh data immediately')
+ print('WORKLOAD duplicate token aura calls: 2 (observed baseline 6); 100 health events: 0; fresh aura event: 2')
+ units.focus=nil;units.mouseover=nil;units.nameplate1=nil;units.playertarget=nil;A.plates.nameplate1=nil
+ C_UnitAuras.GetAuraDataByIndex=original
+end
+assert(A.owner==A.LocalCharacterName(),'runtime must initialize with the readable full local character identity')
+if arg[2]=='workload'then print('WORKLOAD hidden dashboard writes: 0; 1000 requests: 1 visible chart draw; clean next tick: 0');return end
+assert(A.db and A.owner=='Tester Realm-Realm','login initializes persistence')
+assert(A.account and A.account.alias=='Tester Realm','account identity initializes with first toon')
+local fullSyncCalls=0;local originalFullSync=A.RequestFullSync
+A.RequestFullSync=function()fullSyncCalls=fullSyncCalls+1 end
+A.syncButton.scripts.OnClick();SlashCmdList.BIHGGKT('sync')
+assert(fullSyncCalls==2,'Refresh data and slash sync both request fresh remote catchup through the full-sync API')
+A.RequestFullSync=originalFullSync
 assert(A.nearbyFrame and A.nearbyFrame:IsShown()and not A.window:IsShown(),'independent Spy-style nearby widget is visible while dashboard is closed')
 assert(A.nearbyCount==1 and A.nearbyRows[1].data.race=='Gnome','readable target feeds nearby list')
 local nearbyRow=A.nearbyRows[1]
@@ -117,7 +162,10 @@ A.nearbyEnableCheck:SetChecked(true);A.nearbyEnableCheck.scripts.OnClick(A.nearb
 assert(A.nearbyEnableLabel.text=='ON'and A.nearbyCount==1 and A.nearbyFrame:GetWidth()==340,'checkbox resumes real Runtime detection without widening the window')
 assert(A.nearbyRows[1].frame.template=='SecureActionButtonTemplate','nearby names use a secure hardware-click targeting button')
 assert(A.nearbyRows[1].frame.attrs.type1=='macro'and A.nearbyRows[1].frame.attrs.macrotext1:find('Tiny-Realm',1,true),'nearby click targets full real name rather than shortened display text')
-assert(A.rows[1].button.template=='SecureActionButtonTemplate'and A.rows[1].button.attrs.macrotext1:find('Tester-Realm',1,true),'single-character leaderboard header targets its character, not account alias')
+A.window:Show();A.RefreshUI();A.window:Hide() -- initialize dashboard rows only on actual visible draw
+local ownTarget
+for _,row in ipairs(A.rows)do local attrs=rawget(row.button,'attrs');if attrs and attrs.macrotext1 and attrs.macrotext1:find(A.owner,1,true)then ownTarget=row.button;break end end
+assert(ownTarget and ownTarget.template=='SecureActionButtonTemplate','single-character leaderboard header targets its character, not account alias')
 for _,b in ipairs({A.rows[1].button,A.chartRows[1].button,A.nearbyRows[1].frame})do
  local highlight=rawget(b,'highlightTexture')
  assert(highlight and highlight.allPoints==b and highlight.color[4]>0 and highlight.color[4]<0.5,'each clickable name uses a full-hit-area translucent native hover highlight')
@@ -148,7 +196,7 @@ A.ToggleUI();A.RefreshUI();assert(A.window:IsShown(),'UI opens')
 A.mode='Encounters';A.RefreshUI();A.mode='Leaderboard';A.RefreshUI()
 A.dirty=true;inside=true;combat=true;local n=#sent;A.Pump(now);assert(#sent==n,'combat prevents sends even in dungeon')
 combat=false;result=3;A.request=false;A.lastRequest=now;A.Pump(now);assert(A.outgoing,'client-rejected dungeon send retains queue')
-result=0;for i=1,50 do A.Pump(now+i);if not A.outgoing and not A.dirty and not A.request then break end end;assert(not A.outgoing and not A.dirty,'successful retry flushes complete metadata/history queue')
+result=0;for i=1,50 do now=now+1;A.Pump(now);if not A.outgoing and not A.dirty and not A.request then break end end;assert(not A.outgoing and not A.dirty,'successful retry flushes complete metadata/history queue')
 A.Receive('2|S|7|3|'..A.Day(now)..'|2|1','GUILD','Friend-Realm',now)
 A.RefreshUI();assert(A.PeerRecords()['Friend-Realm'].total==7,'guild peer record merged')
 -- Return from the explicit dungeon sync test before local PvP parser tests.
@@ -171,7 +219,8 @@ local secret={}
 issecretvalue=function(v)return v==secret end
 local oldGUID=UnitGUID;UnitGUID=function(u)if u=='target' then return secret end;return oldGUID(u)end
 assert(pcall(A.Scan,'target'),'secret unit GUID skipped');UnitGUID=oldGUID
-assert(A.SendPacket('test'),'out-of-combat dungeon send is allowed')
+now=now+5 -- allow the real transport bucket to refill before this independent send assertion
+assert(A.SendPacket('test'),'out-of-combat send is allowed after budget refill')
 local oldCombat=InCombatLockdown;InCombatLockdown=function()return secret end
 assert(not A.SendPacket('test'),'secret combat state fails closed');InCombatLockdown=oldCombat
 InCombatLockdown=function()return 1 end;assert(not A.SendPacket('test'),'numeric truthy combat state blocks direct sends');InCombatLockdown=oldCombat
@@ -207,7 +256,7 @@ click(nil,'LeftButton');assert(A.window:IsShown() and A.mode=='Leaderboard','lef
 click(nil,'LeftButton');assert(not A.window:IsShown(),'left click toggles leaderboard closed')
 assert(A.DisplayName('DoHeal-CAMWOWUS2Realm8PvP')=='DoHeal','hide internal realm suffix')
 assert(A.DisplayName('DoHeal')=='DoHeal','preserve bare character names')
-assert(A.owner=='Tester-Realm','internal owner key stays realm qualified')
+assert(A.owner=='Tester Realm-Realm','internal owner key stays realm qualified')
 A.mode='Leaderboard';A.RefreshUI()
 for _,row in ipairs(A.rows) do assert(not (row[1].text or ''):find('-Realm',1,true),'leaderboard displays character names only') end
 A.mode='Encounters';A.RefreshUI()
@@ -475,7 +524,7 @@ assert(A.db.owners[A.owner].total==beforeLives+2,'a new life can earn debuff cre
 -- Public party alerts run from the actual scan/update path even while secure
 -- nearby rows are frozen; they do not require the guild-report officer ranks.
 local partyMessages={};SendChatMessage=function(text,channel)partyMessages[#partyMessages+1]={text,channel}end
-A.partyAlertPending={};A.db.partyAlertContacts={};A.partyAlertNext=0
+A.partyAlertPending={};A.db.partyAlertContacts={};A.partyAlertNext=0;A.partySendBudget=nil;A.partyRetryAt=nil
 units.target={guid='Player-party-detected',name='Detected',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 playerRank='Member';combat=true;tick()
 assert(#partyMessages==1 and partyMessages[1][2]=='PARTY'and partyMessages[1][1]:find('GNOME DETECTED : ',1,true)==1,'live scan/timer announces Gnomes to party during combat, independent of guild-report rank')
@@ -487,6 +536,8 @@ DEFAULT_CHAT_FRAME.AddMessage=function(_,text)debugOutput[#debugOutput+1]=text e
 local publicBefore=#partyMessages;local addonBefore=#sent
 event('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','SendChatMessage()');SlashCmdList.BIHGGKT('debug')
 local debugText=table.concat(debugOutput,' ')
+assert(A.VERSION=='1.8.0','combined correctness and workload release version')
+assert(debugText:find('BIHG own death outcomes',1,true)and debugText:find('counted',1,true),'actual slash exposes persisted own death diagnostics')
 assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
 assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')
 DEFAULT_CHAT_FRAME.AddMessage=originalLocalMessage
@@ -531,7 +582,14 @@ local pausedLocalAlerts=0;local oldLocalMessage=DEFAULT_CHAT_FRAME.AddMessage
 local oldLegacyAlerts=A.db.options.alerts;A.db.options.alerts=true
 DEFAULT_CHAT_FRAME.AddMessage=function(_,msg)if msg:find('PausedSight',1,true)then pausedLocalAlerts=pausedLocalAlerts+1 end end
 units.nameplatePaused={guid='Player-paused-world',name='PausedSight',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+A.mode='Encounters';A.window:Show();A.RefreshUI();assert(not A.uiDirty)
+local oldFullShare,oldDirty=A.fullShare,A.dirty;A.fullShare=false;A.dirty=false
 event('NAME_PLATE_UNIT_ADDED','nameplatePaused')
+assert(A.dirty and not A.fullShare,'a fresh sighting queues lightweight metadata, not another lifetime-history replay')
+A.fullShare=false;event('PLAYER_ENTERING_WORLD')
+assert(not A.fullShare,'same-guild world entry does not force unchanged lifetime-history replay')
+A.fullShare=oldFullShare;A.dirty=oldDirty
+assert(A.uiDirty,'new encounter must schedule visible history redraw even while Nearby is paused')
 assert(pausedLocalAlerts==0 and not A.nearbySeen['Player-paused-world'],'Nearby OFF suppresses local detection chat as well as contacts')
 assert(A.db.seen['Player-paused-world'],'pausing Nearby does not disable persistent encounter history')
 A.RefreshGroupActors();local killsWhilePaused=A.db.owners[A.owner].total
@@ -540,5 +598,19 @@ assert(A.GroupDeath('Player-paused-world',now)and A.db.owners[A.owner].total==ki
 DEFAULT_CHAT_FRAME.AddMessage=oldLocalMessage;event('NAME_PLATE_UNIT_REMOVED','nameplatePaused');units.nameplatePaused=nil
 A.db.options.alerts=oldLegacyAlerts
 A.SetNearbyEnabled(true)
+-- Exercise real runtime scheduling: a full history queue must not starve alerts.
+local priorScan=A.ScanVisible;A.ScanVisible=function()end
+local priorAddonSend=C_ChatInfo.SendAddonMessage;local priorPartySend=SendChatMessage
+local priorSubgroup,priorRaid=GetNumSubgroupMembers,IsInRaid
+GetNumSubgroupMembers=function()return 2 end;IsInRaid=function()return false end
+local fairAddon,fairParty=0,0;C_ChatInfo.SendAddonMessage=function()fairAddon=fairAddon+1;return 0 end
+SendChatMessage=function(_,channel)if channel=='PARTY'then fairParty=fairParty+1 end end
+A.sendBudget=nil;A.sendRetryAt=nil;A.sendFailures=0;A.sendClock=nil;A.lastRequest=now;A.request=false;A.helloPending=false;A.catchupPending=nil
+A.syncNamespaceSet=true;A.syncNamespace=A.guildKey;A.groupPending[A.guildKey]={};A.outgoing={};for i=1,100 do A.outgoing[i]='history-'..i end;A.outIndex=1
+A.partyAlertPending={};A.partyAlertNext=0;A.partySendBudget=nil;A.partyRetryAt=nil;A.db.options.partyAllianceAlerts=true
+A.NearbyNotice('Player-fair-budget','FairBudget-Realm','Gnome','Alliance',now,false,true,60,'Mage')
+for i=1,6 do tick()end
+assert(fairParty==1 and fairAddon>0,'runtime must deliver queued party alert without starving paced history, or vice versa')
+A.ScanVisible=priorScan;C_ChatInfo.SendAddonMessage=priorAddonSend;SendChatMessage=priorPartySend;GetNumSubgroupMembers=priorSubgroup;IsInRaid=priorRaid
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, protected targeting, persistent scores, rank-gated guild reports, independent party detection chat, local-only report diagnostics and guarded APIs')

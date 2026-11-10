@@ -27,6 +27,10 @@ methods.ClearFocus=function(self)self.focused=false end
 methods.HighlightText=function(self)self.selectedAll=true end
 methods.HasFocus=function(self)return rawget(self,'focused')or false end
 methods.SetSize=function(self,w,h)self.width=w;self.height=h end
+methods.SetWidth=function(self,w)self.width=w end
+methods.SetWordWrap=function(self,value)self.wordWrap=value end
+methods.SetChecked=function(self,value)self.checked=value==true end
+methods.GetChecked=function(self)return rawget(self,'checked')or false end
 methods.GetWidth=function(self)return rawget(self,'width')or 800 end
 methods.GetHeight=function(self)return rawget(self,'height')or 600 end
 methods.GetLeft=function(self)return rawget(self,'left')or 0 end
@@ -43,6 +47,13 @@ methods.SetHeight=function(self,h)self.height=h end
 methods.StartMoving=function(self)self.moves=(rawget(self,'moves')or 0)+1 end
 function CreateFrame(_,name,parent,template)local o=obj();o.template=template;if template and template:find('SecureActionButtonTemplate',1,true)then o.scripts.OnClick=noop end;frames[#frames+1]=o;if name then _G[name]=o end;return o end
 UIParent=obj();Minimap=obj();UISpecialFrames={};SlashCmdList={};BackdropTemplateMixin={}
+GameTooltip={
+ SetOwner=function(self,owner,anchor)self.owner=owner;self.anchor=anchor end,
+ SetText=function(self,text)self.text=text;self.lines={}end,
+ AddLine=function(self,text,...)self.lines[#self.lines+1]={text,...}end,
+ Show=function(self)self.shown=true end,
+ Hide=function(self)self.shown=false end,
+}
 DEFAULT_CHAT_FRAME={AddMessage=noop};C_Timer={After=function(delay,fn)timers[#timers+1]=fn end}
 function GetServerTime()return now end;function GetTime()return now end;date=os.date
 function issecretvalue()return false end
@@ -90,6 +101,20 @@ assert(A.db and A.owner=='Tester-Realm','login initializes persistence')
 assert(A.account and A.account.alias=='Tester','account identity initializes with first toon')
 assert(A.nearbyFrame and A.nearbyFrame:IsShown()and not A.window:IsShown(),'independent Spy-style nearby widget is visible while dashboard is closed')
 assert(A.nearbyCount==1 and A.nearbyRows[1].data.race=='Gnome','readable target feeds nearby list')
+local nearbyRow=A.nearbyRows[1]
+assert(nearbyRow.level and nearbyRow.class,'Nearby shows separate level and class fields around the name')
+assert(A.nearbyFrame:GetWidth()==340 and nearbyRow.frame:GetWidth()==332,'Nearby frame and row widths remain unchanged')
+assert(nearbyRow.level.coords[2]<nearbyRow.name.coords[2]and nearbyRow.name.coords[2]<nearbyRow.class.coords[2],'level is left of the name and class follows it')
+for _,field in ipairs({nearbyRow.level,nearbyRow.name,nearbyRow.class,nearbyRow.detail})do
+ assert(field.coords[2]+field:GetWidth()<=332 and field.wordWrap==false,'all nonwrapping fields fit inside the existing row')
+end
+assert(nearbyRow.level.text:find('?',1,true)and nearbyRow.class.text:find('?',1,true),'unavailable native metadata is not guessed')
+assert(A.nearbyEnableCheck and A.nearbyEnableCheck.template=='UICheckButtonTemplate','Nearby header exposes a real checkbox')
+assert(A.nearbyEnableCheck:GetChecked()and A.nearbyEnableLabel.text=='ON','enabled detection is checked and explicitly labeled ON')
+A.nearbyEnableCheck:SetChecked(false);A.nearbyEnableCheck.scripts.OnClick(A.nearbyEnableCheck);tick()
+assert(not A.nearbyEnableCheck:GetChecked()and A.nearbyEnableLabel.text=='OFF'and A.nearbyCount==0 and A.nearbyFrame:IsShown(),'OFF is obvious, prevents detection and keeps the checkbox accessible')
+A.nearbyEnableCheck:SetChecked(true);A.nearbyEnableCheck.scripts.OnClick(A.nearbyEnableCheck);tick()
+assert(A.nearbyEnableLabel.text=='ON'and A.nearbyCount==1 and A.nearbyFrame:GetWidth()==340,'checkbox resumes real Runtime detection without widening the window')
 assert(A.nearbyRows[1].frame.template=='SecureActionButtonTemplate','nearby names use a secure hardware-click targeting button')
 assert(A.nearbyRows[1].frame.attrs.type1=='macro'and A.nearbyRows[1].frame.attrs.macrotext1:find('Tiny-Realm',1,true),'nearby click targets full real name rather than shortened display text')
 assert(A.rows[1].button.template=='SecureActionButtonTemplate'and A.rows[1].button.attrs.macrotext1:find('Tester-Realm',1,true),'single-character leaderboard header targets its character, not account alias')
@@ -311,6 +336,8 @@ assert(shown,'non-addon guildmate is visibly marked as observed')
 A.ClearNearby()
 units.nameplate1={guid='Player-near-human',name='Tall',race='Human',faction='Alliance',hp=1000,enemy=true}
 units.nameplate2={guid='Player-near-gnome',name='Short',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+units.nameplate2.level=60;units.nameplate2.class='Mage'
+UnitLevel=function(u)return units[u]and units[u].level end;UnitClass=function(u)return units[u]and units[u].class end
 units.nameplate3={guid='Creature-npc',name='NPC',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 units.nameplate4={guid='Player-near-horde',name='Orc',race='Orc',faction='Horde',hp=1000}
 units.nameplate5={guid='Player-far',name='Far',race='Gnome',faction='Alliance',hp=1000,enemy=true,visible=false}
@@ -318,15 +345,34 @@ UnitIsVisible=function(u)return units[u]and units[u].visible~=false end
 for i=1,5 do event('NAME_PLATE_UNIT_ADDED','nameplate'..i)end;tick()
 assert(A.nearbyCount==2 and A.nearbyRows[1].data.guid=='Player-near-gnome','nearby window lists visible Alliance only, Gnomes first')
 assert(not A.nearbyRows[1].name.text:find('-Realm',1,true),'nearby names hide realm suffix')
+assert(A.nearbyRows[1].level.text:find('60',1,true)and A.nearbyRows[1].class.text:find('Mage',1,true),'actual Runtime scans feed displayed native level and localized class')
+local tooltipRow=A.nearbyRows[1];local originalNearbyName=tooltipRow.data.name
+A.NearbyNotice(tooltipRow.data.guid,'ReviewName-Surname','Gnome','Alliance',now,false,true,60,'Mage');A.RefreshNearby(now)
+assert(tooltipRow.name.text=='|cffffb347ReviewName|r','fixed-width row keeps the shortened name')
+local tooltipMacro=tooltipRow.frame.attrs.macrotext1
+assert(tooltipMacro:find('/targetexact ReviewName-Surname',1,true),'secure target binding keeps the full stored identity')
+tooltipRow.frame.scripts.OnEnter(tooltipRow.frame)
+assert(GameTooltip.shown and GameTooltip.owner==tooltipRow.frame and GameTooltip.anchor=='ANCHOR_LEFT','actual row OnEnter opens its tooltip')
+assert(GameTooltip.text=='ReviewName-Surname','Nearby tooltip title must retain full stored identity; got '..tostring(GameTooltip.text))
+assert(GameTooltip.lines[1][1]=='Level 60 | Mage | Gnome','tooltip includes full level, class and race details')
+assert(tooltipRow.frame.attrs.macrotext1==tooltipMacro,'hover must not change secure target bindings')
+tooltipRow.frame.scripts.OnLeave(tooltipRow.frame);assert(not GameTooltip.shown,'actual row OnLeave hides its tooltip')
+A.NearbyNotice(tooltipRow.data.guid,originalNearbyName,'Gnome','Alliance',now,false,true,60,'Mage');A.RefreshNearby(now)
+local frozenLevel,frozenClass=A.nearbyRows[1].level.text,A.nearbyRows[1].class.text
 local frozenName=A.nearbyRows[1].data.name;local frozenMacro=A.nearbyRows[1].frame.attrs.macrotext1
 combat=true;A.NearbyNotice('Player-combat-new','NewEnemy-Realm','Gnome','Alliance',now+5,false,true);A.RefreshNearby(now+5);A.RefreshUI()
 assert(A.nearbyRows[1].data.name==frozenName and A.nearbyRows[1].frame.attrs.macrotext1==frozenMacro,'combat cannot reorder displayed names away from protected click bindings')
+assert(A.nearbyRows[1].level.text==frozenLevel and A.nearbyRows[1].class.text==frozenClass,'combat freezes the added identity labels alongside the target name')
+A.nearbyEnableCheck:SetChecked(false);A.nearbyEnableCheck.scripts.OnClick(A.nearbyEnableCheck)
+assert(A.nearbyEnableLabel.text=='OFF'and not A.nearbyEnableCheck:GetChecked()and A.nearbyRows[1].frame.attrs.macrotext1==frozenMacro,'master OFF remains obvious in combat without rebinding protected targets')
+A.nearbyEnableCheck:SetChecked(true);A.nearbyEnableCheck.scripts.OnClick(A.nearbyEnableCheck)
 combat=false;A.ForgetNearby('Player-combat-new');A.RefreshNearby(now)
 local savedEncounter=A.db.seen['Player-near-gnome'];local savedKills=A.db.owners[A.owner].total
 local soundsBeforeClear=#soundCalls
 assert(A.nearbyButtons.clear,'Nearby needs an explicit Clear button')
 A.nearbyButtons.clear.scripts.OnClick()
 assert(A.nearbyCount==0 and A.db.seen['Player-near-gnome']==savedEncounter and A.db.owners[A.owner].total==savedKills,'Clear empties nearby list without deleting history/statistics')
+assert(A.nearbyRows[1].level.text==''and A.nearbyRows[1].class.text=='','empty/reused rows clear level and class text')
 tick();assert(A.nearbyCount==2,'still-visible players can be detected again after clearing')
 assert(#soundCalls==soundsBeforeClear,'Clear cannot cause repeated alerts for already observed contacts')
 A.nearbyButtons.collapse.scripts.OnClick()
@@ -466,5 +512,19 @@ assert(A.db.owners[A.owner].deaths==deathBeforePeak,'incoming UNIT_DIED cannot b
 A.RefreshGroupActors();A.GroupCombat(incoming,now);A.GroupCombat(ownDied,now)
 assert(A.db.owners[A.owner].deaths==deathBeforePeak,'late incoming collectors cannot lower the own combat health denominator')
 UnitAffectingCombat=oldAffectingCombat
+A.SetNearbyEnabled(false)
+local pausedLocalAlerts=0;local oldLocalMessage=DEFAULT_CHAT_FRAME.AddMessage
+local oldLegacyAlerts=A.db.options.alerts;A.db.options.alerts=true
+DEFAULT_CHAT_FRAME.AddMessage=function(_,msg)if msg:find('PausedSight',1,true)then pausedLocalAlerts=pausedLocalAlerts+1 end end
+units.nameplatePaused={guid='Player-paused-world',name='PausedSight',race='Gnome',faction='Alliance',hp=1000,enemy=true}
+event('NAME_PLATE_UNIT_ADDED','nameplatePaused')
+assert(pausedLocalAlerts==0 and not A.nearbySeen['Player-paused-world'],'Nearby OFF suppresses local detection chat as well as contacts')
+assert(A.db.seen['Player-paused-world'],'pausing Nearby does not disable persistent encounter history')
+A.RefreshGroupActors();local killsWhilePaused=A.db.owners[A.owner].total
+A.GroupCC('Player-paused-world',770,UnitGUID('player'),now,true)
+assert(A.GroupDeath('Player-paused-world',now)and A.db.owners[A.owner].total==killsWhilePaused+1,'open-world kill recording continues while Nearby is OFF')
+DEFAULT_CHAT_FRAME.AddMessage=oldLocalMessage;event('NAME_PLATE_UNIT_REMOVED','nameplatePaused');units.nameplatePaused=nil
+A.db.options.alerts=oldLegacyAlerts
+A.SetNearbyEnabled(true)
 assert(not A.lastError,'guarded runtime error: '..tostring(A.lastError))
 print('PASS actual TOC integration: lifecycle, protected targeting, persistent scores, rank-gated guild reports, independent party detection chat, local-only report diagnostics and guarded APIs')

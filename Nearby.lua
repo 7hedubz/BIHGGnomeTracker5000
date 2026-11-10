@@ -35,13 +35,24 @@ function A.BindTargetButton(button,name)
 end
 local function secret(v)return A.Secret and A.Secret(v)end
 local function clock()return A.Safe(GetServerTime)or time()end
+function A.NearbyIdentityText(e)
+ local n=e.level;local level='?'
+ if not secret(n)and type(n)=='number'and n==n and n~=math.huge and n~=-math.huge then
+  if n==-1 then level='??'elseif n>0 and n%1==0 then level=tostring(n)end
+ end
+ local class=e.class
+ if secret(class)or type(class)~='string'or class==''or class:find('[%c|]')then class='?'end
+ return level,class
+end
 function A.InitNearby()
  A.nearbySeen={};A.nearbyPage=1
+ if A.db.options.nearbyEnabled==nil then A.db.options.nearbyEnabled=true end
  if A.db.options.nearbyShown==nil then A.db.options.nearbyShown=true end
  if A.InitSoundAlerts then A.InitSoundAlerts()end
  if A.InitPartyAlerts then A.InitPartyAlerts()end
 end
 function A.NearbyNotice(guid,name,race,faction,now,dead,visible,level,class)
+ if A.db.options.nearbyEnabled==false then return false end
  if secret(guid)or type(guid)~='string'or not guid:match('^Player%-[%w%-]+$')or secret(now)or type(now)~='number'or now~=now or now==math.huge then return false end
  A.nearbySeen=A.nearbySeen or {}
  if not secret(dead)and dead==true then A.nearbySeen[guid]=nil;return false end
@@ -74,6 +85,12 @@ function A.ClearNearby()
  A.partyAlertPending={}
  if A.nearbyFrame then A.RefreshNearby(clock())end
 end
+function A.SetNearbyEnabled(enabled)
+ A.db.options.nearbyEnabled=enabled==true
+ if not A.db.options.nearbyEnabled then A.ClearNearby()
+ elseif A.nearbyFrame then A.RefreshNearby(clock())end
+ return A.db.options.nearbyEnabled
+end
 function A.ForgetNearby(guid)
  if not secret(guid)and type(guid)=='string'and A.nearbySeen then A.nearbySeen[guid]=nil end
 end
@@ -90,9 +107,12 @@ end
 function A.RefreshNearby(now)
  if not A.nearbyFrame then return end
  local entries,gnomes=A.NearbyList(now);A.nearbyCount=#entries
- if A.TargetingLocked()then A.nearbyHeaderText:SetText('Nearby | combat locked');return end
+ local enabled=A.db.options.nearbyEnabled~=false
+ A.nearbyEnableCheck:SetChecked(enabled);A.nearbyEnableLabel:SetText(enabled and'ON'or'OFF')
+ if enabled then A.nearbyEnableLabel:SetTextColor(0.25,1,0.35)else A.nearbyEnableLabel:SetTextColor(1,0.25,0.2)end
+ if A.TargetingLocked()then A.nearbyHeaderText:SetText(enabled and'Nearby | locked'or'Nearby paused');return end
  local opts=A.db.options;local pages=math.max(1,math.ceil(#entries/A.NEARBY_ROWS));A.nearbyPage=math.max(1,math.min(A.nearbyPage or 1,pages))
- A.nearbyHeaderText:SetText('Nearby |cff00bfff'..#entries..'|r  G: |cffffb347'..gnomes..'|r')
+ A.nearbyHeaderText:SetText(enabled and('Nearby |cff00bfff'..#entries..'|r G:|cffffb347'..gnomes..'|r')or'Nearby paused')
  A.nearbyButtons.collapse:SetText(opts.nearbyCollapsed and '+'or'-')
  A.nearbyButtons.lock:SetText(opts.nearbyLocked and 'L'or'U')
  local paged=pages>1 and not opts.nearbyCollapsed
@@ -105,10 +125,12 @@ function A.RefreshNearby(now)
   A.BindTargetButton(row.frame,e and e.name)
   if e then
    local age=math.max(0,now-e.seen);local color=e.race=='Gnome'and '|cffffb347'or'|cffffffff'
+   local level,class=A.NearbyIdentityText(e)
+   row.level:SetText(color..level..'|r');row.class:SetText(color..class..'|r')
    row.name:SetText(color..A.DisplayName(e.name)..'|r')
    local race=e.race=='NightElf'and'Night Elf'or(e.race or '?');row.detail:SetText(color..race..'|r  '..age..'s')
    row.frame:SetAlpha(age>5 and 0.65 or 1);row.frame:Show();count=count+1
-  else row.name:SetText('');row.detail:SetText('');row.frame:Hide()end
+  else row.level:SetText('');row.name:SetText('');row.class:SetText('');row.detail:SetText('');row.frame:Hide()end
  end
  A.nearbyFrame:SetHeight(count>0 and 28+count*22 or 24)
  if opts.nearbyShown then A.nearbyFrame:Show()else A.nearbyFrame:Hide()end
@@ -130,7 +152,12 @@ function A.CreateNearbyUI()
  head:SetScript('OnDragStop',function()if A.TargetingLocked()then return end;w:StopMovingOrSizing();local point,_,relative,x,y=w:GetPoint();A.db.options.nearbyPosition={point,relative,x,y}end)
  head:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText('BIHG Nearby Alliance');GameTooltip:AddLine('Gnomes first. Readable visible/recent sightings expire after 30 seconds; this is not an exact-range radar.',0.85,0.9,0.95,true);GameTooltip:Show()end end)
  head:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
- A.nearbyHeader=head;A.nearbyHeaderText=label(head,8,-6,136);A.nearbyButtons={}
+ A.nearbyHeader=head;A.nearbyHeaderText=label(head,8,-6,82);A.nearbyButtons={}
+ local toggle=CreateFrame('CheckButton',nil,head,'UICheckButtonTemplate');A.nearbyEnableCheck=toggle;toggle:SetSize(20,20);toggle:SetPoint('TOPLEFT',92,-2)
+ A.nearbyEnableLabel=label(head,116,-6,28)
+ toggle:SetScript('OnClick',function(self)A.SetNearbyEnabled(self:GetChecked())end)
+ toggle:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText('Nearby detection: '..(A.db.options.nearbyEnabled~=false and'ON'or'OFF'));GameTooltip:AddLine('Pause/resume the Nearby list and automatic sighting alerts. Kill/death recording, history and guild sync continue.',0.85,0.9,0.95,true);GameTooltip:Show()end end)
+ toggle:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
  local b=A.nearbyButtons
  b.clear=tiny(head,'Clear',148,function()A.ClearNearby()end,'Clear nearby contacts and queued sounds, not saved history or statistics. Visible players return on the next scan without repeating their alert.');b.clear:SetWidth(38)
  b.history=tiny(head,'H',190,function()A.OpenView('Encounters',false)end,'Open the historical Alliance encounter log')
@@ -143,9 +170,9 @@ function A.CreateNearbyUI()
  for i=1,A.NEARBY_ROWS do
   local row={};local f=CreateFrame('Button',nil,w,'SecureActionButtonTemplate');row.frame=f;f:SetSize(332,21);f:SetPoint('TOPLEFT',4,-24-(i-1)*22);f:RegisterForClicks('LeftButtonDown','LeftButtonUp')
   A.AddNameHover(f)
-  row.name=label(f,5,-5,206);row.detail=label(f,214,-5,112);row.detail:SetJustifyH('RIGHT')
+  row.level=label(f,5,-5,24);row.name=label(f,35,-5,118);row.class=label(f,159,-5,80);row.detail=label(f,245,-5,81);row.detail:SetJustifyH('RIGHT')
   f:SetScript('OnEnter',function(self)
-   local e=row.data;if e and GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_LEFT');GameTooltip:SetText(A.DisplayName(e.name));GameTooltip:AddLine((e.race or 'Unknown race')..(e.level and e.level>0 and(' | Level '..e.level)or''),1,0.75,0.35);GameTooltip:AddLine('Left-click: try targeting this character. List bindings freeze in combat.',0.8,0.9,1,true);GameTooltip:AddLine('Last seen '..math.max(0,clock()-e.seen)..'s ago. Recently observed, not a measured distance.',0.8,0.85,0.9,true);GameTooltip:Show()end
+   local e=row.data;if e and GameTooltip then local level,class=A.NearbyIdentityText(e);GameTooltip:SetOwner(self,'ANCHOR_LEFT');GameTooltip:SetText(e.name);GameTooltip:AddLine('Level '..level..' | '..class..' | '..(e.race or 'Unknown race'),1,0.75,0.35);GameTooltip:AddLine('Left-click: try targeting this character. List bindings freeze in combat.',0.8,0.9,1,true);GameTooltip:AddLine('Last seen '..math.max(0,clock()-e.seen)..'s ago. Recently observed, not a measured distance.',0.8,0.85,0.9,true);GameTooltip:Show()end
   end)
   f:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end);A.nearbyRows[i]=row
  end

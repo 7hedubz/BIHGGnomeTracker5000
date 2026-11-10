@@ -29,4 +29,9 @@ notice('Player-fail','Fail-Realm','Gnome',now+81);A.PumpPartyAlerts(now+82);asse
 outcome=nil;SendChatMessage=nil;C_ChatInfo={SendChatMessage=function(t,c)sent[#sent+1]={t,c};return 0 end}
 notice('Player-modern','Modern-Realm','Human',now+84);A.PumpPartyAlerts(now+84);assert(#sent==count+1 and sent[#sent][2]=='PARTY','namespaced chat API supported')
 assert(not A.PartyAllianceMessage({name='Bad\n/run x',race='Gnome'}),'untrusted control/markup text rejected')
+notice('Player-pause-queued','PauseQueued-Realm','Gnome',now+90);local beforePaused=#sent
+A.db.options.nearbyEnabled=false;A.PumpPartyAlerts(now+90)
+assert(#sent==beforePaused and not next(A.partyAlertPending),'Nearby OFF cancels queued party detection announcements')
+A.NotePartyAlliance({guid='Player-paused-direct',name='Paused',race='Gnome',seen=now+91},now+91);assert(not next(A.partyAlertPending),'OFF suppresses direct party detection scheduling')
+A.SetNearbyEnabled(true);notice('Player-resume-party','Resume-Realm','Gnome',now+92);A.PumpPartyAlerts(now+92);assert(#sent==beforePaused+1,'party detection can resume normally')
 print('PASS party alerts: default/toggle, exact Gnome prefix, readable details/location, GUID suppression across Clear/reload, rearm, solo/raid/party-loss guards, dead contacts, failed-send suppression and modern API')

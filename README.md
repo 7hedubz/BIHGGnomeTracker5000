@@ -61,6 +61,14 @@ Debuff qualification is **not limited to a spell whitelist**: confirmed harmful 
 
 Open **`/gkt`**, `/gnomekills`, `/bihg`, or use the minimap gear.
 
+### Nearby level/class and ON/OFF checkbox (1.7.15)
+
+- Rows show **level → character name → localized class**, followed by race/age, within the unchanged **340px** window and **332px** rows. Fields stay single-line and truncate to fit; hover shows full name, level, class and race. Unknown metadata displays `?`; the native higher/unknown-level sentinel displays `??`. Secure targeting still uses the actual character name, never the decorated display text.
+- The header's saved checkbox is **checked + green ON** when Nearby detection is running, **unchecked + red OFF** when paused. This is separate from hiding the window; pausing leaves the header accessible. It defaults ON and retains an explicitly saved OFF setting.
+- OFF clears current Nearby contacts and cancels pending general/Gnome sounds and party sighting announcements. It also suppresses local sighting chat. Re-enabling resumes detection on the next scan without resetting contact-repeat suppression. Explicit sound Preview remains usable.
+- This switch **does not pause open-world kill/death recording, persistent encounter history, or guild synchronization**. During combat, status/checkbox can change immediately while existing protected target rows remain frozen until it is safe to refresh.
+- Automated tests cover actual native scan-to-label wiring, unchanged widths/column order, unknown/secret metadata, row cleanup, checkbox callbacks, saved state, alert cancellation/resume, combat freezing, and continuing kill recording while Nearby is OFF. Native clipping/readability and checkbox appearance still need an in-game check.
+
 ### Spy-style Nearby Alliance window (1.4.0)
 
 A separate compact overlay is enabled by default, independently of the dashboard. Its header shows **Nearby count** and **Gnome count**; when empty/collapsed it remains a small header like Spy's Nearby bar.

@@ -59,6 +59,7 @@ function A.PlayNearbyTone(kind,override)
  A.soundStatus='Sound was not accepted; check sound availability and game audio settings';return false
 end
 function A.NoteNearbySound(guid,race,now)
+ if A.db.options.nearbyEnabled==false then return end
  local contacts=A.audioContacts;if not contacts then return end
  local c=contacts[guid];local fresh=not c or now-c.seen>A.NEARBY_TTL
  local isGnome=race=='Gnome';local learnedGnome=isGnome and c and not c.gnome
@@ -67,6 +68,7 @@ function A.NoteNearbySound(guid,race,now)
  if(fresh or learnedGnome)and isGnome and o.extraGnomeSoundEnabled then A.audioPending.gnome=true end
 end
 function A.PumpNearbySounds(now)
+ if A.db.options.nearbyEnabled==false then A.audioPending={};A.audioExtraDue=nil;return end
  if not A.audioContacts then return end
  for guid,c in pairs(A.audioContacts)do if now-c.seen>A.NEARBY_TTL then A.audioContacts[guid]=nil end end
  local o=A.db.options
@@ -126,6 +128,7 @@ function A.PartyAllianceMessage(e,location)
  return text
 end
 function A.NotePartyAlliance(e,now)
+ if A.db.options.nearbyEnabled==false then return end
  if not A.partyAlertPending or not A.db.options.partyAllianceAlerts or not partyReady()then return end
  local c=A.db.partyAlertContacts[e.guid];local fresh=not c or now-c.seen>60
  local upgrade=e.race=='Gnome'and c and not c.gnome
@@ -139,6 +142,7 @@ function A.NotePartyAlliance(e,now)
  end
 end
 function A.PumpPartyAlerts(now)
+ if A.db.options.nearbyEnabled==false then A.partyAlertPending={};return end
  if not A.partyAlertPending then return end
  if not A.db.options.partyAllianceAlerts or not partyReady()then A.partyAlertPending={};return end
  for guid,c in pairs(A.db.partyAlertContacts)do if type(c)~='table'or type(c.seen)~='number'or now-c.seen>600 or c.seen>now+120 then A.db.partyAlertContacts[guid]=nil end end

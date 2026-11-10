@@ -2,7 +2,15 @@ local root=arg[1]or'.';local A={}
 A.db={options={},owners={Me={total=3}},seen={['Player-old']={name='Old',race='Gnome',last=0}}}
 A.Secret=function()return false end
 local f=io.open(root..'/Nearby.lua');assert(f,'Spy-style nearby list not implemented');f:close();assert(loadfile(root..'/Nearby.lua'))('BIHGGnomeKillTracker5000',A)
+assert(type(A.NearbyIdentityText)=='function','Nearby identity formatter exposes safe level/class labels')
+local levelText,classText=A.NearbyIdentityText({level=60,class='Mage'})
+assert(levelText=='60' and classText=='Mage','readable level and localized class are preserved')
+for _,level in ipairs({0,-2,1.5,math.huge,-math.huge,0/0})do assert(A.NearbyIdentityText({level=level})=='?','invalid level must remain visibly unknown')end
+assert(A.NearbyIdentityText({level=-1})=='??','native unknown-higher-level sentinel displays question marks')
+local _,unknownClass=A.NearbyIdentityText({});assert(unknownClass=='?','missing class remains unknown')
+for _,class in ipairs({'','Mage|cffffffff','Mage\nRogue'})do local _,shown=A.NearbyIdentityText({class=class});assert(shown=='?','malformed class cannot inject UI formatting')end
 A.InitNearby();assert(#A.NearbyList(10)==0,'nearby list must not be populated from historical SavedVariables')
+assert(A.db.options.nearbyEnabled==true,'Nearby detection defaults enabled')
 A.NearbyNotice('Player-human','Tall-CAMWOWUS2Realm8PvP','Human','Alliance',10,false,true,60)
 A.NearbyNotice('Player-gnome','Tiny-Realm','Gnome','Alliance',9,false,true,60)
 A.NearbyNotice('Player-dwarf','Stout-Realm','Dwarf','Alliance',11,false,true,55)
@@ -23,6 +31,15 @@ A.NearbyNotice('Player-new','New','Gnome','Alliance',44,false,true)
 A.ClearNearby();assert(#A.NearbyList(44)==0,'zone/clear reset affects nearby list')
 assert(A.db.owners.Me.total==3 and A.db.seen['Player-old'],'nearby widget cannot write kill totals or clear encounter history')
 local secret={};A.Secret=function(v)return v==secret end
+local hiddenLevel,hiddenClass=A.NearbyIdentityText({level=secret,class=secret});assert(hiddenLevel=='?'and hiddenClass=='?','secret metadata is never formatted or guessed')
 assert(not A.NearbyNotice(secret,'Secret','Gnome','Alliance',45,false,true),'secret GUID skipped')
 assert(not A.NearbyNotice('Player-secret',secret,'Gnome','Alliance',45,false,true),'secret name skipped')
+assert(type(A.SetNearbyEnabled)=='function','Nearby has a saved master detection switch')
+A.audioPending={alliance=true};A.audioExtraDue=47;A.partyAlertPending={queued=true}
+A.SetNearbyEnabled(false)
+assert(A.db.options.nearbyEnabled==false and #A.NearbyList(46)==0 and not next(A.audioPending)and not A.audioExtraDue and not next(A.partyAlertPending),'pausing clears contacts and pending detection alerts')
+assert(not A.NearbyNotice('Player-paused','Paused','Gnome','Alliance',46,false,true),'paused detection cannot create contacts')
+A.InitNearby();assert(A.db.options.nearbyEnabled==false,'initialization preserves saved OFF state')
+A.SetNearbyEnabled(true);assert(A.NearbyNotice('Player-resumed','Resumed','Gnome','Alliance',47,false,true),'resuming accepts fresh detections')
+assert(A.db.owners.Me.total==3 and A.db.seen['Player-old'],'master detection switch never changes saved statistics/history')
 print('PASS nearby: ephemeral visible Alliance detection, Gnome priority, GUID dedup, NPC/Horde filtering, death/TTL removal, visibility/secret guards, no statistics mutation')

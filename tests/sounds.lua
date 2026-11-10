@@ -40,4 +40,9 @@ assert(not A.SelectNearbySound('alliance','Invalid'),'invalid media values exclu
 assert(A.SelectNearbySound('alliance','None'));local before=#sounds;assert(not A.PlayNearbyTone('alliance')and #sounds==before,'standard None choice is silent')
 A.SelectNearbySound('alliance','Addon alarm');media['Addon alarm']=nil
 assert(A.PlayNearbyTone('alliance')and A.db.options.allianceTone=='Addon alarm','missing media safely falls back without erasing saved choice')
+A.db.options.extraGnomeSoundEnabled=true;A.audioPending={alliance=true};A.audioExtraDue=90;A.db.options.nearbyEnabled=false
+local beforePaused=#sounds;A.PumpNearbySounds(90)
+assert(#sounds==beforePaused and not A.audioExtraDue and not next(A.audioPending),'Nearby OFF cancels delayed and queued sounds even if saved state changes directly')
+A.NoteNearbySound('Player-paused-direct','Gnome',91);assert(not next(A.audioPending),'OFF suppresses direct discovery-sound scheduling')
+assert(A.PlayNearbyTone('gnome')and #sounds==beforePaused+1,'explicit Preview stays usable while automatic detection is paused')
 print('PASS sounds: general/extra toggles, independent sound/channel, delayed extra, GUID rearm, clear suppression, crowd coalescing/cooldown, preview, API failure/fallback, all SharedMedia paths/IDs, search and late registration')

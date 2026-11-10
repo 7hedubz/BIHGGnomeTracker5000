@@ -59,7 +59,7 @@ function A.Scan(unit)
   local fresh=A.Encounter(g,name,race,faction,t)
   if fresh then
    A.QueueShare(true)
-   if A.db.options.alerts~=false and DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage('|cffffb347BIHG: Gnome encountered:|r '..A.DisplayName(name)) end
+   if A.db.options.nearbyEnabled~=false and A.db.options.alerts~=false and DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage('|cffffb347BIHG: Gnome encountered:|r '..A.DisplayName(name)) end
   end
  end
  local hostile=A.Safe(UnitCanAttack,'player',unit)

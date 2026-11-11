@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.8.4'
+A.VERSION='1.8.5'
 -- Local-only feedback; a broken chat widget must never invalidate credit.
 function A.LocalNotice(text)
  if DEFAULT_CHAT_FRAME and type(DEFAULT_CHAT_FRAME.AddMessage)=='function'then pcall(DEFAULT_CHAT_FRAME.AddMessage,DEFAULT_CHAT_FRAME,'|cffffb347BIHG:|r '..text)end
@@ -88,7 +88,7 @@ function A.Init(db, owner, now)
   end
  end
  for g,t in pairs(db.dead) do if now-t>86400 then db.dead[g]=nil end end
- for _,r in pairs(db.seen or {}) do for d in pairs(r.days or {}) do if d<A.Day(now)-A.RETENTION+1 then r.days[d]=nil end end end
+ A.PruneEncounters(now,true)
 end
 function A.Award(now)
  if not A.OpenWorldKillsAllowed() then return false end
@@ -328,17 +328,90 @@ function A.MergeEncounterMetadata(target,source)
   else target[field]=nil;target[at]=nil;target[by]=nil end
  end
 end
+-- Encounter retention is independent of the 400-day credit buckets. A single
+-- account boundary (timestamp + GUID) rejects stale offline-alt replays without
+-- retaining an ever-growing per-player tombstone ledger.
+A.ENCOUNTER_AGE=90*86400
+A.ENCOUNTER_LIMIT=2000
+local function encounterTable(v)return not(A.Secret and A.Secret(v))and type(v)=='table'and not(issecrettable and issecrettable(v))end
+local function encounterNumber(v)return not(A.Secret and A.Secret(v))and type(v)=='number'and v==v and v>-math.huge and v<math.huge end
+local function encounterGUID(v)return not(A.Secret and A.Secret(v))and type(v)=='string'and v:match('^Player%-[%w%-]+$')~=nil end
+function A.ValidEncounterRecord(g,e)
+ if not encounterGUID(g)or not encounterTable(e)or not encounterNumber(e.last)or e.last<0 then return false end
+ if A.encounterNow and e.last<=A.encounterNow-A.ENCOUNTER_AGE then return false end
+ local boundary=(A.account or A.db or{}).encounterBoundary
+ if encounterTable(boundary)and encounterNumber(boundary.last)and encounterGUID(boundary.guid)and not(A.encounterKeepers and A.encounterKeepers[g])then
+  if e.last<boundary.last or(e.last==boundary.last and g>boundary.guid)then return false end
+ end
+ return true
+end
+local function newer(a,b)return a.last>b.last or(a.last==b.last and a.guid<b.guid)end
+function A.PruneEncounters(now,force)
+ if not encounterNumber(now)or now<0 then return end
+ -- Never move the retention clock backwards on a local clock rollback.
+ local state=A.account or A.db;if not state then return end
+ local previous=state.encounterClock
+ if encounterNumber(previous)and previous<=now+A.ENCOUNTER_AGE then now=math.max(now,previous)end
+ state.encounterClock=now;A.encounterNow=now
+ if not force and A.encounterDeadline and now<A.encounterDeadline then return end
+ A.encounterDeadline=now+60
+ local copies,visited={},{}
+ local function add(t)if encounterTable(t)and not visited[t]then visited[t]=true;copies[#copies+1]=t end end
+ local function records(t)
+  if not encounterTable(t)then return end
+  for _,r in pairs(t)do if encounterTable(r)then add(r.seen)end end
+ end
+ add(A.db.seen);records(A.db.owners)
+ if A.account then add(A.account.knownEncounters);records(A.account.characters)end
+ -- Identity archives and cached self records are real persisted duplicates too.
+ for _,root in ipairs({A.db,A.account or A.db})do
+  for _,group in pairs(root.identityArchives or{})do records(group)end
+  for _,group in pairs(root.guilds or{})do records(group)end
+ end
+ local boundary=state.encounterBoundary
+ if not encounterTable(boundary)or not encounterNumber(boundary.last)or not encounterGUID(boundary.guid)or boundary.last>now then boundary=nil;state.encounterBoundary=nil end
+ local best={}
+ for _,t in ipairs(copies)do for g,e in pairs(t)do
+  if not encounterGUID(g)or not encounterTable(e)or not encounterNumber(e.last)or e.last<=now-A.ENCOUNTER_AGE or e.last>now then t[g]=nil
+  else
+   if not encounterNumber(e.first)or e.first<0 or e.first>e.last then e.first=e.last end
+   if not encounterTable(e.days)then e.days={}end
+   for day in pairs(e.days)do
+    if not encounterNumber(day)or day%1~=0 or day<A.Day(now)-A.RETENTION+1 or day>A.Day(now)then e.days[day]=nil end
+   end
+   A.encounterDeadline=math.min(A.encounterDeadline,e.last+A.ENCOUNTER_AGE)
+   if not best[g]or e.last>best[g]then best[g]=e.last end
+  end
+ end end
+ -- Until InitAccount exposes the union, only age/validity pruning is safe:
+ -- another character may make a locally old player's personal copy a keeper.
+ if not A.account then return end
+ local ranked={};for g,last in pairs(best)do
+  local candidate={guid=g,last=last}
+  if not boundary or newer(candidate,boundary)or(last==boundary.last and g==boundary.guid)then ranked[#ranked+1]=candidate end
+ end
+ if #ranked>A.ENCOUNTER_LIMIT then table.sort(ranked,newer)end
+ local keep={};for i=1,math.min(#ranked,A.ENCOUNTER_LIMIT)do keep[ranked[i].guid]=true end
+ if #ranked>A.ENCOUNTER_LIMIT then state.encounterBoundary=ranked[A.ENCOUNTER_LIMIT]end
+ for _,t in ipairs(copies)do for g in pairs(t)do if not keep[g]then t[g]=nil end end end
+ A.encounterKeepers=keep
+ A.encounterSize=math.min(#ranked,A.ENCOUNTER_LIMIT)
+ A.knownEncounterSize=0;for _ in pairs(A.account and A.account.knownEncounters or{})do A.knownEncounterSize=A.knownEncounterSize+1 end
+end
 function A.Encounter(g,name,race,faction,now,level,class)
- if type(g)~='string' or not g:match('^Player%-') or faction~='Alliance' then return false end
+ if not encounterGUID(g)or(A.Secret and A.Secret(faction))or faction~='Alliance'or not encounterNumber(now)or now<0 then return false end
+ A.PruneEncounters(now,false)
  A.db.seen=A.db.seen or {}; local r=A.db.seen[g]; local fresh=not r
  if not r then r={first=now,days={}}; A.db.seen[g]=r end
  A.MergeEncounterMetadata(r,{level=level,class=class,levelAt=now,classAt=now,levelBy=A.owner,classBy=A.owner})
- r.name=name or r.name or g; r.race=race or r.race; r.last=now; r.days=r.days or {}; r.days[A.Day(now)]=true
+ r.name=name or r.name or g; r.race=race or r.race; r.last=math.max(r.last or now,now); r.days=r.days or {}; r.days[A.Day(now)]=true
  for d in pairs(r.days) do if d<A.Day(now)-A.RETENTION+1 then r.days[d]=nil end end
  if A.RememberKnownEncounter then A.RememberKnownEncounter(g,r)end
+ if fresh then A.PruneEncounters(now,true)end
  return fresh and race=='Gnome'
 end
 function A.EncounterCount(frame,now)
+ A.PruneEncounters(now,false)
  local n=0; local first=A.FirstDay(frame,now); local today=A.Day(now)
  for _,r in pairs(A.db.seen or {}) do
   if r.race=='Gnome' then

@@ -30,17 +30,24 @@ local function merge(target,source)
  return target
 end
 function A.RememberKnownEncounter(guid,entry)
- if not A.account then return end
+ if not A.account or not A.ValidEncounterRecord(guid,entry)then return end
  local cache=A.account.knownEncounters or{};A.account.knownEncounters=cache
  local old=cache[guid]
- if not old then old={days={}};cache[guid]=old end
+ if not old then old={days={}};cache[guid]=old;A.knownEncounterSize=(A.knownEncounterSize or 0)+1 end
  if not old.last or(entry.last or 0)>old.last then
   old.name=entry.name or old.name;old.race=entry.race or old.race
  else old.name=old.name or entry.name;old.race=old.race or entry.race end
  A.MergeEncounterMetadata(old,entry)
- if entry.first then old.first=math.min(old.first or entry.first,entry.first)end
- if entry.last then old.last=math.max(old.last or entry.last,entry.last)end
- old.days=old.days or{};for day in pairs(entry.days or{})do old.days[day]=true end
+ local first=entry.first
+ if(A.Secret and A.Secret(first))or type(first)~='number'or first~=first or first<0 or first>entry.last then first=entry.last end
+ old.first=math.min(old.first or first,first)
+ old.last=math.max(old.last or entry.last,entry.last)
+ old.days=old.days or{}
+ local days=entry.days
+ if not(A.Secret and A.Secret(days))and type(days)=='table'and not(issecrettable and issecrettable(days))then
+  for day in pairs(days)do if not(A.Secret and A.Secret(day))and type(day)=='number'and day==day and day>-math.huge and day<math.huge and day%1==0 then old.days[day]=true end end
+ end
+ if (A.knownEncounterSize or 0)>A.ENCOUNTER_LIMIT then A.PruneEncounters(A.encounterNow or A.now,true)end
 end
 function A.KnownEncounters()
  if not A.account then return A.db and A.db.seen or{}end
@@ -52,6 +59,7 @@ function A.InitAccount(account,id,now)
  account.version=1;account.id=account.id or id;account.alias=account.alias or short(A.owner)
  account.aliasRev=account.aliasRev or now;account.characters=account.characters or {};account.guilds=account.guilds or {}
  A.account=account
+ A.PruneEncounters(now,true)
  if A.InitVersionNotice then A.InitVersionNotice(now)end
  if A.PrepareLocalIdentity then A.PrepareLocalIdentity(account,now)end
  local current,source=account.characters[A.owner],A.db.owners[A.owner]
@@ -97,6 +105,7 @@ function A.InitAccount(account,id,now)
 end
 function A.SnapshotAccount(now)
  if not A.account or A.identityConflict then return end
+ A.PruneEncounters(now,true)
  local r=A.db.owners[A.owner];r.seen=A.db.seen or {};r.updated=now
  A.account.characters[A.owner]=r
  for _,record in pairs(A.account.characters) do
@@ -115,6 +124,7 @@ function A.SetAlias(alias,now)
  return true
 end
 function A.AccountEncounterCount(period,now,members)
+ A.PruneEncounters(now,false)
  members=members or A.members
  local identities={};local first=A.FirstDay(period,now);local today=A.Day(now)
  local chars=A.account and A.account.characters or {[A.owner]={seen=A.db.seen}}

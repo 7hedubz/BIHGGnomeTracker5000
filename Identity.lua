@@ -20,7 +20,11 @@ local function mergeCounts(t,s)
  for _,key in ipairs({'days','deathDays'})do t[key]=t[key]or {};for day,n in pairs(s[key]or {})do t[key][day]=math.max(t[key][day]or 0,n)end end
 end
 local function merge(t,s,now,skipBaseline)
- if t==s then return end;mergeCounts(t,s)
+ if t==s then return end
+ -- Archives are created before merging; sanitize every persisted copy before
+ -- timestamp arithmetic and before an old spelling can reintroduce history.
+ A.PruneEncounters(now,true)
+ mergeCounts(t,s)
  local baseline=not skipBaseline and s.guildBase or nil
  if not skipBaseline and not baseline and not s.observerOnly and((s.total or 0)>0 or(s.deaths or 0)>0)then baseline={since=s.updated or now,total=s.total,deaths=s.deaths,days=clone(s.days),deathDays=clone(s.deathDays)}end
  if baseline then

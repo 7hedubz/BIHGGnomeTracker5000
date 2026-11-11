@@ -4,6 +4,14 @@
 
 Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and automatic guild leaderboards.
 
+## Bounded Alliance encounter history (1.8.5)
+
+Alliance encounter records expire when **last seen is at least 90 × 86400 seconds old**, not 90 UTC date buckets after first seen. Across all initialized local characters, retain at most **2000 unique players**: newest last-seen timestamp wins, with ascending GUID as the deterministic retention tie-break. Each personal, account-cache, cached-self and identity-archive encounter copy is intersected with that shared keeper set; personal sighting dates are not replaced with another alt’s sightings. Level/class and their independent freshness, first/last timestamps and retained date memberships survive for kept records. History remains newest first; Nearby keeps its separate 30-second TTL and Gnome-first order.
+
+A bounded timestamp/GUID eviction boundary prevents stale offline character snapshots from resurrecting evicted older players; a genuine new local sighting may record them again. Missing, nonfinite, protected or future last-seen timestamps are discarded on retention passes. A persisted high-water clock tolerates rollback (implausible clocks more than 90 days ahead are reset). Pruning runs on initialization, encounter insertion, snapshot/identity merges, and at most once per minute during idle updates, with earlier deadlines for exact expiry. Existing-player scan updates do not sort history; sorting is needed only when selecting an over-cap keeper set.
+
+**Only encounter records are pruned.** Kill/death totals, baseline evidence, guild witness/credit ledgers, aggregate transport fields and notification/qualification rules are unchanged. Encounter count queries describe retained history, not lifetime unique opponents. The separate 400-day statistics/date-bucket policy is unchanged. No new runtime files or TOC load-list entries; source-only release requires review/install and native validation before use.
+
 ## Chronological encounter history (1.8.4)
 
 Alliance encounter history is always ordered by **last seen, newest first**, regardless of race or the leaderboard's sorting selection. Equal timestamps use character name as a stable tie-break. History headers do not change the leaderboard's sort state. The separate Nearby overlay retains its Gnome-first ordering. Saved history, level/class, targeting and kill/death rules are unchanged.

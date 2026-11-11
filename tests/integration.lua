@@ -590,7 +590,7 @@ DEFAULT_CHAT_FRAME.AddMessage=function(_,text)debugOutput[#debugOutput+1]=text e
 local publicBefore=#partyMessages;local addonBefore=#sent
 event('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','SendChatMessage()');SlashCmdList.BIHGGKT('debug')
 local debugText=table.concat(debugOutput,' ')
-assert(A.VERSION=='1.8.4'and tocVersion==A.VERSION,'release metadata matches actual TOC')
+assert(A.VERSION=='1.8.5'and tocVersion==A.VERSION,'release metadata matches actual TOC')
 assert(debugText:find('BIHG own death outcomes',1,true)and debugText:find('counted',1,true),'actual slash exposes persisted own death diagnostics')
 assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
 assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')

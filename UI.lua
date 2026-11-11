@@ -226,7 +226,7 @@ function A.RefreshUI()
  end
  local data={}
  if encounters then
-  A.heading:SetText('ALLIANCE ENCOUNTERS | Account-wide local history; Gnomes highlighted')
+  A.heading:SetText('ALLIANCE ENCOUNTERS | Last 90 days; newest 2000 players account-wide')
   local labels={'Level','Character','Class','Race','Last seen','Days seen'};for j,label in ipairs(labels)do A.headers[j]:SetText(label)end
   local first=A.FirstDay(period,now)
   for guid,r in pairs(A.KnownEncounters()) do

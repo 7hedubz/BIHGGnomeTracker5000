@@ -10,6 +10,7 @@ return function(A,event,tick,clock,units,transition)
  A.db.options.nearbyEnabled=false
  A.Scan('target',{},true)
  A.OpenView('Encounters',false)
+ assert(A.heading.text:find('90 days',1,true)and A.heading.text:find('2000',1,true),'history visibly labels retention limits')
  local r=A.db.seen[g]
  assert(r and r.level==72 and r.class=='Death Knight','Runtime Scan persists readable level/class even with Nearby OFF and non-Gnome race')
  local row;for _,v in ipairs(A.rows)do if v.data and v.data.targetName=='History-Realm'then row=v end end
@@ -91,5 +92,10 @@ return function(A,event,tick,clock,units,transition)
  A.nearbySeen={['Player-near-gnome']={guid='Player-near-gnome',name='Older',race='Gnome',seen=t+98},['Player-near-human']={guid='Player-near-human',name='Newer',race='Human',seen=t+99}}
  assert(A.NearbyList(t+100)[1].race=='Gnome','Nearby keeps its independent Gnome-first ordering')
  A.nearbySeen=savedNearby
+ units.target=nil;units.focus=nil;units.mouseover=nil
+ clock(t+90*86400+101);tick(0.5)
+ assert(next(A.KnownEncounters())==nil,'idle runtime expires history at 90 days without a new encounter')
+ A.OpenView('Encounters',false)
+ assert(not A.rows[1].data,'expired rows disappear from actual history UI')
  print('PASS encounters: runtime scan to persistent history to board and tooltip, Nearby OFF, non-Gnome, raw secure identity, chronological history')
 end

@@ -613,6 +613,7 @@ frame:SetScript('OnUpdate',function(_,dt)
  local ok,err=pcall(function()
   if A.TargetingLocked and not A.TargetingLocked()then if not A.window and A.CreateUI then A.CreateUI()end;if not A.nearbyFrame and A.CreateNearbyUI then A.CreateNearbyUI()end end
   A.ScanVisible();A.Recap();local t=now()
+  A.PruneEncounters(t,false)
   if A.CheckVersionNotice then A.CheckVersionNotice(t)end
   -- Sparse, independently throttled party alerts get a budget slot before
   -- bulk history; otherwise a full queue can consume every available slot.

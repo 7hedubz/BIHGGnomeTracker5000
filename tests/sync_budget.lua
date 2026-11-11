@@ -68,7 +68,7 @@ A=fresh();A.syncSession='old-session';A.lastRequest=t;A.RequestFullSync()
 assert(A.request and A.fullShare and A.helloPending and not A.syncSession,'manual refresh requests a new session catchup plus full local share')
 A=fresh();sent={};A.lastRequest=t;A.outgoing={'survive-combat'};A.outIndex=1
 InCombatLockdown=function()return true end;A.Pump(t+100);assert(A.outIndex==1 and #sent==0,'combat never advances queue')
-InCombatLockdown=function()return false end;A.Pump(t+101);A.Pump(t+102);assert(not A.outgoing,'combat resume completes retained queue')
+InCombatLockdown=function()return false end;A.Pump(t+101);A.Pump(t+102);A.Pump(t+103);assert(not A.outgoing,'combat resume completes retained queue after paced Q/version controls')
 A=fresh();sent={};assert(A.SendPacket(string.rep('x',255),t));assert(A.SendPacket(string.rep('x',255),t+.5))
 assert(not A.SendPacket(string.rep('x',255),t+1),'byte allowance independently limits large messages')
 assert(not A.SendPacket('clock-reset',t-10),'clock reversal cannot refill a burst')

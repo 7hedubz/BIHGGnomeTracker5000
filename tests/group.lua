@@ -39,10 +39,10 @@ assert(not A.PeerRecords()['Guest-Realm'],'guest never gets a statistics record'
 assert(not A.GroupDeath('Player-gnome',now+1),'duplicate corpse ignored')
 A.GroupObserve('Player-gnome','Gnome',true,1000,now+10,false)
 A.GroupDamage('Player-gnome',19,0,'Player-friend',now+10)
-A.GroupDeath('Player-gnome',now+11)
+A.GroupDeath('Player-gnome',now+11,true)
 assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+11).total==1,'under two percent is not credit')
 A.GroupObserve('Player-gnome','Gnome',true,nil,now+20,false)
-A.GroupCC('Player-gnome',118,'Pet-friend',now+20);A.GroupDeath('Player-gnome',now+21)
+A.GroupCC('Player-gnome',118,'Pet-friend',now+20);A.GroupDeath('Player-gnome',now+21,true)
 assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+21).total==2,'confirmed guildmate pet CC qualifies without guessed max HP')
 local packets=A.GroupPackets(true,now+22);assert(#packets>0)
 for _,p in ipairs(packets)do assert(#p<=255,'observer protocol exceeds packet bound')end

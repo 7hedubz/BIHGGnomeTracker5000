@@ -48,6 +48,46 @@ end
 local function own(unit)
  return unit and (A.Safe(UnitIsUnit,unit,'player')==true or A.Safe(UnitIsUnit,unit,'pet')==true)
 end
+-- Corpse auras can complete negative-feedback evidence, but are never new
+-- contributions. Do not touch polling, application dedup or eligibility here.
+local function corpseAurasComplete(unit)
+ local provider=C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+ if type(provider)~='function'then return false end
+ for i=1,80 do
+  local ok,a=pcall(provider,unit,i,'HARMFUL')
+  if not ok or A.Secret(a)then return false end
+  if a==nil then return true end
+  if type(a)~='table'or(issecrettable and issecrettable(a))then return false end
+  local good,readableRow=pcall(function()
+   for _,key in ipairs({'spellId','sourceUnit','auraInstanceID','expirationTime','isHelpful','isHarmful'})do
+    if A.Secret(a[key])then return false end
+   end
+   return type(a.spellId)=='number'and type(a.sourceUnit)=='string'and A.Safe(UnitGUID,a.sourceUnit)~=nil
+  end)
+  if not good or not readableRow then return false end
+ end
+ return false
+end
+-- A GUID-only callback after rearming can replay the previous life forever.
+-- Only an actually exposed, readable corpse can correlate it to the new life.
+function A.ReadableKillCorpse(g)
+ if A.Secret(g)or type(g)~='string'then return false end
+ if not((A.encounters and A.encounters[g])or(A.groupTargets and A.groupTargets[g]))then return false end
+ local units={'target','focus','mouseover'}
+ for unit in pairs(A.plates or {})do units[#units+1]=unit end
+ for _,unit in ipairs(A.groupUnits or {})do units[#units+1]=unit..'target' end
+ for _,unit in ipairs(units)do
+  if A.Safe(UnitExists,unit)==true and A.Safe(UnitIsPlayer,unit)==true
+   and A.Safe(UnitGUID,unit)==g and A.Safe(UnitIsDeadOrGhost,unit)==true then
+   if not corpseAurasComplete(unit)then
+    local e=A.encounters and A.encounters[g];if e then e.creditUnknown=true end
+    e=A.groupTargets and A.groupTargets[g];if e then e.creditUnknown=true end
+   end
+   return true
+  end
+ end
+ return false
+end
 function A.Scan(unit,seen,forceAura)
  A.RefreshKillLocation(false)
  if not A.db or not A.Safe(UnitExists,unit) or not A.Safe(UnitIsPlayer,unit) then return end
@@ -85,10 +125,15 @@ function A.Scan(unit,seen,forceAura)
  local hostile=A.Safe(UnitCanAttack,'player',unit)
  if type(hostile)~='boolean' then scanState.complete=false end
  local hp=A.Safe(UnitHealthMax,unit)
+ local prior=A.GroupObserve and A.groupTargets[g]or A.encounters[g]
+ -- GroupObserve may finalize immediately, so completeness must precede it.
+ if dead==true and prior and not corpseAurasComplete(unit)then scanState.complete=false end
+ if prior and not scanState.complete then prior.creditUnknown=true end
  if A.GroupObserve then A.GroupObserve(g,race,hostile,hp,t,dead)else A.Observe(g,race,hostile,hp,t,dead)end
  -- Corpses and mind-controlled targets may no longer be attackable. Preserve
  -- hostility established while alive; never infer hostile credit from a corpse.
  local encounter=A.GroupObserve and A.groupTargets[g]or A.encounters[g]
+ if encounter and not scanState.complete then encounter.creditUnknown=true end
  if race~='Gnome' or not (hostile or (encounter and encounter.hostile)) then return end
  if dead then if A.GroupDeath then A.GroupDeath(g,t,true)else A.Death(g,t,true)end;return end
  if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
@@ -128,7 +173,9 @@ function A.Scan(unit,seen,forceAura)
   -- Errors, secret rows and the enumeration cap never prove absence.
   -- A readable aura list cannot complete missing identity/life/hostility evidence.
   scanState.complete=scanState.complete and complete
+  if encounter and not complete then encounter.creditUnknown=true end
   if complete then for key in pairs(A.auras[g]or {})do if not present[key]then A.auras[g][key]=nil end end end
+ elseif encounter then encounter.creditUnknown=true
  end
 end
 function A.ObserveOwnDeathHealth(newCombat)
@@ -242,17 +289,30 @@ function A.Roster(confirmed)
  if A.RefreshGroupActors then if A.CarryOwnGuildHistory then A.CarryOwnGuildHistory(now())end;A.RebuildOwnGuildTotals(now())end
  if A.RequestUIRefresh then A.RequestUIRefresh()elseif A.RefreshUI then A.RefreshUI()end
 end
+-- Dropped evidence is unknown participation, never evidence of zero damage.
+-- A hidden/missing destination cannot safely narrow the affected encounters.
+local function blockedParticipation(target)
+ A.coverage.blocked=true
+ local identified=not A.Secret(target)and type(target)=='string'and target:match('^Player%-')
+ for _,records in ipairs({A.encounters or {},A.groupTargets or {}})do
+  if identified then
+   local e=records[target];if e then e.creditUnknown=true end
+  else
+   for _,e in pairs(records)do e.creditUnknown=true end
+  end
+ end
+end
 function A.ReadCombatLog()
  if not CombatLogGetCurrentEventInfo then return end
  local function pack(...)return {n=select('#',...),...} end
  local result=pack(pcall(CombatLogGetCurrentEventInfo))
- if not result[1] then A.coverage.blocked=true; return end
+ if not result[1] then blockedParticipation(nil); return end
  local v={}
  -- Combat logs contain nil source fields on deaths. Never use #/table.remove
  -- on this sparse tuple: Lua may stop at an interior nil and shift only a prefix.
  for i=2,result.n do
   local x=result[i]
-  if A.Secret(x) then A.coverage.blocked=true; return end
+  if A.Secret(x) then blockedParticipation(result[9]); return end
   v[i-1]=x
  end
  local event,src,dst=v[2],v[4],v[8]
@@ -261,7 +321,7 @@ function A.ReadCombatLog()
  local t=now()
  if(event=='UNIT_DIED'or event=='UNIT_DESTROYED')and A.ForgetNearby then A.ForgetNearby(dst)end
  if A.GroupCombat then A.GroupCombat(v,t);return end
- if event=='UNIT_DIED' or event=='UNIT_DESTROYED' then A.Death(dst,t);return end
+ if event=='UNIT_DIED' or event=='UNIT_DESTROYED' then A.Death(dst,t,nil,true);return end
  local mine=src and (src==A.Safe(UnitGUID,'player') or src==A.Safe(UnitGUID,'pet'))
  if not mine then
   if dst==A.Safe(UnitGUID,'player') then
@@ -446,7 +506,7 @@ local function handler(_,event,...)
  elseif event=='UPDATE_MOUSEOVER_UNIT' then A.Scan('mouseover')
  elseif event=='PLAYER_FOCUS_CHANGED' then A.Scan('focus')
  elseif event=='COMBAT_LOG_EVENT_UNFILTERED' then A.ReadCombatLog()
- elseif event=='PARTY_KILL' then if not A.Secret(arg2)then if A.ForgetNearby then A.ForgetNearby(arg2)end;if A.GroupDeath then A.GroupDeath(arg2,now())else A.Death(arg2,now())end end
+ elseif event=='PARTY_KILL' then if not A.Secret(arg2)then if A.ForgetNearby then A.ForgetNearby(arg2)end;if A.GroupDeath then A.GroupDeath(arg2,now(),nil,true)else A.Death(arg2,now(),nil,true)end end
  elseif event=='PLAYER_DEAD' then
   if A.deathActive then return end
   A.ObserveOwnDeathHealth();A.deathActive=true
@@ -489,6 +549,7 @@ frame:SetScript('OnUpdate',function(_,dt)
  local ok,err=pcall(function()
   if A.TargetingLocked and not A.TargetingLocked()then if not A.window and A.CreateUI then A.CreateUI()end;if not A.nearbyFrame and A.CreateNearbyUI then A.CreateNearbyUI()end end
   A.ScanVisible();A.Recap();local t=now()
+  if A.CheckVersionNotice then A.CheckVersionNotice(t)end
   -- Sparse, independently throttled party alerts get a budget slot before
   -- bulk history; otherwise a full queue can consume every available slot.
   if A.PumpPartyAlerts then A.PumpPartyAlerts(t)end;A.Pump(t)

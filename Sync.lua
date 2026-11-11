@@ -1,5 +1,57 @@
 local _,A=...
 A.PREFIX='BIHGGKT5000'
+-- Bounded numeric triplets only, never peer-provided URLs or display strings.
+local function version(v)
+ if A.Secret and A.Secret(v)then return end
+ if type(v)~='string'or #v>17 then return end
+ local a,b,c=v:match('^(%d+)%.(%d+)%.(%d+)$')
+ if not a then return end
+ local out={a,b,c}
+ for i,s in ipairs(out)do
+  if #s>5 or(#s>1 and s:sub(1,1)=='0')then return end
+  out[i]=tonumber(s)
+ end
+ return out
+end
+function A.NewerVersion(a,b)
+ local x,y=version(a),version(b);if not x or not y then return false end
+ for i=1,3 do if x[i]~=y[i]then return x[i]>y[i]end end
+ return false
+end
+local function public(v)return not(A.Secret and A.Secret(v))end
+local function stamp(v)return public(v)and type(v)=='number'and v==v and v>=0 and v<=4102444800 end
+function A.InitVersionNotice(now)
+ if not A.account or not stamp(now)then return end
+ local old=A.account.versionNotice
+ local safe=public(old)and type(old)=='table'and not(issecrettable and issecrettable(old))
+ local highest,last
+ if safe then
+  if version(old.highest)then highest=old.highest end
+  if stamp(old.last)then last=math.min(now,old.last)
+  elseif not public(old.last)or old.last~=nil then last=now end
+ elseif not public(old)or old~=nil then last=now
+ end
+ A.account.versionNotice={highest=highest,last=last}
+ A.versionNoticeReady=A.account
+end
+function A.CheckVersionNotice(now)
+ if not A.account or not stamp(now)then return end
+ if A.versionNoticeReady~=A.account then A.InitVersionNotice(now)end
+ local s=A.account.versionNotice
+ if s.last and now<s.last then s.last=now end -- rollback defers, never bursts
+ if not s.highest or(s.last and now-s.last<900)or not A.NewerVersion(s.highest,A.VERSION)then return end
+ s.last=now -- reserve before synchronous/reentrant local chat callbacks
+ A.LocalNotice('An update is available: v'..s.highest..' (guild peer-reported; running v'..A.VERSION..').')
+end
+function A.ReceiveVersion(msg,now)
+ local v=msg:match('^2|V|(.+)$')
+ if not version(v)or not stamp(now)or not A.account then return false end
+ if A.versionNoticeReady~=A.account then A.InitVersionNotice(now)end
+ local s=A.account.versionNotice
+ if not version(s.highest)or A.NewerVersion(v,s.highest)then s.highest=v end
+ A.CheckVersionNotice(now)
+ return true
+end
 function A.CommunicationBlocked()
  if type(InCombatLockdown)~='function'then return true end
  local ok,combat=pcall(InCombatLockdown)
@@ -35,6 +87,7 @@ function A.Receive(msg,channel,sender,now)
  namespace()
  if A.guildUnverified then return false end
  if A.Secret and(A.Secret(msg)or A.Secret(channel)or A.Secret(sender))then return false end
+ if not stamp(now)then return false end
  if A.ResolveGuildSender then sender=A.ResolveGuildSender(msg,channel,sender,now)end
  if A.CanonicalCharacterName and A.guildKey and type(sender)=='string'then
   local old=A.PeerRecords()[sender];sender=A.CanonicalCharacterName(sender,old and old.characterGUID)
@@ -46,6 +99,16 @@ function A.Receive(msg,channel,sender,now)
  local global=A.rxGlobal
  if not global or now<global.start or now-global.start>=60 then global={start=now,n=0};A.rxGlobal=global end
  global.n=global.n+1;if global.n>900 then return false end
+ if msg:sub(1,4)=='2|V|'then
+  local fresh=A.rosterSeen and A.rosterSeen[sender]
+  if not fresh then
+   for _,actor in pairs(A.groupOwners or {})do
+    if actor.name==sender and A.Safe and A.Safe(GetGuildInfo,actor.unit)==A.guildName and A.guildName then fresh=true;break end
+   end
+  end
+  if not fresh then return false end
+  return A.ReceiveVersion(msg,now)
+ end
  if msg:sub(1,2)=='6|'then
   local ok=A.ReceiveCharacterIdentity and A.ReceiveCharacterIdentity(msg,sender,now)or false
   if ok then refresh()end;return ok
@@ -116,6 +179,7 @@ function A.BuildPackets(full,now)
  end
  local sorted={}; for day in pairs(days) do sorted[#sorted+1]=day end; table.sort(sorted,function(a,b)return a>b end)
  local result=A.AccountPackets and A.AccountPackets(now) or {}
+ result[#result+1]='2|V|'..A.VERSION
  local encounter={'2','E',tostring(now)}
  for _,label in ipairs(A.frames) do encounter[#encounter+1]=tostring(A.EncounterCount(label,now)) end
  result[#result+1]=table.concat(encounter,'|')
@@ -196,7 +260,11 @@ function A.Pump(now)
    return
   end
   if A.request then
-   if A.SendPacket('2|Q',now) then A.request=false else A.syncStatus='Sync request waiting / retrying'; return end
+   if A.SendPacket('2|Q',now) then A.request=false;A.versionPending=true else A.syncStatus='Sync request waiting / retrying'; return end
+  end
+  if A.versionPending then
+   if A.SendPacket('2|V|'..A.VERSION,now)then A.versionPending=nil end
+   return
   end
   A.groupControlTurn=nil
  end

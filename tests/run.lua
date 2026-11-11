@@ -44,7 +44,7 @@ test('only confirmed whitelisted CC qualifies; corpse reload and stale encounter
  A.Observe('Player-cc','Gnome',true,nil,1700000004,true); A.CC('Player-cc',118,true,1700000004)
  eq(A.Death('Player-cc',1700000005),false)
  A.Observe('Player-cc','Gnome',true,nil,1700000006,false); A.CC('Player-cc',118,true,1700000006)
- eq(A.Death('Player-cc',1700000007),true)
+ eq(A.Death('Player-cc',1700000007,true),true)
  A.Observe('Player-stale','Gnome',true,nil,1700000000,false); A.CC('Player-stale',118,true,1700000000)
  eq(A.Death('Player-stale',1700000200),false)
  A.Observe('Player-bad','Gnome',true,nil,1700000000,false)
@@ -159,10 +159,10 @@ test('full sync remains bounded and packet data survives retransmission',functio
  local r=A.db.owners[A.owner];local today=A.Day(1700000000)
  for i=0,399 do r.days[today-i]=1 end;r.total=400
  local packets=A.BuildPackets(true,1700000000)
- eq(#packets,401)
+ eq(#packets,402) -- 400 daily records, encounter summary and optional version hint
  for _,packet in ipairs(packets)do assert(#packet<=255,'packet too long')end
  local target={};local source=A.db
- A.Init(target,'Receiver-Realm',1700000000);A.members={['Healer-Realm']=true};A.guildKey='Guild-Realm';A.rx={}
+ A.Init(target,'Receiver-Realm',1700000000);A.members={['Healer-Realm']=true};A.rosterSeen={['Healer-Realm']=true};A.account={};A.guildKey='Guild-Realm';A.rx={}
  for _,packet in ipairs(packets)do eq(A.Receive(packet,'GUILD','Healer-Realm',1700000000),true)end
  local peer=A.PeerRecords()['Healer-Realm'];eq(peer.total,400);eq(A.Score(peer,'30 days',1700000000),30)
  A.Init(source,'Healer-Realm',1700000000)

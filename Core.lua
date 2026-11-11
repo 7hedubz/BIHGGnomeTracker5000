@@ -1,5 +1,33 @@
 local _, A = ...
-A.VERSION='1.8.1'
+A.VERSION='1.8.2'
+-- Local-only feedback; a broken chat widget must never invalidate credit.
+function A.LocalNotice(text)
+ if DEFAULT_CHAT_FRAME and type(DEFAULT_CHAT_FRAME.AddMessage)=='function'then pcall(DEFAULT_CHAT_FRAME.AddMessage,DEFAULT_CHAT_FRAME,'|cffffb347BIHG:|r '..text)end
+end
+function A.OpponentName(guid)
+ local name
+ local function readable(v)return not(A.Secret and A.Secret(v))end
+ if readable(guid)and type(guid)=='string'then
+  local r=A.db and A.db.seen and A.db.seen[guid]
+  if r and readable(r.name)then name=r.name end
+  if not name and type(GetPlayerInfoByGUID)=='function'then
+   local ok,_,_,_,_,_,n,realm=pcall(GetPlayerInfoByGUID,guid)
+   if ok and readable(n)and readable(realm)and type(n)=='string'then name=n end
+  end
+ end
+ if not readable(name)or type(name)~='string'or #name>128 or name:find('[%c|]')then return nil end
+ return name
+end
+function A.CreditNotice(kind,guid)
+ local name=A.OpponentName(guid)
+ A.LocalNotice((kind=='K'and'Gnome kill recorded'or'Death to Gnomes recorded')..(name and(': '..name)or''))
+end
+function A.NonqualifyingDeathNotice(guid,e,confirmed,now)
+ if confirmed~=true or not e.living or e.creditUnknown or not e.hp or e.hp<=0
+  or now<e.living or now-e.living>A.WINDOW
+  or not A.guildKey or A.guildUnverified or not(A.members and A.members[A.owner])then return end
+ A.LocalNotice('Gnome death observed: '..(A.OpponentName(guid)or'Unknown Gnome')..'. You did not qualify for kill credit.')
+end
 A.RETENTION = 400
 A.DAMAGE_FRACTION = 0.02
 -- IsInInstance has two independent returns; Safe intentionally keeps only one.
@@ -145,6 +173,7 @@ function A.PlayerDeath(id,race,now,killer,proof)
  local r=A.db.owners[A.owner]; r.deaths=(r.deaths or 0)+1
  r.deathDays=r.deathDays or {}; local d=A.Day(now)
  r.deathDays[d]=(r.deathDays[d] or 0)+1
+ A.CreditNotice('D',killer)
  if A.Changed then A.Changed() end
  return true
 end
@@ -169,7 +198,7 @@ function A.Observe(g,race,hostile,hp,now,dead)
  if A.db.dead[g] then return end
  local e=A.encounters[g]
  if not e or (e.last and now-e.last>A.WINDOW) then e={damage=0}; A.encounters[g]=e end
- e.seen=now; e.race=race; e.hostile=true
+ e.seen=now; e.race=race; e.hostile=true;if dead==false then e.living=now end
  if type(hp)=='number' and hp>0 then e.hp=math.max(e.hp or 0,hp) end
 end
 function A.Damage(g,amount,overkill,own,now)
@@ -179,11 +208,18 @@ function A.Damage(g,amount,overkill,own,now)
  if e.last and now-e.last>A.WINDOW then e.damage=0; e.cc=nil end
  e.damage=e.damage+math.max(0,amount-math.max(0,tonumber(overkill) or 0)); e.last=now
 end
-function A.Death(g,now,corpseConfirmed)
+function A.Death(g,now,corpseConfirmed,deathConfirmed)
  if not A.OpenWorldKillsAllowed() then return false end
- if not corpseConfirmed and A.killLifeAfter and A.killLifeAfter[g] and now-A.killLifeAfter[g]<=3 then return false end
+ if corpseConfirmed~=true and A.killLifeAfter and A.killLifeAfter[g]then
+  if not(A.ReadableKillCorpse and A.ReadableKillCorpse(g))then return false end
+  corpseConfirmed=true
+ end
  local e=A.encounters[g]; A.encounters[g]=nil
- if not e or A.db.dead[g] or not e.last or now-e.last>A.WINDOW then return false end
+ if not e or A.db.dead[g] then return false end
+ if not e.last or now-e.last>A.WINDOW then
+  if corpseConfirmed==true or deathConfirmed==true then A.db.dead[g]=now;A.NonqualifyingDeathNotice(g,e,true,now)end
+  return false
+ end
  if A.auras then A.auras[g]=nil end
  local qualified=e.cc or (e.hp and e.damage>=e.hp*A.DAMAGE_FRACTION)
  -- Reserve the corpse before Award invokes synchronous Changed callbacks.
@@ -191,6 +227,8 @@ function A.Death(g,now,corpseConfirmed)
  if qualified then
   A.killAwardActive=true;local awarded=A.Award(now);A.killAwardActive=nil
   if not awarded then A.db.dead[g]=nil;return false end
+  A.CreditNotice('K',g)
+ else A.NonqualifyingDeathNotice(g,e,corpseConfirmed==true or deathConfirmed==true,now)
  end
  return qualified and true or false
 end

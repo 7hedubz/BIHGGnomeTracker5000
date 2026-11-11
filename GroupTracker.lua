@@ -146,6 +146,7 @@ function A.GroupObserve(g,race,hostile,hp,now,dead)
  local e=A.groupTargets[g]
  if not e and hostile==true and not dead then e={actors={},seen=now};A.groupTargets[g]=e end
  if not e then return end
+ if dead==false then e.living=now end
  local active=false;for _,p in pairs(e.actors)do if now-p.last<=A.WINDOW then active=true;break end end
  if not active then e.actors={};e.hp=nil end
  e.seen=now;if type(hp)=='number'and hp>0 then e.hp=math.max(e.hp or 0,hp)end
@@ -169,33 +170,46 @@ function A.GroupCC(g,spell,source,now,harmful)
  if type(spell)~='number'or spell<1 or spell%1~=0 or harmful==false or(not A.CCSpells[spell]and harmful~=true)then return false end
  local p=participant(g,source,now);if not p then return false end;p.cc=true;return true
 end
-function A.GroupDeath(g,now,corpseConfirmed)
+function A.GroupDeath(g,now,corpseConfirmed,deathConfirmed)
  if not A.OpenWorldKillsAllowed() then return false end
  if not player(g)then return false end
- -- GUID-only callbacks inside the cross-client replay window cannot prove
- -- that a newly observed living life died. Preserve it for a readable corpse.
- if not corpseConfirmed and A.killLifeAfter and A.killLifeAfter[g] and now-A.killLifeAfter[g]<=3 then return false end
+ -- Elapsed time never disambiguates an old GUID-only callback after rearm.
+ if corpseConfirmed~=true and A.killLifeAfter and A.killLifeAfter[g]then
+  if not(A.ReadableKillCorpse and A.ReadableKillCorpse(g))then return false end
+  corpseConfirmed=true
+ end
  local e=A.groupTargets[g];A.groupTargets[g]=nil
  if not e or A.db.dead[g]then return false end
  if A.auras then A.auras[g]=nil end
- A.db.dead[g]=now;local awarded=false
+ A.db.dead[g]=now;local awarded,ownQualified=false,false
  for _,p in pairs(e.actors)do
-  if now-p.last<=A.WINDOW and(p.cc or(e.hp and p.damage>=e.hp*A.DAMAGE_FRACTION))then if A.AddGuildEvent('K',p.name,p.guid,g,now,p.last,now,A.killLifeAfter and A.killLifeAfter[g])then awarded=true end end
+  if p.name==A.owner and now-p.last<=A.WINDOW and(p.cc or(e.hp and p.damage>=e.hp*A.DAMAGE_FRACTION))then ownQualified=true end
  end
+ local personal=A.encounters[g]
+ if personal and personal.last and now-personal.last<=A.WINDOW and(personal.cc or(personal.hp and personal.damage>=personal.hp*A.DAMAGE_FRACTION))then ownQualified=true end
+ for _,p in pairs(e.actors)do
+  if now-p.last<=A.WINDOW and(p.cc or(e.hp and p.damage>=e.hp*A.DAMAGE_FRACTION))then if A.AddGuildEvent('K',p.name,p.guid,g,now,p.last,now,A.killLifeAfter and A.killLifeAfter[g])then awarded=true;if p.name==A.owner then A.CreditNotice('K',g)end end end
+ end
+ if not ownQualified then A.NonqualifyingDeathNotice(g,e,corpseConfirmed==true or deathConfirmed==true,now)end
  return awarded
 end
 function A.GroupOwnDeath(id,race,now,killer,proof)
  if type(id)~='string'or not A.ValidGnomeDeathEvidence(proof,now)or killer~=proof.source or not A.guildKey or not A.members[A.owner]then return false end
  A.db.recaps=A.db.recaps or {};if A.db.recaps[id]then return false end;A.db.recaps[id]=now
  for key,stamp in pairs(A.db.recaps)do if now-stamp>86400 then A.db.recaps[key]=nil end end
- local guid=A.Safe(UnitGUID,'player');return A.AddGuildEvent('D',A.owner,guid,killer,now,now,now)
+ local guid=A.Safe(UnitGUID,'player');local added=A.AddGuildEvent('D',A.owner,guid,killer,now,now,now)
+ if added then A.CreditNotice('D',killer)end
+ return added
 end
 function A.GroupCombat(v,now)
  local event,source,target=v[2],v[4],v[8]
  if event=='UNIT_DIED'or event=='UNIT_DESTROYED'then
-  A.GroupDeath(target,now)
+  A.GroupDeath(target,now,nil,true)
   local dead=A.groupOwners[target];local proof=A.IncomingDeathEvidence(target,now)
-  if dead and proof then A.AddGuildEvent('D',dead.name,dead.guid,proof.source,now,now,now)end
+  if dead and proof then
+   local added=A.AddGuildEvent('D',dead.name,dead.guid,proof.source,now,now,now)
+   if added and dead.name==A.owner then A.CreditNotice('D',proof.source)end
+  end
   A.groupIncoming[target]=nil;return
  end
  local amount,overkill

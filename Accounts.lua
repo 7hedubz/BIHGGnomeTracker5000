@@ -51,6 +51,7 @@ function A.InitAccount(account,id,now)
  account.version=1;account.id=account.id or id;account.alias=account.alias or short(A.owner)
  account.aliasRev=account.aliasRev or now;account.characters=account.characters or {};account.guilds=account.guilds or {}
  A.account=account
+ if A.InitVersionNotice then A.InitVersionNotice(now)end
  if A.PrepareLocalIdentity then A.PrepareLocalIdentity(account,now)end
  local current,source=account.characters[A.owner],A.db.owners[A.owner]
  if current and current.characterGUID and source.characterGUID and current.characterGUID~=source.characterGUID then

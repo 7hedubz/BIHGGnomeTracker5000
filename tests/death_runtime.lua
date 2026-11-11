@@ -299,4 +299,27 @@ test('commit-time guild membership gates still reject formerly eligible deaths',
   assert(deaths(A)==0 and A.db.deathOutcomes[1].reason=='membership rejection')
  end
 end)
+test('delayed local confirmation follows the frozen commit, once even after release',function()
+ local A,event=setup();local chat={};DEFAULT_CHAT_FRAME={AddMessage=function(_,s)chat[#chat+1]=s end}
+ local at=t;event('PLAYER_DEAD');event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED')
+ t=t+2;clock=clock+2;recap(majority(at),301);A.Recap();A.Recap()
+ assert(#chat==1 and chat[1]:find('Death to Gnomes recorded',1,true),'delayed commit must confirm once')
+ assert(not chat[1]:find('killing blow',1,true)and not chat[1]:find('killed you',1,true),'majority source is not necessarily final blow')
+end)
+test('collector and later own recap share one local confirmation',function()
+ local A,event=setup();local chat={};DEFAULT_CHAT_FRAME={AddMessage=function(_,s)chat[#chat+1]=s end}
+ A.RefreshGroupActors();A.groupIncoming['Player-me']={started=t,health=1000,events=majority()}
+ local v={[2]='UNIT_DIED',[8]='Player-me'};A.GroupCombat(v,t)
+ assert(#chat==1,'actual own collector commit must confirm locally')
+ recap(majority(),302);event('PLAYER_DEAD');A.Recap();assert(#chat==1,'recap must not duplicate collector confirmation')
+end)
+test('legacy personal deaths confirm only committed strict-majority credit and isolate chat errors',function()
+ local A=setup();A.GroupOwnDeath=nil;local chat={};DEFAULT_CHAT_FRAME={AddMessage=function(_,s)chat[#chat+1]=s end}
+ local proof={damage=500,maxHealth=1000,source='Player-a',time=t}
+ assert(not A.PlayerDeath('half','Gnome',t,'Player-a',proof));assert(#chat==0)
+ proof.damage=501;assert(A.PlayerDeath('legacy','Gnome',t,'Player-a',proof));assert(#chat==1,'legacy death commit confirms')
+ assert(not A.PlayerDeath('legacy','Gnome',t,'Player-a',proof));assert(#chat==1)
+ DEFAULT_CHAT_FRAME.AddMessage=function()error('injected local chat failure')end
+ assert(A.PlayerDeath('legacy-next','Gnome',t,'Player-a',proof));assert(deaths(A)==2,'chat failure cannot roll back credit')
+end)
 print('ALL '..passed..' DEATH RUNTIME TESTS PASSED')

@@ -125,6 +125,10 @@ local function tick()
 end
 local function delayed()local t=timers;timers={};for _,fn in ipairs(t)do fn()end end
 event('ADDON_LOADED','BIHGGnomeKillTracker5000');event('PLAYER_LOGIN');event('PLAYER_ENTERING_WORLD');tick()
+if arg[2]=='notifications' then
+ assert(loadfile((arg[0]:match('^(.*)/')or'tests')..'/notifications.lua'))()(A,event,tick,function(v)if v then now=v end;return now end,units,transition,sent)
+ return
+end
 do
  local writes=0;local original=methods.SetText
  methods.SetText=function(...)writes=writes+1;return original(...)end
@@ -578,7 +582,7 @@ DEFAULT_CHAT_FRAME.AddMessage=function(_,text)debugOutput[#debugOutput+1]=text e
 local publicBefore=#partyMessages;local addonBefore=#sent
 event('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','SendChatMessage()');SlashCmdList.BIHGGKT('debug')
 local debugText=table.concat(debugOutput,' ')
-assert(A.VERSION=='1.8.1'and tocVersion==A.VERSION,'live combat Nearby release metadata matches actual TOC')
+assert(A.VERSION=='1.8.2'and tocVersion==A.VERSION,'notification release metadata matches actual TOC')
 assert(debugText:find('BIHG own death outcomes',1,true)and debugText:find('counted',1,true),'actual slash exposes persisted own death diagnostics')
 assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
 assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')

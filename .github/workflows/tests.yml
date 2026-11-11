@@ -12,12 +12,15 @@ jobs:
       - run: luajit tests/accounts.lua .
       - run: luajit tests/identity_regressions.lua .
       - run: luajit tests/shared_cache.lua .
+      - run: luajit tests/encounters.lua .
+      - run: luajit tests/encounter_metadata.lua .
       - run: luajit tests/dashboard.lua .
       - run: luajit tests/chart_range.lua .
       - run: luajit tests/chart_scope.lua .
       - run: luajit tests/group.lua .
       - run: luajit tests/kill_lifecycle.lua .
       - run: luajit tests/death_policy.lua .
+      - run: luajit tests/native_deaths.lua .
       - run: luajit tests/death_runtime.lua .
       - run: luajit tests/world_policy.lua .
       - run: luajit tests/nearby.lua .

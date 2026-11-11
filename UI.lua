@@ -184,6 +184,8 @@ function A.RefreshUI()
   if not A.CanPostTopReport()then A.reportButton:Hide();if A.preview then A.preview:Hide()end end
   return
  end
+ local owner=GameTooltip and A.Safe(GameTooltip.GetOwner,GameTooltip)
+ if owner then for _,row in ipairs(A.rows or{})do if owner==row.button then GameTooltip:Hide();break end end end
  A.uiDirty=false;A.uiDay=A.Day(clock());A.uiMinute=math.floor(clock()/60)
  A.uiSyncStatus=A.syncStatus;A.uiRosterStatus=A.rosterStatus
  local now=clock();local period=A.period or 'Lifetime';local me=A.db.owners[A.owner];local kills,deaths=0,0
@@ -212,9 +214,9 @@ function A.RefreshUI()
  elseif A.mode=='Settings' then
   A.heading:SetText('SETTINGS | Account identity and local notifications');A.pageLabel:SetText('Account-wide alias');return
  end
- local xs=encounters and{0,350,470,610}or{0,534,729}
- local widths=encounters and{340,110,130,314}or{524,185,195}
- for j=1,4 do
+ local xs=encounters and{0,54,330,510,640,822}or{0,534,729}
+ local widths=encounters and{54,276,180,130,182,102}or{524,185,195}
+ for j=1,6 do
   local header=A.headers[j]
   if widths[j]then header:ClearAllPoints();header:SetPoint('TOPLEFT',xs[j],0);header:SetWidth(widths[j]);header:Show()else header:Hide()end
   for i,row in ipairs(A.rows)do
@@ -225,12 +227,12 @@ function A.RefreshUI()
  local data={}
  if encounters then
   A.heading:SetText('ALLIANCE ENCOUNTERS | Account-wide local history; Gnomes highlighted')
-  A.headers[1]:SetText('Character');A.headers[2]:SetText('Race');A.headers[3]:SetText('First seen');A.headers[4]:SetText('Last seen')
+  local labels={'Level','Character','Class','Race','Last seen','Days seen'};for j,label in ipairs(labels)do A.headers[j]:SetText(label)end
   local first=A.FirstDay(period,now)
   for guid,r in pairs(A.KnownEncounters()) do
    local include=period=='Lifetime'
    for day in pairs(r.days or {}) do if day>=first and day<=A.Day(now) then include=true;break end end
-   if include then data[#data+1]={name=r.name or guid,targetName=r.name,race=r.race or '?',first=r.first,last=r.last} end
+   if include then local days=0;for _ in pairs(r.days or{})do days=days+1 end;data[#data+1]={name=r.name or guid,targetName=r.name,race=r.race or '?',first=r.first,last=r.last,level=A.EncounterLevel(r.level),class=A.EncounterClass(r.class),daysSeen=days} end
   end
   table.sort(data,function(a,b)
    if A.sort=='name' then return a.name<b.name end
@@ -261,7 +263,7 @@ function A.RefreshUI()
    row.data=r;local targetName
    if encounters then targetName=r.targetName elseif r.isGroup then if #r.children==1 then targetName=r.children[1].name end else targetName=r.name end
    A.BindTargetButton(row.button,targetName);row[1]:SetText(color..label..'|r');row.button:Show()
-   if encounters then row[2]:SetText(color..r.race..'|r');row[3]:SetText(date('!%Y-%m-%d',r.first));row[4]:SetText(date('!%m-%d %H:%M',r.last))
+   if encounters then local level,class=A.NearbyIdentityText(r);row[1]:SetText(color..level..'|r');row[2]:SetText(color..label..'|r');row[3]:SetText(color..class..'|r');row[4]:SetText(color..r.race..'|r');row[5]:SetText(date('!%m-%d %H:%M',r.last));row[6]:SetText(tostring(r.daysSeen))
    else row[2]:SetText(tostring(r.k));row[3]:SetText(tostring(r.d))end
   else row.data=nil;A.BindTargetButton(row.button,nil);row.button:Hide();for _,cell in ipairs(row) do cell:SetText('') end end
  end
@@ -324,13 +326,25 @@ function A.CreateUI()
  for i,label in ipairs(labels) do local card=panel(w,18+(i-1)*468,-149,456,64);text(card,'small',12,-10,432):SetText(label);A.statCards[i]={value=text(card,'large',12,-32,430)} end
  A.summary=text(w,'small',20,-227,920);A.heading=text(w,'small',20,-255,920)
  A.tablePane=CreateFrame('Frame',nil,w);A.tablePane:SetPoint('TOPLEFT',18,-276);A.tablePane:SetSize(924,320)
- A.headers={};local xs={0,350,470,610};local widths={340,110,130,314};local sorts={'name','kills','deaths','last'}
- for i=1,4 do local idx=i;A.headers[i]=button(A.tablePane,'',xs[i],0,widths[i],function()if A.sort==sorts[idx] then A.ascending=not A.ascending else A.sort=sorts[idx];A.ascending=false end;A.page=1;A.RefreshUI()end,'Click to sort; click again to reverse.')end
+ A.headers={};local xs={0,54,330,510,640,822};local widths={54,276,180,130,182,102};local sorts={'name','kills','deaths','last','last','last'}
+ for i=1,6 do local idx=i;A.headers[i]=button(A.tablePane,'',xs[i],0,widths[i],function()local sort=A.mode=='Encounters'and(idx==2 and'name'or'last')or sorts[idx];if A.sort==sort then A.ascending=not A.ascending else A.sort=sort;A.ascending=false end;A.page=1;A.RefreshUI()end,'Click to sort; click again to reverse.')end
  A.rows={};A.expanded={}
  for i=1,12 do
-  A.rows[i]={};for j=1,4 do A.rows[i][j]=text(A.tablePane,'small',xs[j]+5,-40-(i-1)*23,widths[j]-10)end
+  A.rows[i]={};for j=1,6 do A.rows[i][j]=text(A.tablePane,'small',xs[j]+5,-40-(i-1)*23,widths[j]-10)end
   local row=A.rows[i];local hit=CreateFrame('Button',nil,A.tablePane,'SecureActionButtonTemplate');hit:SetPoint('TOPLEFT',0,-34-(i-1)*23);hit:SetSize(924,23);row.button=hit;hit:RegisterForClicks('LeftButtonDown','LeftButtonUp')
   A.AddNameHover(hit)
+  hit:HookScript('OnEnter',function(self)
+   local r=row.data
+   if A.mode=='Encounters'and r and not A.TargetingLocked()and GameTooltip then
+    local level,class=A.NearbyIdentityText(r);GameTooltip:SetOwner(self,'ANCHOR_LEFT');GameTooltip:SetText(r.name)
+    GameTooltip:AddLine('Level '..level..' | '..class..' | '..r.race,1,0.75,0.35)
+    GameTooltip:AddLine('First seen '..date('!%Y-%m-%d %H:%M',r.first)..' UTC',0.8,0.9,1)
+    GameTooltip:AddLine('Last seen '..date('!%Y-%m-%d %H:%M',r.last)..' UTC | '..r.daysSeen..' retained days seen',0.8,0.9,1);GameTooltip:Show()
+   end
+  end)
+  hit:HookScript('OnLeave',function(self)
+   if GameTooltip and A.Safe(GameTooltip.GetOwner,GameTooltip)==self then GameTooltip:Hide()end
+  end)
   hit:HookScript('OnClick',function(_,_,down)local r=row.data;if not down and not A.TargetingLocked()and r and r.isGroup then A.expanded[r.id]=not A.expanded[r.id];A.RefreshUI()end end)
  end
  A.chartsPane=CreateFrame('Frame',nil,w);A.chartsPane:SetPoint('TOPLEFT',18,-276);A.chartsPane:SetSize(924,320)
@@ -442,7 +456,10 @@ function A.CreateUI()
  w:EnableMouseWheel(true);w:SetScript('OnMouseWheel',function(_,delta)if A.mode=='Leaderboard' or A.mode=='Encounters' then A.page=(A.page or 1)-(delta>0 and 1 or -1);A.RefreshUI()end end)
  A.chartScope=A.db.options.chartScope=='Guild'and'Guild'or'Personal'
  A.period='Lifetime';for _,p in ipairs(A.frames)do if p==A.db.options.period then A.period=p end end;A.mode='Leaderboard';A.sort='kills';A.page=1
- w:SetScript('OnHide',function()A.chartDragging=nil;A.chartFromInput:ClearFocus();A.chartToInput:ClearFocus();A.db.options.period=A.period;preview:Hide();copy:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
+ w:SetScript('OnHide',function()
+  local owner=GameTooltip and A.Safe(GameTooltip.GetOwner,GameTooltip)
+  if owner then for _,row in ipairs(A.rows)do if owner==row.button then GameTooltip:Hide();break end end end
+  A.chartDragging=nil;A.chartFromInput:ClearFocus();A.chartToInput:ClearFocus();A.db.options.period=A.period;preview:Hide();copy:Hide();if A.soundPicker then A.soundPicker:Hide()end end);w:Hide()
  -- Secure state transitions can hide a window containing protected target
  -- buttons during lockdown; an insecure PLAYER_REGEN_DISABLED Hide cannot.
  if type(RegisterStateDriver)=='function'then

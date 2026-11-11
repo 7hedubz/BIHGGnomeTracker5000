@@ -37,6 +37,7 @@ function A.RememberKnownEncounter(guid,entry)
  if not old.last or(entry.last or 0)>old.last then
   old.name=entry.name or old.name;old.race=entry.race or old.race
  else old.name=old.name or entry.name;old.race=old.race or entry.race end
+ A.MergeEncounterMetadata(old,entry)
  if entry.first then old.first=math.min(old.first or entry.first,entry.first)end
  if entry.last then old.last=math.max(old.last or entry.last,entry.last)end
  old.days=old.days or{};for day in pairs(entry.days or{})do old.days[day]=true end
@@ -63,7 +64,8 @@ function A.InitAccount(account,id,now)
  local r=merge(current,source);account.characters[A.owner]=r;A.db.owners[A.owner]=r
  local seen=r.seen or {};for guid,entry in pairs(A.db.seen or {}) do
   local old=seen[guid]
-  if not old then seen[guid]=entry else
+  if not old then seen[guid]=clone(entry) else
+   A.MergeEncounterMetadata(old,entry)
    local newer=(entry.last or 0)>=(old.last or 0)
    old.first=math.min(old.first or entry.first,entry.first);old.last=math.max(old.last or entry.last,entry.last)
    if newer then old.name=entry.name or old.name;old.race=entry.race or old.race

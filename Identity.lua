@@ -38,6 +38,7 @@ local function merge(t,s,now,skipBaseline)
  for guid,v in pairs(s.seen or {})do
   local old=t.seen[guid]
   if not old then t.seen[guid]=clone(v)else
+   A.MergeEncounterMetadata(old,v)
    if v.first then old.first=math.min(old.first or v.first,v.first)end
    if v.last then old.last=math.max(old.last or v.last,v.last)end
    old.race=old.race or v.race;old.name=old.name or v.name;old.days=old.days or {};for day in pairs(v.days or {})do old.days[day]=true end

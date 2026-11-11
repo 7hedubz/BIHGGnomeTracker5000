@@ -107,15 +107,16 @@ function A.Scan(unit,seen,forceAura)
   name=A.Name(name)
  end
  local t=now()
+ local level,class=A.Safe(UnitLevel,unit),A.Safe(UnitClass,unit)
  local selfGUID=A.Safe(UnitGUID,'player')
  if A.NearbyNotice and g~=selfGUID then
   -- Explicitly invisible units must not refresh the list; otherwise use the
   -- readable unit exposure, like Spy, without claiming an exact distance.
   local visible=A.Safe(UnitIsVisible,unit)~=false
-  A.NearbyNotice(g,name,race,faction,t,dead,visible,A.Safe(UnitLevel,unit),A.Safe(UnitClass,unit))
+  A.NearbyNotice(g,name,race,faction,t,dead,visible,level,class)
  end
  if faction=='Alliance' and g~=selfGUID and A.members and A.members[A.owner]then
-  local fresh=A.Encounter(g,name,race,faction,t)
+  local fresh=A.Encounter(g,name,race,faction,t,level,class)
   if fresh then
    A.QueueShare(false)
    if A.RequestUIRefresh then A.RequestUIRefresh()end
@@ -185,6 +186,65 @@ function A.ObserveOwnDeathHealth(newCombat)
   A.ownHealth=hp;local f=A.deathFight;if f and not f.ended then f.health=math.max(f.health,hp)end
  end
 end
+-- Called only after IncomingHarmful validates a readable living tracked victim.
+-- All ingress shares this repair; pending deaths own independent frozen copies.
+function A.EstablishOwnHarmfulContext(guid,state)
+ if guid~=A.Safe(UnitGUID,'player')then return end
+ local fight=A.deathFight
+ if not fight or fight.ended then
+  A.deathFight={started=state.started,clockStart=A.Safe(GetTime),health=state.health or 0}
+ end
+end
+-- Incoming victim evidence is independent of hostile-target kill scans and
+-- Nearby. Read only living, tracked guild victims; corpse auras grant nothing.
+function A.ScanIncomingAuras(unit,force)
+ if not A.IncomingHarmful or A.Safe(UnitIsDeadOrGhost,unit)~=false then return end
+ local guid=A.Safe(UnitGUID,unit);local actor=guid and(A.groupOwners or{})[guid]
+ local provider=C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+ if not actor or type(provider)~='function'then return end
+ local t=now();local state=A.UpdateDeathCombat(guid,unit,t)
+ if not state then
+  state={started=t,events={},health=0};A.groupIncoming[guid]=state
+ end
+ local clock=A.Safe(GetTime)or t
+ state.auraClocks=state.auraClocks or {};local last=state.auraClocks[unit]
+ if not force and last and clock>=last and clock-last<1 then return end
+ state.auraClocks[unit]=clock
+ for i=1,80 do
+  local ok,a=pcall(provider,unit,i,'HARMFUL')
+  if not ok or A.Secret(a)then return end
+  if a==nil then return end
+  if type(a)=='table'and not(issecrettable and issecrettable(a))then
+   local read,id,source,helpful,harmful,instance,expires=pcall(function()
+    return a.spellId,a.sourceUnit,a.isHelpful,a.isHarmful,a.auraInstanceID,a.expirationTime
+   end)
+   if not read then return end
+   if not A.Secret(id)and not A.Secret(source)and not A.Secret(helpful)and not A.Secret(harmful)
+    and not A.Secret(instance)and not A.Secret(expires)
+    and type(source)=='string'and helpful~=true and harmful~=false then
+    local sourceGUID=A.Safe(UnitGUID,source)
+    local ok,_,race=pcall(UnitRace,source)
+    if ok and not A.Secret(race)and race=='Gnome'then
+     A.IncomingHarmful(guid,sourceGUID,id,t,nil,'DEBUFF',race,nil,unit)
+    end
+   end
+  end
+ end
+end
+function A.ScanIncomingVictim(unit,force)
+ local guid=A.Safe(UnitGUID,unit);local actor=guid and(A.groupOwners or{})[guid]
+ if not actor then return end
+ local dead=A.Safe(UnitIsDeadOrGhost,unit)
+ if dead==true then
+  -- Own deaths freeze authority and proof only at PLAYER_DEAD.
+  if guid==A.Safe(UnitGUID,'player')then return end
+  local state=(A.groupIncoming or{})[guid]
+  if not state or state.dead then return end
+  local t=now();local proof=A.IncomingDeathEvidence(guid,t)
+  state.dead=true;state.events={};state.harmful=nil
+  if proof then A.AddGuildEvent('D',actor.name,guid,proof.source,t,t,t)end
+ elseif dead==false then A.ScanIncomingAuras(unit,force)end
+end
 function A.ScanVisible()
  A.RefreshDeathLocation()
  A.RefreshKillLocation(false)
@@ -193,7 +253,7 @@ function A.ScanVisible()
  local seen={}
  for _,u in ipairs({'target','focus','mouseover'}) do A.Scan(u,seen) end
  for u in pairs(A.plates) do if A.Safe(UnitExists,u) then A.Scan(u,seen) else A.plates[u]=nil end end
- for _,u in ipairs(A.groupUnits or {})do A.Scan(u..'target',seen)end
+ for _,u in ipairs(A.groupUnits or {})do A.ScanIncomingVictim(u);A.Scan(u..'target',seen)end
  local t=now()
  for g,e in pairs(A.encounters) do if t-(e.last or e.seen or 0)>A.WINDOW then A.encounters[g]=nil end end
  for g,e in pairs(A.groupTargets or {})do if t-e.seen>A.WINDOW then A.groupTargets[g]=nil end end
@@ -492,14 +552,18 @@ local function handler(_,event,...)
  elseif event=='UNIT_AURA' or event=='UNIT_HEALTH' or event=='UNIT_FLAGS' or event=='UNIT_MAXHEALTH' then if not A.Secret(arg1) and type(arg1)=='string' then
   if arg1=='player'then A.ObserveOwnDeathHealth()end
   if(event=='UNIT_FLAGS'or event=='UNIT_MAXHEALTH')and A.RefreshGroupActors then A.RefreshGroupActors()end
+  A.ScanIncomingVictim(arg1,event=='UNIT_AURA')
   A.Scan(arg1,nil,event=='UNIT_AURA')
  end
  elseif event=='PLAYER_REGEN_DISABLED'then
-  A.ObserveOwnDeathHealth(true)
-  local guid=A.Safe(UnitGUID,'player');if guid and A.groupIncoming then A.groupIncoming[guid]=nil end
+  local guid=A.Safe(UnitGUID,'player');local state=guid and(A.groupIncoming or{})[guid]
+  local keep=state and not state.dead and not state.ended and state.harmful and now()-state.harmful.time<=A.WINDOW
+  A.ObserveOwnDeathHealth(not keep)
+  if guid and A.groupIncoming and not keep then A.groupIncoming[guid]=nil end
   if A.RefreshGroupActors then A.RefreshGroupActors()end
  elseif event=='PLAYER_REGEN_ENABLED'then
   if A.deathFight then A.deathFight.ended=now()end
+  local state=(A.groupIncoming or{})[A.Safe(UnitGUID,'player')];if state then state.ended=now()end
   if A.CreateNearbyUI and not A.nearbyFrame then A.CreateNearbyUI()end
   if A.RefreshNearby then A.RefreshNearby(now())end
  elseif event=='PLAYER_TARGET_CHANGED' then A.Scan('target')

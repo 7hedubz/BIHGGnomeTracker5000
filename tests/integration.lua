@@ -111,7 +111,7 @@ function IsInInstance()return inside,inside and 'party' or 'none' end
 function GetPlayerInfoByGUID(g)if g=='Player-gnome' then return 'Mage','MAGE','Gnome','Gnome',2,'Tiny','Realm' end end
 C_UnitAuras={GetAuraDataByIndex=function(u,i)if u=='target' and i==1 and not units.target.dead then return {spellId=118,sourceUnit='player',auraInstanceID=1,expirationTime=now+10} end end}
 C_ChatInfo={RegisterAddonMessagePrefix=noop,SendAddonMessage=function(p,m,c)sent[#sent+1]={p,m,c};return result end}
-C_DeathRecap={GetRecapLink=function()return '|Hdeath:9|h' end,GetRecapMaxHealth=function()return 1000 end,GetRecapEvents=function()return {{event='SWING_DAMAGE',amount=500,sourceGUID='Player-gnome',timestamp=now,hideCaster=false}} end}
+C_DeathRecap={GetRecapLink=function()return '|Hdeath:9|h' end,GetRecapMaxHealth=function()return 1000 end,GetRecapEvents=function()return {{event='SWING_DAMAGE',amount=19,sourceGUID='Player-gnome',timestamp=now,hideCaster=false}} end}
 local A={}
 local toc=assert(io.open(root..'/BIHGGnomeKillTracker5000.toc'))
 for line in toc:lines()do if line:match('%.lua$')then assert(loadfile(root..'/'..line))('BIHGGnomeKillTracker5000',A)end end;toc:close()
@@ -125,6 +125,14 @@ local function tick()
 end
 local function delayed()local t=timers;timers={};for _,fn in ipairs(t)do fn()end end
 event('ADDON_LOADED','BIHGGnomeKillTracker5000');event('PLAYER_LOGIN');event('PLAYER_ENTERING_WORLD');tick()
+if arg[2]=='encounters' then
+ assert(loadfile((arg[0]:match('^(.*)/')or'tests')..'/encounters.lua'))()(A,event,tick,function(v)if v then now=v end;return now end,units,transition)
+ return
+end
+if arg[2]=='native_deaths' then
+ assert(loadfile((arg[0]:match('^(.*)/')or'tests')..'/native_deaths.lua'))()(A,event,tick,function(v)if v then now=v end;return now end,units,transition)
+ return
+end
 if arg[2]=='notifications' then
  assert(loadfile((arg[0]:match('^(.*)/')or'tests')..'/notifications.lua'))()(A,event,tick,function(v)if v then now=v end;return now end,units,transition,sent)
  return
@@ -158,12 +166,12 @@ do
  C_UnitAuras.GetAuraDataByIndex=function(...)calls=calls+1;return original(...)end
  units.focus=units.target;units.mouseover=units.target;units.nameplate1=units.target;units.playertarget=units.target;A.plates.nameplate1=true
  now=now+1;A.ScanVisible()
- assert(calls==2,'one GUID exposed through five tokens must get only one aura enumeration per visible scan; got '..calls)
+ assert(calls==3,'five hostile aliases share one enumeration (2 calls), plus one bounded out-of-combat incoming victim scan; got '..calls)
  calls=0
  for i=1,100 do event('UNIT_HEALTH','target')end
  assert(calls==0,'health bursts must not repeatedly enumerate unchanged auras')
  event('UNIT_AURA','target');assert(calls==2,'explicit aura notification must inspect fresh data immediately')
- print('WORKLOAD duplicate token aura calls: 2 (observed baseline 6); 100 health events: 0; fresh aura event: 2')
+ print('WORKLOAD duplicate hostile token aura calls: 2 (baseline 6), plus 1 bounded incoming victim poll; 100 health events: 0; fresh target aura event: 2')
  units.focus=nil;units.mouseover=nil;units.nameplate1=nil;units.playertarget=nil;A.plates.nameplate1=nil
  C_UnitAuras.GetAuraDataByIndex=original
 end
@@ -209,11 +217,11 @@ assert(A.db.seen['Player-gnome'],'Alliance player memory')
 units.target.dead=true;event('UNIT_HEALTH','target');tick()
 assert(A.db.owners[A.owner].total==1,'confirmed own CC + observed death awards kill without CLEU')
 tick();event('PARTY_KILL','Player-me','Player-gnome');assert(A.db.owners[A.owner].total==1,'duplicate death ignored')
-event('PLAYER_DEAD');delayed();assert((A.db.owners[A.owner].deaths or 0)==0,'a Gnome final blow with exactly half maximum health damage does not qualify')
+event('PLAYER_DEAD');delayed();assert((A.db.owners[A.owner].deaths or 0)==0,'a Gnome final blow below two percent maximum health damage does not qualify')
 event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');now=now+1
 C_DeathRecap.GetRecapLink=function()return '|Hdeath:10|h'end
-C_DeathRecap.GetRecapEvents=function()return{{event='SWING_DAMAGE',amount=100,sourceGUID='Player-human',timestamp=now,hideCaster=false},{event='SPELL_DAMAGE',amount=600,sourceGUID='Player-gnome',timestamp=now-1,hideCaster=false}}end
-event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'more than half health from a Gnome qualifies even when a different race lands the final blow')
+C_DeathRecap.GetRecapEvents=function()return{{event='SWING_DAMAGE',amount=100,sourceGUID='Player-human',timestamp=now,hideCaster=false},{event='SPELL_DAMAGE',amount=20,sourceGUID='Player-gnome',timestamp=now-1,hideCaster=false}}end
+event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'exactly two percent health from a Gnome qualifies even when a different race lands the final blow')
 event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'same actual death and recap ignored')
 event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');now=now+2;event('PLAYER_DEAD');delayed()
 assert(A.db.owners[A.owner].deaths==1,'a recap already used in a previous life cannot qualify a new death')
@@ -262,11 +270,11 @@ issecretvalue=function()return false end
 local oldRoster=GetNumGuildMembers;GetNumGuildMembers=function()return 0 end
 A.Roster();assert(A.PeerRecords()['Friend-Realm'],'unloaded roster preserves cached stats')
 GetNumGuildMembers=oldRoster;A.Roster()
--- Leaderboard exposes only kills/deaths; encounter history keeps its own four fields.
+-- Leaderboard exposes only kills/deaths; encounter history keeps its own six fields.
 A.mode='Leaderboard';A.RefreshUI()
 assert(#A.statCards==2,'summary contains only kills and deaths')
 assert(A.headers[1].text=='Alias / character'and A.headers[2].text=='Kills'and A.headers[3].text=='Deaths','leaderboard has only character, kills and deaths headings')
-assert(not A.headers[4]:IsShown()and not A.headers[5],'no K/D or Encountered columns remain on the board')
+assert(not A.headers[4]:IsShown()and not A.headers[5]:IsShown()and not A.headers[6]:IsShown(),'no K/D or Encountered columns remain on the board')
 assert(not A.rows[1][4]:IsShown()and A.rows[1][4].text=='','no stale encounter date or removed metric cell is visible on the board')
 A.headers[3].scripts.OnClick();assert(A.sort=='deaths','death sorting still works')
 A.headers[3].scripts.OnClick();assert(A.ascending,'reverse sort')
@@ -274,7 +282,7 @@ for i=1,7 do A.periodButtons[i].scripts.OnClick()end
 A.window.scripts.OnMouseWheel(nil,-1)
 SlashCmdList.BIHGGKT('alerts');SlashCmdList.BIHGGKT('encounters');assert(A.window:IsShown(),'encounter command opens')
 A.mode='Encounters';A.RefreshUI()
-assert(A.headers[4]:IsShown()and A.headers[4].text=='Last seen'and A.rows[1][4]:IsShown(),'encounter history retains its Last seen column')
+assert(A.headers[5]:IsShown()and A.headers[5].text=='Last seen'and A.rows[1][5]:IsShown(),'encounter history retains its Last seen column')
 A.mode='Leaderboard';A.RefreshUI()
 assert(not A.headers[4]:IsShown()and not A.rows[1][4]:IsShown(),'returning to leaderboard removes the history-only fourth field')
 local click=BIHGGKTMinimap.scripts.OnClick
@@ -292,7 +300,7 @@ assert(A.owner=='Tester Realm-Realm','internal owner key stays realm qualified')
 A.mode='Leaderboard';A.RefreshUI()
 for _,row in ipairs(A.rows) do assert(not (row[1].text or ''):find('-Realm',1,true),'leaderboard displays character names only') end
 A.mode='Encounters';A.RefreshUI()
-for _,row in ipairs(A.rows) do assert(not (row[1].text or ''):find('-Realm',1,true),'encounter log displays character names only') end
+for _,row in ipairs(A.rows) do assert(not (row[2].text or ''):find('-Realm',1,true),'encounter log displays character names only') end
 assert(A.db.seen['Player-gnome'].name=='Tiny-Realm','saved encounter identity remains intact')
 A.OpenView('Settings',false);assert(A.settingsPane:IsShown() and not A.tablePane:IsShown(),'settings are separated from table navigation')
 A.aliasInput:SetText('Raid Leader');A.aliasSave.scripts.OnClick()
@@ -582,7 +590,7 @@ DEFAULT_CHAT_FRAME.AddMessage=function(_,text)debugOutput[#debugOutput+1]=text e
 local publicBefore=#partyMessages;local addonBefore=#sent
 event('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','SendChatMessage()');SlashCmdList.BIHGGKT('debug')
 local debugText=table.concat(debugOutput,' ')
-assert(A.VERSION=='1.8.2'and tocVersion==A.VERSION,'notification release metadata matches actual TOC')
+assert(A.VERSION=='1.8.3'and tocVersion==A.VERSION,'notification release metadata matches actual TOC')
 assert(debugText:find('BIHG own death outcomes',1,true)and debugText:find('counted',1,true),'actual slash exposes persisted own death diagnostics')
 assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
 assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')
@@ -616,7 +624,7 @@ A.guildKey=liveKey;A.members=liveMembers;A.RefreshUI()
 event('PLAYER_ALIVE');local oldAffectingCombat=UnitAffectingCombat;UnitAffectingCombat=function()return true end
 units.player.hp=1000;event('PLAYER_REGEN_DISABLED');A.RefreshGroupActors();local deathBeforePeak=A.db.owners[A.owner].deaths
 units.player.hp=2000;event('UNIT_MAXHEALTH','player');units.player.hp=1000;event('UNIT_MAXHEALTH','player')
-local incoming={};incoming[2]='SWING_DAMAGE';incoming[4]='Player-gnome';incoming[8]='Player-me';incoming[12]=600;incoming[13]=0
+local incoming={};incoming[2]='SWING_DAMAGE';incoming[4]='Player-gnome';incoming[8]='Player-me';incoming[12]=39;incoming[13]=0
 A.GroupCombat(incoming,now);local ownDied={};ownDied[2]='UNIT_DIED';ownDied[8]='Player-me';A.GroupCombat(ownDied,now)
 assert(A.db.owners[A.owner].deaths==deathBeforePeak,'incoming UNIT_DIED cannot bypass the observed transient max-health peak')
 -- Late collector creation at the lower current health still uses the known own peak.

@@ -32,22 +32,50 @@ local function unitName(unit)
 end
 function A.UpdateDeathCombat(guid,unit,t)
  A.groupIncoming=A.groupIncoming or{};local state=A.groupIncoming[guid]
+ local dead=A.Safe(UnitIsDeadOrGhost,unit)
+ if dead~=false then return state end
+ if state and state.dead then state=nil;A.groupIncoming[guid]=nil end
  local fighting=A.Safe(UnitAffectingCombat,unit);local hp=A.Safe(UnitHealthMax,unit)
  if fighting==true then
   if not state or state.ended then state={started=t,events={},health=0};A.groupIncoming[guid]=state end
- elseif fighting==false and state and not state.ended then state.ended=t end
+  state.combat=true
+ elseif fighting==false and state and state.combat and not state.ended then state.ended=t end
  if state and type(hp)=='number'and hp>0 and hp<math.huge then state.health=math.max(state.health,hp)end
  return state
 end
 function A.IncomingDeathEvidence(guid,t)
  local state=(A.groupIncoming or{})[guid]
- if not state or(state.ended and t-state.ended>2)then return end
+ if not state or state.dead or(state.ended and t-state.ended>2)then return end
  local health,start=state.health,state.started
  if guid==A.Safe(UnitGUID,'player')and A.deathFight then
   health=math.max(health,A.deathFight.health or 0)
   start=math.max(start,A.deathFight.started or start)
  end
+ local harmful=state.harmful
+ if harmful and harmful.time>=start and harmful.time<=t and t-harmful.time<=A.WINDOW then
+  return {damage=0,maxHealth=health,source=harmful.source,time=t,harmful=true}
+ end
  return A.GnomeDeathEvidence(state.events,health,t,start)
+end
+-- Store the latest validated living harmful observation (one bounded proof).
+-- Reinspection is positive current evidence; cache age/failed scans are not.
+-- Native combat is optional for this proof, never for collector damage.
+function A.IncomingHarmful(guid,source,spell,t,event,auraType,sourceRace,hideCaster,victimUnit)
+ local actor=(A.groupOwners or{})[guid]
+ local unit=victimUnit or(actor and actor.unit)
+ if not actor or A.Safe(UnitExists,unit)~=true or(victimUnit and A.Safe(UnitIsPlayer,unit)~=true)
+  or A.Safe(UnitGUID,unit)~=guid or A.Safe(UnitIsDeadOrGhost,unit)~=false then return false end
+ local state=A.UpdateDeathCombat(guid,unit,t)
+ local row={event=event or 'SPELL_AURA_APPLIED',sourceGUID=source,spellId=spell,timestamp=t,auraType=auraType,hideCaster=hideCaster}
+ local proof=A.GnomeHarmfulEvidence(row,t,state and not state.ended and state.started or t,sourceRace)
+ if not proof then return false end
+ if not state or state.ended then
+  state={started=t,events={},health=0};A.groupIncoming[guid]=state
+  local hp=A.Safe(UnitHealthMax,unit);if type(hp)=='number'and hp>0 and hp<math.huge then state.health=hp end
+ end
+ if not state.harmful or proof.time>state.harmful.time then state.harmful=proof end
+ if A.EstablishOwnHarmfulContext then A.EstablishOwnHarmfulContext(guid,state)end
+ return true
 end
 function A.RefreshGroupActors()
  A.groupSources={};A.groupOwners={};A.groupUnits={}
@@ -76,6 +104,9 @@ function A.RefreshGroupActors()
   local n=A.Safe(GetNumSubgroupMembers)or math.max(0,(A.Safe(GetNumGroupMembers)or 1)-1)
   for i=1,math.min(n,4)do add('party'..i,'partypet'..i)end
  end
+ -- Departed/untracked victims cannot retain session proof for a later visit.
+ -- Pending own-death contexts contain independent frozen values.
+ for guid in pairs(A.groupIncoming or{})do if not A.groupOwners[guid]then A.groupIncoming[guid]=nil end end
 end
 function A.GuildEffectiveRecord(name,r,now,guildKey)
  r=r or record();local s,index=store(guildKey);if not s then return r end
@@ -220,12 +251,17 @@ function A.GroupCombat(v,now)
   A.GroupDamage(target,amount,overkill,source,now)
   if A.groupOwners[target]then
    local actor=A.groupOwners[target];local state=A.UpdateDeathCombat(target,actor.unit,now)
-   if state and(not state.ended or now-state.ended<=2)then
-    state.events[#state.events+1]={event=event,sourceGUID=source,amount=amount,overkill=overkill,timestamp=now}
+   if state and state.combat and not state.dead and(not state.ended or now-state.ended<=2)then
+    local index=event=='SWING_DAMAGE'and 12 or 15
+    state.events[#state.events+1]={event=event,sourceGUID=source,amount=amount,overkill=overkill,timestamp=now,
+     hideCaster=v[3],resisted=v[index+3],blocked=v[index+4],absorbed=v[index+5]}
     if #state.events>2000 then table.remove(state.events,1)end
    end
   end
- elseif event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'or event=='SPELL_AURA_APPLIED_DOSE'then if v[15]=='DEBUFF'then A.GroupCC(target,v[12],source,now,true)end
+ elseif event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'or event=='SPELL_AURA_APPLIED_DOSE'then if v[15]=='DEBUFF'then
+  A.GroupCC(target,v[12],source,now,true)
+  A.IncomingHarmful(target,source,v[12],now,event,v[15],nil,v[3])
+ end
  end
 end
 local function eventPacket(e)return table.concat({'5','E',e.kind,A.EncodeAlias(e.name),e.actor,e.target,e.time,e.contribution},'|')end

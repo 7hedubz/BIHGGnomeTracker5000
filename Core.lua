@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.8.2'
+A.VERSION='1.8.3'
 -- Local-only feedback; a broken chat widget must never invalidate credit.
 function A.LocalNotice(text)
  if DEFAULT_CHAT_FRAME and type(DEFAULT_CHAT_FRAME.AddMessage)=='function'then pcall(DEFAULT_CHAT_FRAME.AddMessage,DEFAULT_CHAT_FRAME,'|cffffb347BIHG:|r '..text)end
@@ -132,21 +132,45 @@ local function deathRow(e,deathTime,combatStart)
  if race~='Gnome' then return nil,0,true end
  return g,math.max(0,amount-overkill-absorbed-resisted-blocked),true
 end
+local deathAuraEvents={SPELL_AURA_APPLIED=true,SPELL_AURA_REFRESH=true,SPELL_AURA_APPLIED_DOSE=true}
+local function deathHarmfulRow(e,deathTime,combatStart,sourceRace)
+ if not deathTable(e) then return end
+ local event,t,g,spell,aura,hidden=e.event,e.timestamp,e.sourceGUID,e.spellId,e.auraType,e.hideCaster
+ if deathSecret(event) or type(event)~='string' or not deathAuraEvents[event]
+  or not deathNumber(t) or t<combatStart or t>deathTime+1 or not deathPlayer(g)
+  or not deathNumber(spell) or spell<1 or spell%1~=0 or deathSecret(aura) or aura~='DEBUFF'
+  or deathSecret(hidden) or(hidden~=nil and hidden~=false)then return end
+ if deathSecret(sourceRace)then return end
+ if sourceRace~=nil then if sourceRace=='Gnome'then return g end;return end
+ if type(A.Race)~='function'then return end
+ local ok,race=pcall(A.Race,g)
+ if ok and not deathSecret(race)and race=='Gnome'then return g end
+end
+function A.GnomeHarmfulEvidence(row,t,start,race)
+ if not deathNumber(t)or not deathNumber(start)or start>t then return end
+ local source=deathHarmfulRow(row,t,start,race)
+ if source then return {damage=0,source=source,time=t,harmful=true}end
+end
 function A.GnomeDeathEvidence(events,maxHealth,deathTime,combatStart)
- if not deathTable(events) or not deathNumber(maxHealth) or maxHealth<=0
+ if not deathTable(events)
   or not deathNumber(deathTime) or not deathNumber(combatStart) or combatStart>deathTime then return nil end
- local total,sources=0,{}
+ local health=deathNumber(maxHealth)and maxHealth>0 and maxHealth or nil
+ local total,sources,harmful,overflow=0,{},nil,false
  local rows,unreadable=0,false
  for _,e in pairs(events) do
   local guid,damage,confirmed=deathRow(e,deathTime,combatStart)
-  rows=rows+1;if not confirmed then unreadable=true end
+  local applied=deathHarmfulRow(e,deathTime,combatStart)
+  if applied and(not harmful or applied<harmful)then harmful=applied end
+  rows=rows+1;if not confirmed and not applied then unreadable=true end
   if guid then
    total=total+damage
-   if not deathNumber(total) then return nil end
+   if not deathNumber(total) then overflow=true end
    sources[guid]=(sources[guid] or 0)+damage
   end
  end
- if total<=maxHealth*0.5 then
+ if harmful then return {damage=0,maxHealth=health,source=harmful,time=deathTime,harmful=true}end
+ if overflow then return nil end
+ if not health or total<health*A.DAMAGE_FRACTION then
   if rows==0 then return nil end
   return nil,unreadable and 'unreadable/missing attribution' or 'insufficient confirmed Gnome damage'
  end
@@ -159,8 +183,10 @@ end
 function A.ValidGnomeDeathEvidence(proof,now)
  if not deathTable(proof) or not deathNumber(now) then return false end
  local damage,hp,source,time=proof.damage,proof.maxHealth,proof.source,proof.time
+ if not deathPlayer(source) or not deathNumber(time) or time~=now or deathSecret(proof.harmful)then return false end
+ if proof.harmful==true then return deathNumber(damage)and damage>=0 end
  return deathNumber(damage) and damage>0 and deathNumber(hp) and hp>0
-  and damage>hp*0.5 and deathPlayer(source) and deathNumber(time) and time==now
+  and damage>=hp*A.DAMAGE_FRACTION
 end
 function A.PlayerDeath(id,race,now,killer,proof)
  if not A.ValidGnomeDeathEvidence(proof,now) or deathSecret(killer) or killer~=proof.source then return false end
@@ -261,10 +287,52 @@ function A.FirstDay(frame,now)
  if frame=='This year' then return today-tonumber(date('!%j',now))+1 end
  return today
 end
-function A.Encounter(g,name,race,faction,now)
+-- Readable unit metadata only; never infer class from GUID/race.
+function A.EncounterLevel(value)
+ if A.Secret and A.Secret(value)then return nil end
+ if type(value)=='number'and value==value and value~=math.huge and value~=-math.huge and(value==-1 or(value>0 and value%1==0))then return value end
+end
+function A.EncounterClass(value)
+ if A.Secret and A.Secret(value)then return nil end
+ if type(value)~='string'or #value>128 or value:find('[%c|]')then return nil end
+ value=value:match('^%s*(.-)%s*$');if value~=''and value~='?'then return value end
+end
+-- Merge each readable field at its own observation boundary, not the record's
+-- latest unknown sighting. Persist provenance; ties converge by owner then value.
+function A.MergeEncounterMetadata(target,source)
+ for _,field in ipairs({'level','class'})do
+  local validate=field=='level'and A.EncounterLevel or A.EncounterClass
+  local at,by=field..'At',field..'By'
+  local old,value=validate(target[field]),validate(source[field])
+  local function stamp(record)
+   local v=record[at]
+   if A.Secret and A.Secret(v)then return 0 end
+   if type(v)~='number'or v~=v or v==math.huge or v==-math.huge then v=record.last end
+   if A.Secret and A.Secret(v)then return 0 end
+   return type(v)=='number'and v==v and v~=math.huge and v~=-math.huge and v or 0
+  end
+  local function provenance(record)
+   local v=record[by];if A.Secret and A.Secret(v)then return ''end
+   return type(v)=='string'and #v<=256 and not v:find('[%c|]')and v or ''
+  end
+  local oldAt,newAt=stamp(target),stamp(source);local oldBy,newBy=provenance(target),provenance(source)
+  local replace=value and(not old or newAt>oldAt or(newAt==oldAt and(newBy>oldBy or(newBy==oldBy and value>old))))
+  -- -1 is native unknown-higher, not a measured level. Keep it only until
+  -- a positive reading exists; it must never erase a known measurement.
+  if field=='level'and old and value then
+   if value==-1 and old>0 then replace=false elseif old==-1 and value>0 then replace=true end
+  end
+  if replace then
+   target[field]=value;target[at]=newAt;target[by]=newBy
+  elseif old then target[field]=old;target[at]=oldAt;target[by]=oldBy
+  else target[field]=nil;target[at]=nil;target[by]=nil end
+ end
+end
+function A.Encounter(g,name,race,faction,now,level,class)
  if type(g)~='string' or not g:match('^Player%-') or faction~='Alliance' then return false end
  A.db.seen=A.db.seen or {}; local r=A.db.seen[g]; local fresh=not r
  if not r then r={first=now,days={}}; A.db.seen[g]=r end
+ A.MergeEncounterMetadata(r,{level=level,class=class,levelAt=now,classAt=now,levelBy=A.owner,classBy=A.owner})
  r.name=name or r.name or g; r.race=race or r.race; r.last=now; r.days=r.days or {}; r.days[A.Day(now)]=true
  for d in pairs(r.days) do if d<A.Day(now)-A.RETENTION+1 then r.days[d]=nil end end
  if A.RememberKnownEncounter then A.RememberKnownEncounter(g,r)end

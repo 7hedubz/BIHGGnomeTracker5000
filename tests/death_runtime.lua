@@ -67,7 +67,7 @@ test('later incoming damage cannot qualify a prior death',function()
  A.Recap();assert(deaths(A)==0,'live collector contaminated frozen death')
 end)
 test('each own death attempt has bounded local persisted outcome diagnostics',function()
- local A,event=setup();recap({row(500)});event('PLAYER_DEAD')
+ local A,event=setup();recap({row(19)});event('PLAYER_DEAD')
  t=t+9;clock=clock+9;A.Recap()
  assert(A.db.deathOutcomes and #A.db.deathOutcomes==1,'missing persisted death outcome')
  assert(A.db.deathOutcomes[1].reason=='insufficient confirmed Gnome damage')
@@ -102,28 +102,28 @@ test('pending diagnostics and proof use only readable bounded state',function()
  assert(#A.DeathDebugLines()==1,'secret or arbitrary persisted fields must not be rendered')
 end)
 test('readable insufficient versus missing attribution are not conflated',function()
- for _,n in ipairs({499,500,501})do
+ for _,n in ipairs({19,20,21})do
   local A,event=setup();recap({row(n)});event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap()
-  assert(deaths(A)==(n>500 and 1 or 0))
-  assert(A.db.deathOutcomes[1].reason==(n>500 and 'counted'or'insufficient confirmed Gnome damage'))
+  assert(deaths(A)==(n>=20 and 1 or 0))
+  assert(A.db.deathOutcomes[1].reason==(n>=20 and 'counted'or'insufficient confirmed Gnome damage'))
  end
  local A,event=setup();recap({row(secret)});event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap()
  assert(deaths(A)==0 and A.db.deathOutcomes[1].reason=='unreadable/missing attribution')
 end)
 test('observed transient health peaks and original proof clocks stay frozen',function()
  for _,monotonic in ipairs({false,true})do
-  for _,n in ipairs({600,1001})do
+  for _,n in ipairs({39,40})do
    local A,event,sethp=setup();sethp(2000);event('UNIT_MAXHEALTH','player');sethp(1000);event('UNIT_MAXHEALTH','player')
    local at=monotonic and clock or t;event('PLAYER_DEAD');event('PLAYER_UNGHOST')
    sethp(10000);event('PLAYER_REGEN_DISABLED');t=t+2;clock=clock+2
    recap({row(n,'Player-a',at)},1,1000);A.Recap()
-   assert(deaths(A)==(n>1000 and 1 or 0),'frozen peak/clock changed')
+   assert(deaths(A)==(n>=40 and 1 or 0),'frozen peak/clock changed')
   end
  end
 end)
 test('recap and collector damage are alternative proofs and never summed',function()
- local A,event=setup();A.groupIncoming['Player-me']={started=t,health=1000,events={row(300)}}
- recap({row(300)});event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap();assert(deaths(A)==0,'overlapping collector/recap damage added')
+ local A,event=setup();A.groupIncoming['Player-me']={started=t,health=1000,events={row(10)}}
+ recap({row(10)});event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap();assert(deaths(A)==0,'overlapping collector/recap damage added')
 end)
 test('stale and consumed recaps cannot qualify another life',function()
  local A,event=setup();recap(majority(t-30));event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap()
@@ -154,7 +154,7 @@ test('PLAYER_DEAD samples one immutable proof timestamp',function()
  event('PLAYER_DEAD');assert(deaths(A)==1,'proof clock sampled again after freezing death time')
 end)
 test('frozen collector outcomes retain their supported reason without a native recap',function()
- local A,event=setup();A.groupIncoming['Player-me']={started=t,health=1000,events={row(500)}}
+ local A,event=setup();A.groupIncoming['Player-me']={started=t,health=1000,events={row(19)}}
  event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap()
  assert(deaths(A)==0 and A.db.deathOutcomes[1].reason=='insufficient confirmed Gnome damage','lost readable collector outcome')
 end)
@@ -313,13 +313,27 @@ test('collector and later own recap share one local confirmation',function()
  assert(#chat==1,'actual own collector commit must confirm locally')
  recap(majority(),302);event('PLAYER_DEAD');A.Recap();assert(#chat==1,'recap must not duplicate collector confirmation')
 end)
-test('legacy personal deaths confirm only committed strict-majority credit and isolate chat errors',function()
+test('legacy personal deaths confirm only committed two-percent credit and isolate chat errors',function()
  local A=setup();A.GroupOwnDeath=nil;local chat={};DEFAULT_CHAT_FRAME={AddMessage=function(_,s)chat[#chat+1]=s end}
- local proof={damage=500,maxHealth=1000,source='Player-a',time=t}
+ local proof={damage=19,maxHealth=1000,source='Player-a',time=t}
  assert(not A.PlayerDeath('half','Gnome',t,'Player-a',proof));assert(#chat==0)
- proof.damage=501;assert(A.PlayerDeath('legacy','Gnome',t,'Player-a',proof));assert(#chat==1,'legacy death commit confirms')
+ proof.damage=20;assert(A.PlayerDeath('legacy','Gnome',t,'Player-a',proof));assert(#chat==1,'legacy death commit confirms')
  assert(not A.PlayerDeath('legacy','Gnome',t,'Player-a',proof));assert(#chat==1)
  DEFAULT_CHAT_FRAME.AddMessage=function()error('injected local chat failure')end
  assert(A.PlayerDeath('legacy-next','Gnome',t,'Player-a',proof));assert(deaths(A)==2,'chat failure cannot roll back credit')
+end)
+test('native recap accepts only explicit harmful schema with matching life clocks and actual death',function()
+ for _,monotonic in ipairs({false,true})do
+  for _,kind in ipairs({'SPELL_AURA_APPLIED','SPELL_AURA_REFRESH','SPELL_AURA_APPLIED_DOSE','SPELL_CAST_FAILED','SPELL_HEAL','UNKNOWN'})do
+   for _,aura in ipairs({'DEBUFF','BUFF','unknown'})do
+    local A,event,sethp=setup();sethp(0);A.ownHealth=nil;A.deathFight.health=0
+    recap({{event=kind,auraType=aura,spellId=172,sourceGUID='Player-a',timestamp=monotonic and clock or t}},401,0)
+    A.Recap();assert(deaths(A)==0,'recap participation is not actual death')
+    event('PLAYER_DEAD')
+    local eligible=aura=='DEBUFF'and(kind=='SPELL_AURA_APPLIED'or kind=='SPELL_AURA_REFRESH'or kind=='SPELL_AURA_APPLIED_DOSE')
+    assert(deaths(A)==(eligible and 1 or 0),'arbitrary non-damage recap schema cannot become harmful proof')
+   end
+  end
+ end
 end)
 print('ALL '..passed..' DEATH RUNTIME TESTS PASSED')

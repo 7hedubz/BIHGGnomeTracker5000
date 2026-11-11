@@ -121,19 +121,19 @@ test('actual runtime transitions isolate lives and clear eligibility before scan
   end
  end
 end)
-test('instance deaths keep strict majority evidence and instance detection remains independent',function()
+test('instance deaths keep two percent evidence and instance detection remains independent',function()
  for _,kind in ipairs({'pvp','arena','party','raid','scenario'})do
   IsInInstance=function()return true,kind end
   local A=make(true);local units,event=runtime(A)
   local notices=0;A.NearbyNotice=function()notices=notices+1 end
   A.ScanVisible();assert(notices==1 and A.db.seen['Player-same'],'instance encounter and Nearby detection continue')
   assert(not next(A.groupTargets),'detection must not seed instance kill eligibility')
-  local damage={[2]='SWING_DAMAGE',[4]='Player-gnome',[8]='Player-me',[12]=500,[13]=0}
+  local damage={[2]='SWING_DAMAGE',[4]='Player-gnome',[8]='Player-me',[12]=19,[13]=0}
   local died={[2]='UNIT_DIED',[8]='Player-me'}
   A.GroupCombat(damage,t);A.GroupCombat(died,t)
-  assert((A.db.owners[A.owner].deaths or 0)==0,'exactly half is still rejected in instances')
-  t=t+5;damage[12]=501;A.GroupCombat(damage,t);A.GroupCombat(died,t)
-  assert(A.db.owners[A.owner].deaths==1,'strict majority incoming damage still counts in instances')
+  assert((A.db.owners[A.owner].deaths or 0)==0,'below two percent is still rejected in instances')
+  t=t+5;damage[12]=20;A.GroupCombat(damage,t);A.GroupCombat(died,t)
+  assert(A.db.owners[A.owner].deaths==1,'two-percent incoming damage still counts in instances')
   -- Own native recap path is also not a kill-location gate.
   t=t+5;event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');t=t+1
   C_DeathRecap={GetRecapLink=function()return '|Hdeath:99|h'end,GetRecapMaxHealth=function()return 1000 end,GetRecapEvents=function()return{{event='SPELL_DAMAGE',amount=600,sourceGUID='Player-gnome',timestamp=t}}end}

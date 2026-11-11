@@ -11,13 +11,13 @@ local function row(amount,source,event,time)
 end
 local function proof(events,hp,death,start) return A.GnomeDeathEvidence(events,hp or 100,death or 100,start or 90) end
 
-test('strict majority aggregates Gnomes without requiring their final blow',function()
- eq(proof({row(49)}),nil)
- eq(proof({row(50)}),nil)
- local p=proof({row(25),row(26,'Player-b'),row(49,'Player-human','SPELL_DAMAGE',100)})
- assert(p,'combined Gnome majority must produce evidence')
- eq(p.damage,51); eq(p.maxHealth,100); eq(p.time,100); eq(p.source,'Player-b')
- eq(proof({row(51)}).damage,51)
+test('two percent aggregates only Gnomes without requiring their final blow',function()
+ eq(proof({row(19)},1000),nil)
+ eq(proof({row(19),row(981,'Player-human')},1000),nil)
+ local p=proof({row(9),row(11,'Player-b'),row(980,'Player-human','SPELL_DAMAGE',100)},1000)
+ assert(p,'exact combined two percent must produce evidence')
+ eq(p.damage,20); eq(p.maxHealth,1000); eq(p.time,100); eq(p.source,'Player-b')
+ eq(A.ValidGnomeDeathEvidence(p,100),true)
 end)
 test('damage policy whitelists events and subtracts conservative mitigation',function()
  for _,event in ipairs({'SWING_DAMAGE','RANGE_DAMAGE','SPELL_DAMAGE','SPELL_PERIODIC_DAMAGE','DAMAGE_SHIELD'}) do
@@ -28,7 +28,7 @@ test('damage policy whitelists events and subtracts conservative mitigation',fun
  end
  local e=row(100); e.overkill=10;e.absorbed=15;e.resisted=10;e.blocked=14
  eq(proof({e}).damage,51)
- e.blocked=15;eq(proof({e}),nil)
+ e.blocked=64;eq(proof({e}),nil)
  e=row(51);e.overkill=-1;eq(proof({e}).damage,51)
  e=row(5);e.overkill=100;eq(proof({e,row(51)}).damage,51)
 end)
@@ -74,7 +74,7 @@ test('only readable finite in-combat player Gnome damage is evidence',function()
  eq(proof({row(999),row(math.huge)}).damage,999,'bad rows skipped without discarding readable evidence')
  eq(proof({row(1e308),row(1e308)}),nil,'overflow cannot be proof')
 end)
-test('proof validation requires readable strict majority and exact death time',function()
+test('proof validation requires readable two percent and exact death time',function()
  local p=proof({row(51)})
  eq(A.ValidGnomeDeathEvidence(p,100),true)
  eq(A.ValidGnomeDeathEvidence(p,101),false)
@@ -88,7 +88,7 @@ test('proof validation requires readable strict majority and exact death time',f
   end
   p[field]=nil;eq(A.ValidGnomeDeathEvidence(p,100),false,field);p[field]=old
  end
- p.damage=50;eq(A.ValidGnomeDeathEvidence(p,100),false)
+ p.damage=1;eq(A.ValidGnomeDeathEvidence(p,100),false)
  p.damage=0;eq(A.ValidGnomeDeathEvidence(p,100),false)
  p.damage=51;p.maxHealth=0;eq(A.ValidGnomeDeathEvidence(p,100),false)
  p.maxHealth=-100;eq(A.ValidGnomeDeathEvidence(p,100),false)
@@ -118,5 +118,23 @@ test('PlayerDeath gates both group delegation and legacy counters on matching fr
  eq(calls,0)
  eq(A.PlayerDeath('group','Gnome',100,'Player-a',p),true);eq(calls,1)
  A.GroupOwnDeath=nil
+end)
+test('explicit harmful application qualifies without damage or known health',function()
+ for _,event in ipairs({'SPELL_AURA_APPLIED','SPELL_AURA_REFRESH','SPELL_AURA_APPLIED_DOSE'})do
+  local e={event=event,timestamp=99,sourceGUID='Player-a',auraType='DEBUFF',spellId=172}
+  local p=A.GnomeDeathEvidence({e},nil,100,90)
+  assert(p,'confirmed harmful Gnome application must qualify without HP')
+  eq(p.harmful,true);eq(p.damage,0);eq(p.source,'Player-a');eq(A.ValidGnomeDeathEvidence(p,100),true)
+  local independent=proof({e,row(1e308),row(1e308)})
+  assert(independent and independent.harmful,'independent confirmed harmful proof must survive unusable damage accumulation')
+  for _,field in ipairs({'event','timestamp','sourceGUID','auraType','spellId','hideCaster'})do
+   local old=e[field];e[field]=secret;eq(A.GnomeDeathEvidence({e},nil,100,90),nil,field);e[field]=old
+  end
+  for _,source in ipairs({'Player-human','Player-unknown','Creature-a'})do e.sourceGUID=source;eq(proof({e}),nil)end
+  e.sourceGUID='Player-a'
+  for _,aura in ipairs({'BUFF','',false})do e.auraType=aura;eq(proof({e}),nil)end
+  e.auraType=nil;eq(proof({e}),nil);e.auraType='DEBUFF'
+  e.event='SPELL_CAST_FAILED';eq(proof({e}),nil)
+ end
 end)
 print(passed..' death policy tests passed')

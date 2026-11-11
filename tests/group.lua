@@ -8,6 +8,7 @@ function UnitGUID(u)return units[u] and units[u].guid end
 function UnitName(u)return units[u] and units[u].name,'Realm' end
 function UnitHealthMax()return 1000 end
 function UnitAffectingCombat()return true end
+function UnitIsDeadOrGhost()return false end
 function GetGuildInfo(u)return units[u] and units[u].guild end
 function IsInRaid()return false end
 function GetNumSubgroupMembers()return 2 end
@@ -23,6 +24,25 @@ local function make(owner)
  local f=io.open(root..'/GroupTracker.lua');assert(f,'Guild-only group observation not implemented');f:close()
  assert(loadfile(root..'/GroupTracker.lua'))('BIHGGnomeKillTracker5000',A)
  A.InitGroupTracking(now);A.RefreshGroupActors();return A
+end
+for _,kind in ipairs({'SWING_DAMAGE','SPELL_DAMAGE','SPELL_PERIODIC_DAMAGE','RANGE_DAMAGE','DAMAGE_SHIELD'})do
+ local T=make('Me-Realm');local first=kind=='SWING_DAMAGE'and 12 or 15
+ local hit={[2]=kind,[4]='Player-gnome',[8]='Player-friend'}
+ hit[first]=30;hit[first+1]=10;hit[first+4]=1
+ T.GroupCombat(hit,now)
+ assert(not T.IncomingDeathEvidence('Player-friend',now),'incoming effective damage must subtract blocked mitigation: '..kind)
+ hit[first+4]=0;hit[3]=true;T.groupIncoming={};T.GroupCombat(hit,now)
+ assert(not T.IncomingDeathEvidence('Player-friend',now),'hidden caster must not prove incoming damage')
+end
+for _,event in ipairs({'SPELL_AURA_APPLIED','SPELL_AURA_REFRESH','SPELL_AURA_APPLIED_DOSE'})do
+ local T=make('Me-Realm')
+ local aura={[2]=event,[4]='Player-gnome',[8]='Player-friend',[12]=172,[15]='DEBUFF',[3]=true}
+ T.GroupCombat(aura,now+200)
+ assert(not T.IncomingDeathEvidence('Player-friend',now+200),'hidden harmful caster is not proof')
+ aura[3]=false;T.GroupCombat(aura,now+200)
+ assert(T.IncomingDeathEvidence('Player-friend',now+200),'explicit synthetic '..event..' must collect incoming harmful proof')
+ T.GroupCombat({[2]='UNIT_DIED',[8]='Player-friend'},now+201)
+ assert(T.GuildEffectiveRecord('Friend-Realm',T.PeerRecords()['Friend-Realm'],now+201).deaths==1,'harmful contribution plus actual death counts')
 end
 local A=make('Me-Realm')
 assert(A.PeerRecords()['Friend-Realm'].observerOnly,'guild group member is discovered before earning any credit')
@@ -80,12 +100,12 @@ local died={};died[2]='UNIT_DIED';died[8]='Player-friend';A.GroupCombat(died,now
 assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+35).deaths==1,'confirmed Gnome killing blow records group death')
 A.GroupCombat(died,now+36)
 assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+36).deaths==1,'a corpse alone does not assign another killer')
-damage[12]=500;A.GroupCombat(damage,now+38)
+damage[12]=19;A.GroupCombat(damage,now+38)
 local human={};human[2]='SWING_DAMAGE';human[4]='Player-human';human[8]='Player-friend';human[12]=1000;human[13]=0
 A.GroupCombat(human,now+39);A.GroupCombat(died,now+39)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+39).deaths==1,'exactly fifty percent Gnome damage is not sufficient')
-damage[12]=600;A.GroupCombat(damage,now+43);A.GroupCombat(human,now+44);A.GroupCombat(died,now+44)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+44).deaths==2,'majority-health Gnome contribution counts despite a Human final blow')
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+39).deaths==1,'below two percent Gnome damage is not sufficient')
+damage[12]=20;A.GroupCombat(damage,now+43);A.GroupCombat(human,now+44);A.GroupCombat(died,now+44)
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+44).deaths==2,'two-percent Gnome contribution counts despite a Human final blow')
 local oldCombat=UnitAffectingCombat;local fighting=true;UnitAffectingCombat=function()return fighting end
 A.GroupCombat(damage,now+50);fighting=false;A.UpdateDeathCombat('Player-friend','party1',now+51)
 fighting=true;A.UpdateDeathCombat('Player-friend','party1',now+52);A.GroupCombat(human,now+53);A.GroupCombat(died,now+53)

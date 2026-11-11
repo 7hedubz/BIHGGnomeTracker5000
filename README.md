@@ -4,6 +4,10 @@
 
 Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and automatic guild leaderboards.
 
+## Chronological encounter history (1.8.4)
+
+Alliance encounter history is always ordered by **last seen, newest first**, regardless of race or the leaderboard's sorting selection. Equal timestamps use character name as a stable tie-break. History headers do not change the leaderboard's sort state. The separate Nearby overlay retains its Gnome-first ordering. Saved history, level/class, targeting and kill/death rules are unchanged.
+
 ## Death qualification: harmful debuff or 2% damage (1.8.3)
 
 New own and tracked guild-party/raid deaths count **only after actual death**, when that combat contains **any confirmed Gnome-player-applied harmful debuff (including CC) OR combined effective attributed Gnome-player damage at least 2% of the victim's observed peak maximum health**. Exactly 20 of 1000 qualifies; 19 does not. Faerie Fire, curses, DoTs, bleeds and other harmful debuffs qualify, not only a hard-CC whitelist. A Gnome need not deliver the final blow. Healing does not erase captured proof; dropping max health does not lower the observed peak denominator. Damage excludes readable overkill/mitigation conservatively and is never inferred from shared health loss.

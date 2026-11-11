@@ -235,8 +235,6 @@ function A.RefreshUI()
    if include then local days=0;for _ in pairs(r.days or{})do days=days+1 end;data[#data+1]={name=r.name or guid,targetName=r.name,race=r.race or '?',first=r.first,last=r.last,level=A.EncounterLevel(r.level),class=A.EncounterClass(r.class),daysSeen=days} end
   end
   table.sort(data,function(a,b)
-   if A.sort=='name' then return a.name<b.name end
-   if a.race=='Gnome' and b.race~='Gnome' then return true elseif b.race=='Gnome' and a.race~='Gnome' then return false end
    if a.last~=b.last then return a.last>b.last end;return a.name<b.name
   end)
  else
@@ -250,7 +248,7 @@ function A.RefreshUI()
    if a[key]~=b[key] then return a[key]>b[key] end;if a.name~=b.name then return a.name<b.name end;return a.id<b.id
   end)
  end
- if A.ascending then local reversed={};for i=#data,1,-1 do reversed[#reversed+1]=data[i] end;data=reversed end
+ if not encounters and A.ascending then local reversed={};for i=#data,1,-1 do reversed[#reversed+1]=data[i] end;data=reversed end
  local groupCount=#data
  if not encounters then local flat={};for _,g in ipairs(data) do flat[#flat+1]=g;if A.expanded[g.id] then for _,child in ipairs(g.children) do child.child=true;flat[#flat+1]=child end end end;data=flat end
  local pages=math.max(1,math.ceil(#data/12));A.page=math.max(1,math.min(A.page or 1,pages));A.pageLabel:SetText(string.format('Page %d / %d (%d %s)',A.page,pages,groupCount,encounters and 'players' or 'aliases'))
@@ -327,7 +325,7 @@ function A.CreateUI()
  A.summary=text(w,'small',20,-227,920);A.heading=text(w,'small',20,-255,920)
  A.tablePane=CreateFrame('Frame',nil,w);A.tablePane:SetPoint('TOPLEFT',18,-276);A.tablePane:SetSize(924,320)
  A.headers={};local xs={0,54,330,510,640,822};local widths={54,276,180,130,182,102};local sorts={'name','kills','deaths','last','last','last'}
- for i=1,6 do local idx=i;A.headers[i]=button(A.tablePane,'',xs[i],0,widths[i],function()local sort=A.mode=='Encounters'and(idx==2 and'name'or'last')or sorts[idx];if A.sort==sort then A.ascending=not A.ascending else A.sort=sort;A.ascending=false end;A.page=1;A.RefreshUI()end,'Click to sort; click again to reverse.')end
+ for i=1,6 do local idx=i;A.headers[i]=button(A.tablePane,'',xs[i],0,widths[i],function()if A.mode=='Encounters'then return end;local sort=sorts[idx];if A.sort==sort then A.ascending=not A.ascending else A.sort=sort;A.ascending=false end;A.page=1;A.RefreshUI()end,'Leaderboard: click to sort; click again to reverse. Encounter history is always newest first.')end
  A.rows={};A.expanded={}
  for i=1,12 do
   A.rows[i]={};for j=1,6 do A.rows[i][j]=text(A.tablePane,'small',xs[j]+5,-40-(i-1)*23,widths[j]-10)end

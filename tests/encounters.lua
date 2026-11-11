@@ -68,5 +68,28 @@ return function(A,event,tick,clock,units,transition)
  assert(not A.window:IsShown()and not GameTooltip.shown,'secure combat entry closes encounter window and its tooltip')
  transition(false);event('PLAYER_REGEN_ENABLED');A.OpenView('Encounters',false)
  assert(A.rows[1][6]:IsShown(),'encounter layout survives combat close/reopen')
- print('PASS encounters: runtime scan to persistent history to board and tooltip, Nearby OFF, non-Gnome, raw secure identity')
+ -- History is strictly newest-last-seen first, regardless of race or the
+ -- leaderboard's saved sort choice. Nearby retains its separate Gnome priority.
+ local savedSort=A.sort;clock(t+100)
+ A.Encounter('Player-sort-gnome','AgedGnome-Realm','Gnome','Alliance',t+10)
+ A.Encounter('Player-sort-human','RecentHuman-Realm','Human','Alliance',t+80)
+ A.Encounter('Player-sort-elf','NewestElf-Realm','NightElf','Alliance',t+90)
+ for _,ascending in ipairs({false,true})do for _,sort in ipairs({'name','kills','deaths'})do
+  A.sort=sort;A.ascending=ascending;A.OpenView('Encounters',false)
+  local positions={};local previous=math.huge
+  for i,v in ipairs(A.rows)do if v.data then
+   positions[v.data.targetName]=i
+   assert(v.data.last<=previous,'Alliance history must remain chronological under '..sort..' sort');previous=v.data.last
+  end end
+  assert(positions['NewestElf-Realm']<positions['RecentHuman-Realm']and positions['RecentHuman-Realm']<positions['AgedGnome-Realm'],'newer non-Gnomes must precede older Gnomes')
+ end end
+ A.sort=savedSort;A.ascending=false
+ local beforeHeaderSort=A.sort
+ A.headers[2].scripts.OnClick()
+ assert(A.sort==beforeHeaderSort and not A.ascending,'fixed chronological encounter headers must not alter leaderboard sorting')
+ local savedNearby=A.nearbySeen
+ A.nearbySeen={['Player-near-gnome']={guid='Player-near-gnome',name='Older',race='Gnome',seen=t+98},['Player-near-human']={guid='Player-near-human',name='Newer',race='Human',seen=t+99}}
+ assert(A.NearbyList(t+100)[1].race=='Gnome','Nearby keeps its independent Gnome-first ordering')
+ A.nearbySeen=savedNearby
+ print('PASS encounters: runtime scan to persistent history to board and tooltip, Nearby OFF, non-Gnome, raw secure identity, chronological history')
 end

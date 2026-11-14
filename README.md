@@ -4,6 +4,21 @@
 
 Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and automatic guild leaderboards.
 
+## Honorable-kill evidence and witnessed assists (1.9.0)
+
+**Current policy below supersedes the percentage/debuff-only kill rules in older release notes. Saved historical totals are preserved, never backfilled or relabeled honor-verified.**
+
+- **Your new kill credit requires a game-confirmed Gnome victim and your own local honorable-kill evidence.** A readable localized named `COMBATLOG_HONORGAIN` / `COMBATLOG_HONORGAIN_NO_RANK` match must identify exactly one fresh locally observed player GUID/race. The native notification belongs to its receiving player; it does not prove another party member received an HK. Neither damage percentage nor your own debuff is required.
+- **Generic honor is not victim proof.** It additionally requires a readable, independently incrementing HK counter (`GetPVPLifetimeStats`, or feature-detected `GetPVPSessionStats` fallback), a pre-event baseline, and exactly one native player-death/kill candidate in a bounded eight-second correlation round. `PLAYER_PVP_KILLS_CHANGED` is registered with feature detection and polling handles delayed readable updates. Human/other/unknown-race candidates participate in ambiguity *before* Gnome filtering. A nonguild player/pet delivering the killing blow does not exclude your HK. Bonus/objective honor without an HK increment, missing counters, multiple uncertain deaths, batches/inconsistent deltas, reset clocks and baseline/provider/context changes do not manufacture credit. Generic rounds settle conservatively; late/ambiguous evidence can undercount rather than select the nearest/last Gnome. Named HK counter evidence cannot be recycled into another generic victim.
+- **Guild-group witnessed assists:** while the victim is alive, retain positively source-attributed harmful debuffs from validated guild party/raid characters or their current pets. Your confirmed local HK commits one witnessed assist for each eligible actor on that same victim life. A handshake/addon-presence guess is not required. Damage-only bystanders, missing/secret casters, helpful auras, cast success and corpse-only applications do not create assists. Guild/open-world/identity authority still gates new observations; Nearby OFF does not turn recording OFF.
+- **Kill-life deduplication is not the old three-second timestamp window.** New typed `5|H` credit records and credit-free `5|L` predecessor context persist client-generated claim IDs, predecessor links and `H` (receiver-local HK) / `A` (witnessed assist) provenance. Actor GUID + correlated victim life gets one credit; later own HK upgrades assist provenance instead of adding another kill. Independent observer root claims merge across clock offsets, aliases and reordered history. Only a readable local living rearm may establish a successor to an already correlated death; delayed prior-life GUID callbacks still need a matching readable corpse. There is **no verified globally unique server death ID**. An observer missing predecessor/life evidence can conservatively merge a later root instead of counting it again. Fresh correlation maps and unresolved predecessors are bounded at 64; retained credit/life identities remain with the lifetime ledger.
+- **Deaths to Gnomes:** actual death after **any confirmed positive effective Gnome-player damage OR a confirmed Gnome-player harmful debuff/CC**. Zero effective damage without harmful proof fails. No maximum-health reading or percentage is required. Native race/source GUID, mitigation, readability, combat clocks, guild authority and life ownership remain required. Frozen own-death contexts (four pending contexts/eight-second deadline), last-32 death outcomes, recap isolation and existing `D` deduplication are unchanged.
+- **Diagnostics default ON:** meaningful local progress/rejection stages are throttled/coalesced; the last 32 sanitized fixed-label kill outcomes persist locally. `/gkt debug` reads coverage and outcomes without sending. `/gkt killverbose` toggles progress chat only, not recording or the outcome ring. Personal commit confirmations remain once-only, and local chat failures cannot undo credit. Pending honor does not print the obsolete “You did not qualify” percentage message.
+
+**Upgrade all guild clients for consistent new observations.** Old historical `5|E|K` records remain legacy evidence; new old-policy event claims at/after the receiver's policy boundary are rejected. Legacy cumulative totals remain compatible and unverified; this is not server-authenticated anti-cheat. Transport pacing/backoff, history retention (90 days/2000 encounters), aliases, Nearby combat display and public reports are otherwise unchanged. No runtime file or TOC load-list was added; apply with `/reload` only after review/install.
+
+**Native evidence versus remaining validation:** the user verified `CHAT_MSG_COMBAT_HONOR_GAIN` emits generic “You have been awarded 4 Honor.” and `PARTY_KILL` exposes source-player/victim-player GUIDs for a killing-blow case. That does **not** establish assist delivery, HK-counter readability or close-kill ordering. These still need live validation. If no counter is readable, generic honor stays **honor confirmation unavailable**, not a fallback to the former 2%/CC rule. Native CLEU remains disabled; tests supply synthetic parser data only and send no live messages.
+
 ## Bounded Alliance encounter history (1.8.5)
 
 Alliance encounter records expire when **last seen is at least 90 × 86400 seconds old**, not 90 UTC date buckets after first seen. Across all initialized local characters, retain at most **2000 unique players**: newest last-seen timestamp wins, with ascending GUID as the deterministic retention tie-break. Each personal, account-cache, cached-self and identity-archive encounter copy is intersected with that shared keeper set; personal sighting dates are not replaced with another alt’s sightings. Level/class and their independent freshness, first/last timestamps and retained date memberships survive for kept records. History remains newest first; Nearby keeps its separate 30-second TTL and Gnome-first order.
@@ -111,14 +126,14 @@ Each guild participant independently needs **at least 2% effective attributed da
 
 ## Important Forever limitation
 
-Forever's installed Spy integration documents a closed combat-log stream. **Exact personal damage attribution cannot be reconstructed from enemy health changes.** The 2% damage rule is implemented when readable combat-log data exists; on a restricted client, damage-only kills cannot be awarded.
+Forever's combat-log stream remains closed; native CLEU registration is disabled. **Enemy health changes are not personal damage attribution.** Version 1.9.0 uses the local HK evidence policy above, not the old percentage/debuff-only personal-kill fallback.
 
-The fallback counts **confirmed guild-character/pet debuff + confirmed enemy death** when readable unit/aura APIs expose that information. Unknown/secret data is skipped, never guessed. Out-of-sight auras/deaths cannot reliably be recovered. UI coverage text and `/gkt debug` report coverage. Live-client rendering and real multi-client PvP synchronization still require in-game validation.
+A witnessed guild-group harmful assist additionally requires the observer's confirmed local HK on that victim life. Generic honor with an unavailable HK counter stays unconfirmed. Unknown/secret identities and ambiguous native deaths are never guessed; `/gkt debug` reports supported coverage/outcomes, not guaranteed complete capture. Native assist delivery, counter readability and multi-client ordering still require live validation.
 
 ## Statistics
 
-- **Gnome kills (new local observations: open world only):** a hostile Gnome player dies within 120 seconds of your last contribution, after you dealt at least 2% of its observed peak maximum health in effective damage or successfully applied any harmful debuff. Current guild player/pet damage and debuffs qualify; overkill is excluded. Cast-success, misses/resists, other players' debuffs and nearby deaths alone do not qualify.
-- **Deaths to Gnomes:** actual death after **any confirmed harmful Gnome-player debuff OR at least 2% combined effective attributed Gnome-player damage** against the victim's observed peak maximum health during that combat. Harmful proof needs no known maximum health; a Gnome need not land the final blow, and survival never increments deaths. Unknown/secret source or amount, NPC/pet ownership guesses, stale recaps and health-loss inference do not qualify. Partial records can establish a sufficient lower bound, not prove complete fight coverage. Existing historical and peer-reported totals are not retroactively regraded.
+- **Gnome kills (new local observations: open world only):** confirmed Gnome-victim identity plus your local HK evidence under the 1.9.0 rules above. Your own damage/debuff eligibility is not required. Validated guild-group harmful applications retain the existing 120-second participation window for witnessed assists; later damage cannot refresh an expired harmful application.
+- **Deaths to Gnomes:** actual death after **any confirmed harmful Gnome-player debuff/CC OR positive effective attributed Gnome-player damage**, with no health denominator. Zero effective damage without harmful proof fails. A Gnome need not land the final blow; unknown/secret sources/amounts, stale recaps, later-life evidence and inferred health loss do not qualify. Existing historical/peer totals are not retroactively regraded.
 - **Gnomes encountered:** unique Gnome player GUIDs, not scan count. Repeated sightings count once per selected period; lifetime remains unique across reloads and sessions.
 - **Alliance log:** saves GUID, name, race, first/last seen, and encounter dates. Gnomes are highlighted and ordered first by default. Detection uses nameplates, target, focus, and mouseover, not radar for units the client has not exposed. Enable enemy nameplates for better coverage. Newly discovered Gnomes optionally trigger chat alerts.
 
@@ -388,7 +403,8 @@ Enable **BIHG GnomeKillTracker 5000** at character select. New addon folders and
 | `/gkt top` | Authorized ranks only: preview Top 10; does not send until confirmed |
 | `/gkt sync` | Request/broadcast guild statistics out of combat |
 | `/gkt alerts` | Toggle new-Gnome chat alerts |
-| `/gkt debug` | Print coverage and last guarded error |
+| `/gkt debug` | Read local kill/death outcomes, runtime coverage and guarded errors; sends nothing |
+| `/gkt killverbose` | Toggle default-ON local kill progress chat, not recording |
 
 ## Verification / development
 
@@ -401,6 +417,8 @@ luajit tests/encounters.lua .
 luajit tests/encounter_metadata.lua .
 luajit tests/dashboard.lua .
 luajit tests/group.lua .
+luajit tests/honor_kills.lua .
+luajit tests/honor_claims.lua .
 luajit tests/nearby.lua .
 luajit tests/sounds.lua .
 luajit tests/identity.lua .
@@ -413,4 +431,4 @@ python3 tests/media_gain.py .
 luac -p Core.lua Accounts.lua Sync.lua GroupTracker.lua Identity.lua Runtime.lua Dashboard.lua Sounds.lua Nearby.lua UI.lua Libs/*.lua
 ```
 
-Regression tests cover qualification, attribution, duplicate deaths, UTC periods, bounded packets, cumulative sync, account initialization/alt migration, nickname changes/collisions, cross-character encounter uniqueness, and identity exchange. The actual-TOC integration harness covers mocked lifecycle, own-CC/death detection, exact-damage parsing, recap attribution, account profile UI/editing/expansion, view transitions, secret values, and failed sends, out-of-combat dungeon sends and combat-paused queues. Mocks validate logic and API usage, **not actual client rendering or API visibility**. Tests never write live SavedVariables.
+Regression tests cover qualification, attribution, duplicate deaths, UTC periods, bounded packets, cumulative sync, account initialization/alt migration, nickname changes/collisions, cross-character encounter uniqueness, and identity exchange. The actual-TOC integration harness covers mocked lifecycle, receiver-local HK callbacks, conservative generic counter correlation, deduplicated harmful assists, synthetic damage parsing, recap attribution, account profile UI/editing/expansion, view transitions, secret values, and failed sends, out-of-combat dungeon sends and combat-paused queues. Mocks validate logic and API usage, **not actual client rendering or API visibility**. Tests never write live SavedVariables.

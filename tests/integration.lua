@@ -111,7 +111,7 @@ function IsInInstance()return inside,inside and 'party' or 'none' end
 function GetPlayerInfoByGUID(g)if g=='Player-gnome' then return 'Mage','MAGE','Gnome','Gnome',2,'Tiny','Realm' end end
 C_UnitAuras={GetAuraDataByIndex=function(u,i)if u=='target' and i==1 and not units.target.dead then return {spellId=118,sourceUnit='player',auraInstanceID=1,expirationTime=now+10} end end}
 C_ChatInfo={RegisterAddonMessagePrefix=noop,SendAddonMessage=function(p,m,c)sent[#sent+1]={p,m,c};return result end}
-C_DeathRecap={GetRecapLink=function()return '|Hdeath:9|h' end,GetRecapMaxHealth=function()return 1000 end,GetRecapEvents=function()return {{event='SWING_DAMAGE',amount=19,sourceGUID='Player-gnome',timestamp=now,hideCaster=false}} end}
+C_DeathRecap={GetRecapLink=function()return '|Hdeath:9|h' end,GetRecapMaxHealth=function()return 1000 end,GetRecapEvents=function()return {{event='SWING_DAMAGE',amount=0,sourceGUID='Player-gnome',timestamp=now,hideCaster=false}} end}
 local A={}
 local toc=assert(io.open(root..'/BIHGGnomeKillTracker5000.toc'))
 for line in toc:lines()do if line:match('%.lua$')then assert(loadfile(root..'/'..line))('BIHGGnomeKillTracker5000',A)end end;toc:close()
@@ -125,6 +125,10 @@ local function tick()
 end
 local function delayed()local t=timers;timers={};for _,fn in ipairs(t)do fn()end end
 event('ADDON_LOADED','BIHGGnomeKillTracker5000');event('PLAYER_LOGIN');event('PLAYER_ENTERING_WORLD');tick()
+if arg[2]=='honor_kills' then
+ assert(loadfile((arg[0]:match('^(.*)/')or'tests')..'/honor_kills.lua'))()(A,event,tick,function(v)if v then now=v end;return now end,units)
+ return
+end
 if arg[2]=='encounters' then
  assert(loadfile((arg[0]:match('^(.*)/')or'tests')..'/encounters.lua'))()(A,event,tick,function(v)if v then now=v end;return now end,units,transition)
  return
@@ -215,9 +219,12 @@ assert(#soundCalls==1 and soundCalls[1][1]==A.BundledNearbySounds[1].value,'actu
 assert(A.EncounterCount('Lifetime',now)==1,'visible Gnome stored uniquely')
 assert(A.db.seen['Player-gnome'],'Alliance player memory')
 units.target.dead=true;event('UNIT_HEALTH','target');tick()
-assert(A.db.owners[A.owner].total==1,'confirmed own CC + observed death awards kill without CLEU')
+assert(A.db.owners[A.owner].total==0,'confirmed CC and corpse alone cannot prove personal HK')
+COMBATLOG_HONORGAIN_NO_RANK='You killed %s (Honor: %d)'
+event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed Tiny (Honor: 4)')
+assert(A.db.owners[A.owner].total==1,'fresh named local HK confirms observed Gnome credit without CLEU')
 tick();event('PARTY_KILL','Player-me','Player-gnome');assert(A.db.owners[A.owner].total==1,'duplicate death ignored')
-event('PLAYER_DEAD');delayed();assert((A.db.owners[A.owner].deaths or 0)==0,'a Gnome final blow below two percent maximum health damage does not qualify')
+event('PLAYER_DEAD');delayed();assert((A.db.owners[A.owner].deaths or 0)==0,'zero effective Gnome damage without harmful proof does not qualify')
 event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');now=now+1
 C_DeathRecap.GetRecapLink=function()return '|Hdeath:10|h'end
 C_DeathRecap.GetRecapEvents=function()return{{event='SWING_DAMAGE',amount=100,sourceGUID='Player-human',timestamp=now,hideCaster=false},{event='SPELL_DAMAGE',amount=20,sourceGUID='Player-gnome',timestamp=now-1,hideCaster=false}}end
@@ -225,13 +232,13 @@ event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'exactly tw
 event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'same actual death and recap ignored')
 event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');now=now+2;event('PLAYER_DEAD');delayed()
 assert(A.db.owners[A.owner].deaths==1,'a recap already used in a previous life cannot qualify a new death')
-event('PLAYER_ALIVE');units.player.hp=2000;event('PLAYER_REGEN_DISABLED');now=now+1;units.player.hp=1000
+event('PLAYER_ALIVE');units.player.hp=2000;event('PLAYER_REGEN_DISABLED');now=now+4;units.player.hp=1000
 C_DeathRecap.GetRecapLink=function()return '|Hdeath:11|h'end
-event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'a maximum-health drop cannot lower the threshold below the observed combat peak')
-event('PLAYER_ALIVE');local absoluteClock=GetTime;GetTime=function()return now-1700000000 end;event('PLAYER_REGEN_DISABLED');now=now+1
+event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==2,'positive attributed damage is independent of max health')
+event('PLAYER_ALIVE');local absoluteClock=GetTime;GetTime=function()return now-1700000000 end;event('PLAYER_REGEN_DISABLED');now=now+4
 C_DeathRecap.GetRecapLink=function()return '|Hdeath:12|h'end
 C_DeathRecap.GetRecapEvents=function()return{{event='SPELL_DAMAGE',amount=600,sourceGUID='Player-gnome',timestamp=GetTime(),hideCaster=false}}end
-event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==2,'fresh monotonic-clock recaps normalize to the persisted server-time death');GetTime=absoluteClock
+event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==3,'fresh monotonic-clock recaps normalize to the persisted server-time death');GetTime=absoluteClock
 A.ToggleUI();A.RefreshUI();assert(A.window:IsShown(),'UI opens')
 A.mode='Encounters';A.RefreshUI();A.mode='Leaderboard';A.RefreshUI()
 A.dirty=true;inside=true;combat=true;local n=#sent;A.Pump(now);assert(#sent==n,'combat prevents sends even in dungeon')
@@ -249,10 +256,12 @@ CombatLogGetCurrentEventInfo=function()return now,'SPELL_DAMAGE',false,'Player-m
 A.ReadCombatLog()
 assert(A.groupTargets['Player-damage'] and A.groupTargets['Player-damage'].actors['Player-me'].damage==20,'own contribution damage parsed into group tracker')
 CombatLogGetCurrentEventInfo=function()return now,'UNIT_DIED',false,nil,nil,0,0,'Player-damage','Other',0,0 end
-A.ReadCombatLog();assert(A.db.owners[A.owner].total==2,'readable log exact 2% damage path; total='..A.db.owners[A.owner].total..' encounter='..tostring(A.encounters['Player-damage'])..' dead='..tostring(A.db.dead['Player-damage']))
+A.ReadCombatLog();assert(A.db.owners[A.owner].total==1,'synthetic attributed damage and death alone cannot prove HK; total='..A.db.owners[A.owner].total..' encounter='..tostring(A.encounters['Player-damage'])..' dead='..tostring(A.db.dead['Player-damage']))
 -- A cast-success packet must not qualify as landed crowd control.
 units.target={guid='Player-miss',name='Missed',race='Gnome',faction='Alliance',hp=1000,enemy=true};A.Scan('target')
 CombatLogGetCurrentEventInfo=function()return now,'SPELL_CAST_SUCCESS',false,'Player-me','Tester',0,0,'Player-miss','Missed',0,0,118,'Polymorph',64 end
+event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed Other (Honor: 4)')
+assert(A.db.owners[A.owner].total==2,'named local HK confirms synthetic candidate without own CC requirement')
 A.ReadCombatLog();A.GroupDeath('Player-miss',now);assert(A.db.owners[A.owner].total==2,'cast success not confirmed CC')
 -- Missing or secret values must fail closed without preventing later reads.
 local secret={}
@@ -427,6 +436,7 @@ assert(A.PeerRecords()['NoAddon-Realm'].observerOnly,'guildmate is discovered on
 units.target={guid='Player-party-gnome',name='Victim',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 C_UnitAuras.GetAuraDataByIndex=function(u,i)if u=='target'and i==1 and not units.target.dead then return{spellId=118,sourceUnit='party1',auraInstanceID=201,expirationTime=now+10}end end
 event('PLAYER_TARGET_CHANGED');units.target.dead=true;event('UNIT_HEALTH','target')
+event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed Victim (Honor: 4)')
 assert(A.GuildEffectiveRecord('NoAddon-Realm',A.PeerRecords()['NoAddon-Realm'],now).total==1,'visible party CC and confirmed death credit guildmate')
 units.target={guid='Player-guest-gnome',name='Other victim',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 C_UnitAuras.GetAuraDataByIndex=function(u,i)if u=='target'and i==1 and not units.target.dead then return{spellId=118,sourceUnit='party2',auraInstanceID=202,expirationTime=now+10}end end
@@ -542,7 +552,7 @@ assert(A.nearbyCount==0,'changing area clears previous-zone nearby sightings')
 local beforeFaerie=A.db.owners[A.owner].total
 units.target={guid='Player-faerie-live',name='FaerieVictim',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 C_UnitAuras.GetAuraDataByIndex=function(unit,index)if unit=='target'and index==1 then return {spellId=770,sourceUnit='player'}end end
-tick();units.target.dead=true;tick()
+tick();units.target.dead=true;tick();event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed FaerieVictim (Honor: 4)')
 assert(A.db.owners[A.owner].total==beforeFaerie+1,'landed own Faerie Fire aura qualifies with zero damage')
 units.target={guid='Player-faerie-miss',name='MissedFaerie',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 C_UnitAuras.GetAuraDataByIndex=function()end;tick()
@@ -551,12 +561,12 @@ A.ReadCombatLog();units.target.dead=true;tick()
 assert(A.db.owners[A.owner].total==beforeFaerie+1,'Faerie Fire cast success without a landed aura does not qualify')
 units.target={guid='Player-faerie-guild',name='GuildFaerie',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 C_UnitAuras.GetAuraDataByIndex=function(unit,index)if unit=='target'and index==1 then return {spellId=16857,sourceUnit='party1'}end end
-tick();units.target.dead=true;tick()
+tick();units.target.dead=true;tick();event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed GuildFaerie (Honor: 4)')
 assert(A.GuildEffectiveRecord('NoAddon-Realm',A.PeerRecords()['NoAddon-Realm'],now).total==2,'guildmate Feral Faerie Fire aura qualifies without addon or damage')
 local beforeDebuffs=A.db.owners[A.owner].total
 units.target={guid='Player-curse',name='Cursed',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 C_UnitAuras.GetAuraDataByIndex=function(unit,index,filter)assert(filter=='HARMFUL','visible fallback must query harmful auras only');if unit=='target'and index==1 then return {spellId=702,sourceUnit='player',isHarmful=true}end end
-tick();units.target.dead=true;tick()
+tick();units.target.dead=true;tick();event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed Cursed (Honor: 4)')
 assert(A.db.owners[A.owner].total==beforeDebuffs+1,'own landed curse with zero damage qualifies')
 units.target={guid='Player-helpful',name='Buffed',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 C_UnitAuras.GetAuraDataByIndex=function(unit,index)if unit=='target'and index==1 then return {spellId=118,sourceUnit='player',isHelpful=true,isHarmful=false}end end
@@ -564,16 +574,16 @@ tick();units.target.dead=true;tick()
 assert(A.db.owners[A.owner].total==beforeDebuffs+1,'explicit helpful aura cannot qualify')
 C_UnitAuras.GetAuraDataByIndex=function()end
 for _,kind in ipairs({'BUFF','UNKNOWN','DEBUFF','DOSE'})do
- local guid='Player-log-'..kind;units.target={guid=guid,name='AuraTarget',race='Gnome',faction='Alliance',hp=1000,enemy=true};tick()
+ local guid='Player-log-'..kind;units.target={guid=guid,name='AuraTarget'..kind,race='Gnome',faction='Alliance',hp=1000,enemy=true};tick()
  CombatLogGetCurrentEventInfo=function()return now,kind=='DOSE'and'SPELL_AURA_APPLIED_DOSE'or'SPELL_AURA_APPLIED',false,UnitGUID('party1'),'NoAddon',0,0,guid,'AuraTarget',0,0,702,'Curse',32,kind=='DOSE'and'DEBUFF'or kind end
- A.ReadCombatLog();units.target.dead=true;tick()
+ A.ReadCombatLog();units.target.dead=true;tick();event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed AuraTarget'..kind..' (Honor: 4)')
 end
 assert(A.GuildEffectiveRecord('NoAddon-Realm',A.PeerRecords()['NoAddon-Realm'],now).total==4,'only explicit DEBUFF combat-log applications, including added stacks, grant guildmate credit')
 local beforeLives=A.db.owners[A.owner].total
 units.target={guid='Player-debuff-lives',name='Again',race='Gnome',faction='Alliance',hp=1000,enemy=true}
 C_UnitAuras.GetAuraDataByIndex=function(unit,index)if unit=='target'and index==1 then return {spellId=702,sourceUnit='player'}end end
-tick();units.target.dead=true;tick()
-units.target.dead=false;tick();tick();tick();units.target.dead=true;tick()
+tick();units.target.dead=true;tick();event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed Again (Honor: 4)')
+units.target.dead=false;tick();tick();tick();units.target.dead=true;tick();event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed Again (Honor: 4)')
 assert(A.db.owners[A.owner].total==beforeLives+2,'a new life can earn debuff credit again when aura instance/expiry fields are unavailable')
 -- Public party alerts run from the actual scan/update path even while secure
 -- nearby rows are frozen; they do not require the guild-report officer ranks.
@@ -590,7 +600,7 @@ DEFAULT_CHAT_FRAME.AddMessage=function(_,text)debugOutput[#debugOutput+1]=text e
 local publicBefore=#partyMessages;local addonBefore=#sent
 event('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','SendChatMessage()');SlashCmdList.BIHGGKT('debug')
 local debugText=table.concat(debugOutput,' ')
-assert(A.VERSION=='1.8.5'and tocVersion==A.VERSION,'release metadata matches actual TOC')
+assert(A.VERSION=='1.9.0'and tocVersion==A.VERSION,'release metadata matches actual TOC')
 assert(debugText:find('BIHG own death outcomes',1,true)and debugText:find('counted',1,true),'actual slash exposes persisted own death diagnostics')
 assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
 assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')
@@ -626,10 +636,10 @@ units.player.hp=1000;event('PLAYER_REGEN_DISABLED');A.RefreshGroupActors();local
 units.player.hp=2000;event('UNIT_MAXHEALTH','player');units.player.hp=1000;event('UNIT_MAXHEALTH','player')
 local incoming={};incoming[2]='SWING_DAMAGE';incoming[4]='Player-gnome';incoming[8]='Player-me';incoming[12]=39;incoming[13]=0
 A.GroupCombat(incoming,now);local ownDied={};ownDied[2]='UNIT_DIED';ownDied[8]='Player-me';A.GroupCombat(ownDied,now)
-assert(A.db.owners[A.owner].deaths==deathBeforePeak,'incoming UNIT_DIED cannot bypass the observed transient max-health peak')
+assert(A.db.owners[A.owner].deaths==deathBeforePeak+1,'positive incoming damage counts independently of max-health peak')
 -- Late collector creation at the lower current health still uses the known own peak.
 A.RefreshGroupActors();A.GroupCombat(incoming,now);A.GroupCombat(ownDied,now)
-assert(A.db.owners[A.owner].deaths==deathBeforePeak,'late incoming collectors cannot lower the own combat health denominator')
+assert(A.db.owners[A.owner].deaths==deathBeforePeak+1,'same death still deduplicates independently of health')
 UnitAffectingCombat=oldAffectingCombat
 A.SetNearbyEnabled(false)
 local pausedLocalAlerts=0;local oldLocalMessage=DEFAULT_CHAT_FRAME.AddMessage
@@ -648,7 +658,8 @@ assert(pausedLocalAlerts==0 and not A.nearbySeen['Player-paused-world'],'Nearby 
 assert(A.db.seen['Player-paused-world'],'pausing Nearby does not disable persistent encounter history')
 A.RefreshGroupActors();local killsWhilePaused=A.db.owners[A.owner].total
 A.GroupCC('Player-paused-world',770,UnitGUID('player'),now,true)
-assert(A.GroupDeath('Player-paused-world',now)and A.db.owners[A.owner].total==killsWhilePaused+1,'open-world kill recording continues while Nearby is OFF')
+A.GroupDeath('Player-paused-world',now,true);event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed PausedSight (Honor: 4)')
+assert(A.db.owners[A.owner].total==killsWhilePaused+1,'open-world kill recording continues while Nearby is OFF')
 DEFAULT_CHAT_FRAME.AddMessage=oldLocalMessage;event('NAME_PLATE_UNIT_REMOVED','nameplatePaused');units.nameplatePaused=nil
 A.db.options.alerts=oldLegacyAlerts
 A.SetNearbyEnabled(true)

@@ -19,6 +19,8 @@ jobs:
       - run: luajit tests/chart_range.lua .
       - run: luajit tests/chart_scope.lua .
       - run: luajit tests/group.lua .
+      - run: luajit tests/honor_kills.lua .
+      - run: luajit tests/honor_claims.lua .
       - run: luajit tests/kill_lifecycle.lua .
       - run: luajit tests/death_policy.lua .
       - run: luajit tests/native_deaths.lua .

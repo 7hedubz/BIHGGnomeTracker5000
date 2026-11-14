@@ -97,6 +97,11 @@ function A.Scan(unit,seen,forceAura)
  if previous and previous.complete and (dead~=true or previous.dead==true)then return end
  local scanState={dead=dead,complete=type(dead)=='boolean'};if seen then seen[g]=scanState end
  local ok,_,race=pcall(UnitRace,unit); if not ok or A.Secret(race) then race=nil end
+ local freshRace=race
+ if not freshRace and type(GetPlayerInfoByGUID)=='function'then
+  local good,_,_,_,nativeRace=pcall(GetPlayerInfoByGUID,g)
+  if good and not A.Secret(nativeRace)then freshRace=nativeRace end
+ end
  if not race then race=A.Race(g)end
  if not race then scanState.complete=false end
  local faction=A.Safe(UnitFactionGroup,unit)
@@ -124,6 +129,7 @@ function A.Scan(unit,seen,forceAura)
   end
  end
  local hostile=A.Safe(UnitCanAttack,'player',unit)
+ if A.HonorSight then A.HonorSight(g,name,freshRace,hostile,dead,t)end
  if type(hostile)~='boolean' then scanState.complete=false end
  local hp=A.Safe(UnitHealthMax,unit)
  local prior=A.GroupObserve and A.groupTargets[g]or A.encounters[g]
@@ -154,7 +160,9 @@ function A.Scan(unit,seen,forceAura)
    local id,source=a.spellId,a.sourceUnit
    local instance,expires=a.auraInstanceID,a.expirationTime
    local sourceGUID=type(source)=='string'and A.Safe(UnitGUID,source)
-   if type(id)~='number'or type(source)~='string'or not sourceGUID then unreadableRow=true end
+   if type(id)~='number'or type(source)~='string'or not sourceGUID then
+    unreadableRow=true;if A.KillOutcome then A.KillOutcome('participant debuff unknown',t,g)end
+   end
    local eligible=sourceGUID and ((A.GroupCC and A.groupSources[sourceGUID])or(not A.GroupCC and own(source)))
    local helpful,harmful=a.isHelpful,a.isHarmful
    if A.Secret(helpful)or A.Secret(harmful)then break end
@@ -174,7 +182,7 @@ function A.Scan(unit,seen,forceAura)
   -- Errors, secret rows and the enumeration cap never prove absence.
   -- A readable aura list cannot complete missing identity/life/hostility evidence.
   scanState.complete=scanState.complete and complete
-  if encounter and not complete then encounter.creditUnknown=true end
+  if encounter and not complete then encounter.creditUnknown=true;if A.KillOutcome then A.KillOutcome('participant debuff unknown',t,g)end end
   if complete then for key in pairs(A.auras[g]or {})do if not present[key]then A.auras[g][key]=nil end end end
  elseif encounter then encounter.creditUnknown=true
  end
@@ -304,7 +312,7 @@ function A.Roster(confirmed)
   A.guildName=last.name;A.guildKey=last.key;A.guildUnverified=true;confirmed=false
  else A.guildName=nil;A.guildKey=nil end
  A.members={};A.rosterSeen={}
- if old~=A.guildKey then A.rosterCandidate=nil;A.rosterTargetNames={};A.outgoing=nil;A.request=true;A.rx={};A.queries={};A.lastRequest=nil;A.syncStatus=nil;A.QueueShare(true)end
+ if old~=A.guildKey then if A.ResetHonorEvidence then A.ResetHonorEvidence(now())end;A.rosterCandidate=nil;A.rosterTargetNames={};A.outgoing=nil;A.request=true;A.rx={};A.queries={};A.lastRequest=nil;A.syncStatus=nil;A.QueueShare(true)end
  if A.guildKey then
   local c=A.GuildMembershipCache();local count=not A.guildUnverified and A.Safe(GetNumGuildMembers,true)or 0
   if type(count)~='number'or count<0 then count=0 end
@@ -342,6 +350,7 @@ function A.Roster(confirmed)
   A.members={}
   for n,present in pairs(c.members)do if present then local canonical=A.CanonicalCharacterName and A.CanonicalCharacterName(n,c.guids[n])or n;A.members[canonical]=true end end
   A.RememberGuildMember(A.owner,A.Safe(UnitGUID,'player'))
+  if A.InitKillPolicy then A.InitKillPolicy(now())end
  else A.rosterStatus='guild information unavailable'end
  if A.RefreshGroupActors then A.RefreshGroupActors()end
  if A.ReconcileGuildMembership then A.ReconcileGuildMembership()end
@@ -513,7 +522,7 @@ local function login()
  local identity=A.Safe(UnitGUID,'player')
  if not name or type(identity)~='string'or not identity:match('^Player%-[%w%-]+$')then return end
  BIHGGKTDB=BIHGGKTDB or {}; A.Init(BIHGGKTDB,name,now())
- A.InitDeathOutcomes()
+ A.InitDeathOutcomes();if A.InitKillOutcomes then A.InitKillOutcomes()end
  BIHGGKTAccountDB=BIHGGKTAccountDB or {}
  A.InitAccount(BIHGGKTAccountDB,identity..'-'..now(),now())
  if A.BindLocalCharacter then A.BindLocalCharacter(A.Safe(UnitGUID,'player'),now())end
@@ -521,7 +530,7 @@ local function login()
  if A.InitNearby then A.InitNearby()end
  A.plates={};A.auras={};A.coverage={};A.syncStatus='Waiting for guild roster'
  if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then pcall(C_ChatInfo.RegisterAddonMessagePrefix,A.PREFIX) end
- A.Roster();A.QueueShare(true);A.request=true
+ A.Roster();if A.ResetHonorEvidence then A.ResetHonorEvidence(now())end;A.QueueShare(true);A.request=true
  if C_GuildInfo and C_GuildInfo.GuildRoster then pcall(C_GuildInfo.GuildRoster) end
  if A.CreateUI then A.CreateUI() end
  if A.CreateNearbyUI then A.CreateNearbyUI()end
@@ -570,7 +579,14 @@ local function handler(_,event,...)
  elseif event=='UPDATE_MOUSEOVER_UNIT' then A.Scan('mouseover')
  elseif event=='PLAYER_FOCUS_CHANGED' then A.Scan('focus')
  elseif event=='COMBAT_LOG_EVENT_UNFILTERED' then A.ReadCombatLog()
- elseif event=='PARTY_KILL' then if not A.Secret(arg2)then if A.ForgetNearby then A.ForgetNearby(arg2)end;if A.GroupDeath then A.GroupDeath(arg2,now(),nil,true)else A.Death(arg2,now(),nil,true)end end
+ elseif event=='PLAYER_PVP_KILLS_CHANGED'then A.HonorProgress(now())
+ elseif event=='CHAT_MSG_COMBAT_HONOR_GAIN'then A.HonorMessage(arg1,now())
+ elseif event=='PARTY_KILL'then
+  if not A.Secret(arg1)and not A.Secret(arg2)and type(arg1)=='string'and arg1:match('^[%w%-]+$')
+   and type(arg2)=='string'and arg2:match('^Player%-[%w%-]+$')then
+   if A.ForgetNearby then A.ForgetNearby(arg2)end
+   if A.GroupDeath then A.GroupDeath(arg2,now(),nil,true,true)else A.Death(arg2,now(),nil,true)end
+  elseif A.MarkHonorUncertainty and(A.Secret(arg1)or A.Secret(arg2)or arg2==nil)then A.MarkHonorUncertainty(now())end
  elseif event=='PLAYER_DEAD' then
   if A.deathActive then return end
   A.ObserveOwnDeathHealth();A.deathActive=true
@@ -606,13 +622,14 @@ frame:SetScript('OnEvent',function(...)
 end)
 -- Forever forbids native CLEU registration; pcall does not prevent its
 -- ADDON_ACTION_FORBIDDEN event. Keep the parser for explicitly supplied data.
-for _,event in ipairs({'ADDON_ACTION_BLOCKED','ADDON_ACTION_FORBIDDEN','PLAYER_LOGIN','PLAYER_ENTERING_WORLD','ZONE_CHANGED_NEW_AREA','GUILD_ROSTER_UPDATE','PLAYER_GUILD_UPDATE','GROUP_ROSTER_UPDATE','UNIT_PET','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','UNIT_AURA','UNIT_HEALTH','UNIT_FLAGS','UNIT_MAXHEALTH','PLAYER_REGEN_DISABLED','PLAYER_REGEN_ENABLED','PLAYER_TARGET_CHANGED','UPDATE_MOUSEOVER_UNIT','PLAYER_FOCUS_CHANGED','PARTY_KILL','PLAYER_DEAD','PLAYER_ALIVE','PLAYER_UNGHOST','CHAT_MSG_ADDON'}) do pcall(frame.RegisterEvent,frame,event) end
+for _,event in ipairs({'ADDON_ACTION_BLOCKED','ADDON_ACTION_FORBIDDEN','PLAYER_LOGIN','PLAYER_ENTERING_WORLD','ZONE_CHANGED_NEW_AREA','GUILD_ROSTER_UPDATE','PLAYER_GUILD_UPDATE','GROUP_ROSTER_UPDATE','UNIT_PET','NAME_PLATE_UNIT_ADDED','NAME_PLATE_UNIT_REMOVED','UNIT_AURA','UNIT_HEALTH','UNIT_FLAGS','UNIT_MAXHEALTH','PLAYER_REGEN_DISABLED','PLAYER_REGEN_ENABLED','PLAYER_TARGET_CHANGED','UPDATE_MOUSEOVER_UNIT','PLAYER_FOCUS_CHANGED','CHAT_MSG_COMBAT_HONOR_GAIN','PLAYER_PVP_KILLS_CHANGED','PARTY_KILL','PLAYER_DEAD','PLAYER_ALIVE','PLAYER_UNGHOST','CHAT_MSG_ADDON'}) do pcall(frame.RegisterEvent,frame,event) end
 local elapsed=0
 frame:SetScript('OnUpdate',function(_,dt)
  elapsed=elapsed+dt; if elapsed<0.5 or not A.db then return end;elapsed=0
  local ok,err=pcall(function()
   if A.TargetingLocked and not A.TargetingLocked()then if not A.window and A.CreateUI then A.CreateUI()end;if not A.nearbyFrame and A.CreateNearbyUI then A.CreateNearbyUI()end end
   A.ScanVisible();A.Recap();local t=now()
+  if A.HonorProgress then A.HonorProgress(t)end
   A.PruneEncounters(t,false)
   if A.CheckVersionNotice then A.CheckVersionNotice(t)end
   -- Sparse, independently throttled party alerts get a budget slot before

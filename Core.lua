@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.8.5'
+A.VERSION='1.9.0'
 -- Local-only feedback; a broken chat widget must never invalidate credit.
 function A.LocalNotice(text)
  if DEFAULT_CHAT_FRAME and type(DEFAULT_CHAT_FRAME.AddMessage)=='function'then pcall(DEFAULT_CHAT_FRAME.AddMessage,DEFAULT_CHAT_FRAME,'|cffffb347BIHG:|r '..text)end
@@ -29,6 +29,8 @@ function A.NonqualifyingDeathNotice(guid,e,confirmed,now)
  A.LocalNotice('Gnome death observed: '..(A.OpponentName(guid)or'Unknown Gnome')..'. You did not qualify for kill credit.')
 end
 A.RETENTION = 400
+-- Retained for standalone synthetic legacy helpers only. The actual TOC
+-- routes native kills through GroupTracker honorable-kill confirmation.
 A.DAMAGE_FRACTION = 0.02
 -- IsInInstance has two independent returns; Safe intentionally keeps only one.
 -- Never infer world from a missing, protected, or contradictory return.
@@ -47,6 +49,7 @@ end
 function A.RefreshKillLocation(boundary)
  local allowed=openWorld();local previous=A.killLocation
  if boundary or previous~=allowed or not allowed then
+  if (boundary or previous~=allowed)and A.db and A.Safe and A.ResetHonorEvidence then A.ResetHonorEvidence(A.Safe(GetServerTime)or A.now)end
   A.encounters={};A.groupTargets={};A.auras={};A.auraPoll={};A.killLifeAfter={}
   -- Retain saved corpse dedup until a readable living observation proves a
   -- new life. A corpse on login/exit must never rearm the same old death.
@@ -170,7 +173,7 @@ function A.GnomeDeathEvidence(events,maxHealth,deathTime,combatStart)
  end
  if harmful then return {damage=0,maxHealth=health,source=harmful,time=deathTime,harmful=true}end
  if overflow then return nil end
- if not health or total<health*A.DAMAGE_FRACTION then
+ if total<=0 then
   if rows==0 then return nil end
   return nil,unreadable and 'unreadable/missing attribution' or 'insufficient confirmed Gnome damage'
  end
@@ -178,15 +181,14 @@ function A.GnomeDeathEvidence(events,maxHealth,deathTime,combatStart)
  for guid,damage in pairs(sources) do
   if damage>best or (damage==best and (not source or guid<source)) then source,best=guid,damage end
  end
- return {damage=total,maxHealth=maxHealth,source=source,time=deathTime}
+ return {damage=total,maxHealth=health,source=source,time=deathTime}
 end
 function A.ValidGnomeDeathEvidence(proof,now)
  if not deathTable(proof) or not deathNumber(now) then return false end
  local damage,hp,source,time=proof.damage,proof.maxHealth,proof.source,proof.time
  if not deathPlayer(source) or not deathNumber(time) or time~=now or deathSecret(proof.harmful)then return false end
  if proof.harmful==true then return deathNumber(damage)and damage>=0 end
- return deathNumber(damage) and damage>0 and deathNumber(hp) and hp>0
-  and damage>=hp*A.DAMAGE_FRACTION
+ return deathNumber(damage) and damage>0
 end
 function A.PlayerDeath(id,race,now,killer,proof)
  if not A.ValidGnomeDeathEvidence(proof,now) or deathSecret(killer) or killer~=proof.source then return false end

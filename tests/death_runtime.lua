@@ -67,7 +67,7 @@ test('later incoming damage cannot qualify a prior death',function()
  A.Recap();assert(deaths(A)==0,'live collector contaminated frozen death')
 end)
 test('each own death attempt has bounded local persisted outcome diagnostics',function()
- local A,event=setup();recap({row(19)});event('PLAYER_DEAD')
+ local A,event=setup();recap({row(0)});event('PLAYER_DEAD')
  t=t+9;clock=clock+9;A.Recap()
  assert(A.db.deathOutcomes and #A.db.deathOutcomes==1,'missing persisted death outcome')
  assert(A.db.deathOutcomes[1].reason=='insufficient confirmed Gnome damage')
@@ -102,10 +102,10 @@ test('pending diagnostics and proof use only readable bounded state',function()
  assert(#A.DeathDebugLines()==1,'secret or arbitrary persisted fields must not be rendered')
 end)
 test('readable insufficient versus missing attribution are not conflated',function()
- for _,n in ipairs({19,20,21})do
+ for _,n in ipairs({0,0.01,19,20,21})do
   local A,event=setup();recap({row(n)});event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap()
-  assert(deaths(A)==(n>=20 and 1 or 0))
-  assert(A.db.deathOutcomes[1].reason==(n>=20 and 'counted'or'insufficient confirmed Gnome damage'))
+  assert(deaths(A)==(n>0 and 1 or 0))
+  assert(A.db.deathOutcomes[1].reason==(n>0 and 'counted'or'insufficient confirmed Gnome damage'))
  end
  local A,event=setup();recap({row(secret)});event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap()
  assert(deaths(A)==0 and A.db.deathOutcomes[1].reason=='unreadable/missing attribution')
@@ -117,13 +117,13 @@ test('observed transient health peaks and original proof clocks stay frozen',fun
    local at=monotonic and clock or t;event('PLAYER_DEAD');event('PLAYER_UNGHOST')
    sethp(10000);event('PLAYER_REGEN_DISABLED');t=t+2;clock=clock+2
    recap({row(n,'Player-a',at)},1,1000);A.Recap()
-   assert(deaths(A)==(n>=40 and 1 or 0),'frozen peak/clock changed')
+   assert(deaths(A)==(n>0 and 1 or 0),'frozen peak/clock changed')
   end
  end
 end)
 test('recap and collector damage are alternative proofs and never summed',function()
  local A,event=setup();A.groupIncoming['Player-me']={started=t,health=1000,events={row(10)}}
- recap({row(10)});event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap();assert(deaths(A)==0,'overlapping collector/recap damage added')
+ recap({row(10)});event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap();assert(deaths(A)==1,'alternative positive proofs must commit only once')
 end)
 test('stale and consumed recaps cannot qualify another life',function()
  local A,event=setup();recap(majority(t-30));event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap()
@@ -154,7 +154,7 @@ test('PLAYER_DEAD samples one immutable proof timestamp',function()
  event('PLAYER_DEAD');assert(deaths(A)==1,'proof clock sampled again after freezing death time')
 end)
 test('frozen collector outcomes retain their supported reason without a native recap',function()
- local A,event=setup();A.groupIncoming['Player-me']={started=t,health=1000,events={row(19)}}
+ local A,event=setup();A.groupIncoming['Player-me']={started=t,health=1000,events={row(0)}}
  event('PLAYER_DEAD');t=t+9;clock=clock+9;A.Recap()
  assert(deaths(A)==0 and A.db.deathOutcomes[1].reason=='insufficient confirmed Gnome damage','lost readable collector outcome')
 end)
@@ -313,9 +313,9 @@ test('collector and later own recap share one local confirmation',function()
  assert(#chat==1,'actual own collector commit must confirm locally')
  recap(majority(),302);event('PLAYER_DEAD');A.Recap();assert(#chat==1,'recap must not duplicate collector confirmation')
 end)
-test('legacy personal deaths confirm only committed two-percent credit and isolate chat errors',function()
+test('legacy personal deaths confirm only committed positive-damage credit and isolate chat errors',function()
  local A=setup();A.GroupOwnDeath=nil;local chat={};DEFAULT_CHAT_FRAME={AddMessage=function(_,s)chat[#chat+1]=s end}
- local proof={damage=19,maxHealth=1000,source='Player-a',time=t}
+ local proof={damage=0,maxHealth=1000,source='Player-a',time=t}
  assert(not A.PlayerDeath('half','Gnome',t,'Player-a',proof));assert(#chat==0)
  proof.damage=20;assert(A.PlayerDeath('legacy','Gnome',t,'Player-a',proof));assert(#chat==1,'legacy death commit confirms')
  assert(not A.PlayerDeath('legacy','Gnome',t,'Player-a',proof));assert(#chat==1)

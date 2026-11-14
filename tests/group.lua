@@ -23,12 +23,26 @@ local function make(owner)
  A.guildName='Guild';A.guildKey='Guild-Realm';A.members={['Me-Realm']=true,['Friend-Realm']=true,['Alt-Realm']=true,['Witness-Realm']=true}
  local f=io.open(root..'/GroupTracker.lua');assert(f,'Guild-only group observation not implemented');f:close()
  assert(loadfile(root..'/GroupTracker.lua'))('BIHGGnomeKillTracker5000',A)
- A.InitGroupTracking(now);A.RefreshGroupActors();return A
+ A.InitGroupTracking(now);A.RefreshGroupActors()
+ -- Synthetic HK injection for ledger/actor unit tests; native delivery is
+ -- exercised separately by honor_kills.lua through the actual TOC.
+ local observe,death=A.GroupObserve,A.GroupDeath
+ A.GroupObserve=function(g,r,h,hp,t,dead)
+  A.OpenWorldKillsAllowed()
+  A.HonorSight(g,g..'-Realm',r,h,dead,t);return observe(g,r,h,hp,t,dead)
+ end
+ A.GroupDeath=function(g,t,corpse,confirmed)
+  death(g,t,corpse,confirmed)
+  local c=(A.killCandidates or{})[g]
+  if c and not c.confirmed then return A.ConfirmHonorCandidate(c,t)end
+  return false
+ end
+ return A
 end
 for _,kind in ipairs({'SWING_DAMAGE','SPELL_DAMAGE','SPELL_PERIODIC_DAMAGE','RANGE_DAMAGE','DAMAGE_SHIELD'})do
  local T=make('Me-Realm');local first=kind=='SWING_DAMAGE'and 12 or 15
  local hit={[2]=kind,[4]='Player-gnome',[8]='Player-friend'}
- hit[first]=30;hit[first+1]=10;hit[first+4]=1
+ hit[first]=11;hit[first+1]=10;hit[first+4]=1
  T.GroupCombat(hit,now)
  assert(not T.IncomingDeathEvidence('Player-friend',now),'incoming effective damage must subtract blocked mitigation: '..kind)
  hit[first+4]=0;hit[3]=true;T.groupIncoming={};T.GroupCombat(hit,now)
@@ -49,7 +63,7 @@ assert(A.PeerRecords()['Friend-Realm'].observerOnly,'guild group member is disco
 assert(A.groupSources['Player-friend'] and A.groupSources['Pet-friend'],'guild group players and their pets resolve to character')
 assert(not A.groupSources['Player-guest'],'non-guild group member excluded')
 A.GroupObserve('Player-gnome','Gnome',true,1000,now,false)
-A.GroupDamage('Player-gnome',20,0,'Player-friend',now)
+A.GroupCC('Player-gnome',172,'Player-friend',now,true)
 A.GroupDamage('Player-gnome',1000,0,'Player-guest',now)
 A.GroupCC('Player-gnome',118,'Player-me',now)
 assert(A.GroupDeath('Player-gnome',now+1),'eligible guild contributions awarded on death')
@@ -103,13 +117,13 @@ assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now
 damage[12]=19;A.GroupCombat(damage,now+38)
 local human={};human[2]='SWING_DAMAGE';human[4]='Player-human';human[8]='Player-friend';human[12]=1000;human[13]=0
 A.GroupCombat(human,now+39);A.GroupCombat(died,now+39)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+39).deaths==1,'below two percent Gnome damage is not sufficient')
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+39).deaths==2,'any positive Gnome damage is sufficient despite another final blow')
 damage[12]=20;A.GroupCombat(damage,now+43);A.GroupCombat(human,now+44);A.GroupCombat(died,now+44)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+44).deaths==2,'two-percent Gnome contribution counts despite a Human final blow')
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+44).deaths==3,'positive Gnome contribution counts despite a Human final blow')
 local oldCombat=UnitAffectingCombat;local fighting=true;UnitAffectingCombat=function()return fighting end
 A.GroupCombat(damage,now+50);fighting=false;A.UpdateDeathCombat('Player-friend','party1',now+51)
 fighting=true;A.UpdateDeathCombat('Player-friend','party1',now+52);A.GroupCombat(human,now+53);A.GroupCombat(died,now+53)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+53).deaths==2,'a new combat cannot reuse Gnome damage from the prior fight');UnitAffectingCombat=oldCombat
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+53).deaths==3,'a new combat cannot reuse Gnome damage from the prior fight');UnitAffectingCombat=oldCombat
 local D=make('Me-Realm')
 assert(D.AddGuildEvent('D','Friend-Realm','Player-friend','Player-gnome-a',now+60,now+60,now+60))
 assert(not D.AddGuildEvent('D','Friend-Realm','Player-friend','Player-gnome-b',now+60,now+60,now+60),'different qualifying contributors cannot duplicate one victim death')
@@ -124,7 +138,7 @@ A.RefreshGroupActors();assert(A.groupSources['Pet-friend']and not A.groupSources
 IsInRaid=oldRaid
 -- Moving guild preserves one's own history, without importing unrelated old guild members.
 local oldGuild=A.guildKey;A.guildKey='NewGuild-Realm';A.CarryOwnGuildHistory(now+45);A.RebuildOwnGuildTotals(now+45)
-assert(A.db.owners[A.owner].total==1 and A.db.owners[A.owner].deaths==1,'own lifetime history survives guild change')
+assert(A.db.owners[A.owner].total==3 and A.db.owners[A.owner].deaths==1,'own lifetime history survives guild change')
 assert(A.GuildEffectiveRecord('Friend-Realm',nil,now+45).total==0,'old guild peer history is not carried as personal history')
 A.guildKey=oldGuild
 local sentPacket
@@ -139,4 +153,4 @@ for _,g in ipairs(A.LeaderboardGroups('Lifetime',now+50))do for _,r in ipairs(g.
 A.guildKey=nil;A.members={};A.RefreshGroupActors()
 assert(not next(A.groupSources),'unguilded player cannot observe/award group statistics')
 assert(#A.LeaderboardGroups('Lifetime',now+50)==0,'only guildmates are tallied, including self')
-print('PASS group tracker: guild-only party/pets, contribution thresholds, non-addon characters, corpse and multi-observer dedup, alias adoption, confirmed deaths, departed/unguilded filtering')
+print('PASS group tracker: guild-only party/pets, HK-confirmed harmful assists, non-addon characters, corpse and multi-observer dedup, alias adoption, confirmed deaths, departed/unguilded filtering')

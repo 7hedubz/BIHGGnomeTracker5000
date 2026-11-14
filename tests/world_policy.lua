@@ -10,10 +10,22 @@ local function make(group)
  for _,f in ipairs({'Core.lua','Accounts.lua','Sync.lua'})do assert(loadfile(root..'/'..f))('BIHGGnomeKillTracker5000',A)end
  A.Init({},'Me-Realm',t)
  A.Secret=issecretvalue
+ A.Safe=function(fn,...)if type(fn)=='function'then local ok,v=pcall(fn,...);if ok and not A.Secret(v)then return v end end end
+ if not UnitGUID then UnitGUID=function(u)if u=='player'then return'Player-me'end end end
  A.guildName='Guild';A.guildKey='Guild-Realm';A.members={['Me-Realm']=true,['Friend-Realm']=true}
  if group then
   assert(loadfile(root..'/GroupTracker.lua'))('BIHGGnomeKillTracker5000',A)
   A.InitGroupTracking(t)
+  -- Explicit synthetic personal HK seam for world/ledger unit tests.
+  local observe,death=A.GroupObserve,A.GroupDeath
+  A.GroupObserve=function(g,r,h,hp,at,dead)
+   A.OpenWorldKillsAllowed();A.HonorSight(g,g..'-Realm',r,h,dead,at);return observe(g,r,h,hp,at,dead)
+  end
+  A.GroupDeath=function(g,at,corpse,confirmed,nativePK)
+   death(g,at,corpse,confirmed,nativePK);local c=(A.killCandidates or{})[g]
+   if c and not c.confirmed then return A.ConfirmHonorCandidate(c,at)end
+   return false
+  end
   A.groupSources={['Player-me']={name=A.owner,guid='Player-me'},['Pet-me']={name=A.owner,guid='Player-me'},['Player-friend']={name='Friend-Realm',guid='Player-friend'},['Pet-friend']={name='Friend-Realm',guid='Player-friend'}}
  end
  return A
@@ -47,7 +59,7 @@ test('group and pet credit are independently world-only without receiver filteri
   assert(not A.GroupDeath('Player-blocked',t+1))
   assert(not A.db.dead['Player-blocked'])
   -- Remote ledger replay/adoption is not a new local observation.
-  assert(A.Receive('5|E|K|'..A.EncodeAlias('Me-Realm')..'|Player-me|Player-remote|'..(t+10)..'|'..(t+9),'GUILD','Friend-Realm',t+10))
+  assert(A.Receive('5|E|K|'..A.EncodeAlias('Me-Realm')..'|Player-me|Player-remote|'..(t-10)..'|'..(t-11),'GUILD','Friend-Realm',t+10))
   assert(A.db.owners[A.owner].total==1,'remote own history is adopted while recipient is instanced')
   assert(A.Receive('2|S|7|3|'..A.Day(t)..'|2|1','GUILD','Friend-Realm',t+10))
   assert(A.PeerRecords()['Friend-Realm'].total==7,'legacy summaries remain compatible')
@@ -55,13 +67,13 @@ test('group and pet credit are independently world-only without receiver filteri
  IsInInstance=function()return false,'none'end
  local A=make(true);A.GroupObserve('Player-world','Gnome',true,1000,t,false)
  A.GroupDamage('Player-world',19,0,'Player-me',t)
- A.GroupDamage('Player-world',20,0,'Pet-friend',t)
+ A.GroupCC('Player-world',172,'Pet-friend',t,true)
  assert(A.GroupDeath('Player-world',t+1))
- assert(A.db.owners[A.owner].total==0,'under-threshold self cannot borrow pet owner credit')
+ assert(A.db.owners[A.owner].total==1,'personal HK counts independently of own damage or debuffs')
  assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],t+1).total==1)
  A.GroupObserve('Player-debuff','Gnome',true,1000,t+10,false)
  assert(A.GroupCC('Player-debuff',702,'Pet-me',t+10,true));assert(A.GroupDeath('Player-debuff',t+11))
- assert(A.db.owners[A.owner].total==1,'own pet debuff qualifies in world')
+ assert(A.db.owners[A.owner].total==2,'own HK confirms fresh native world victim')
 end)
 local function runtime(A)
  local units={player={guid='Player-me',name='Me',race='Orc',faction='Horde'},target={guid='Player-same',name='Same',race='Gnome',faction='Alliance',enemy=true}}
@@ -121,17 +133,17 @@ test('actual runtime transitions isolate lives and clear eligibility before scan
   end
  end
 end)
-test('instance deaths keep two percent evidence and instance detection remains independent',function()
+test('instance deaths require positive effective evidence and detection remains independent',function()
  for _,kind in ipairs({'pvp','arena','party','raid','scenario'})do
   IsInInstance=function()return true,kind end
   local A=make(true);local units,event=runtime(A)
   local notices=0;A.NearbyNotice=function()notices=notices+1 end
   A.ScanVisible();assert(notices==1 and A.db.seen['Player-same'],'instance encounter and Nearby detection continue')
   assert(not next(A.groupTargets),'detection must not seed instance kill eligibility')
-  local damage={[2]='SWING_DAMAGE',[4]='Player-gnome',[8]='Player-me',[12]=19,[13]=0}
+  local damage={[2]='SWING_DAMAGE',[4]='Player-gnome',[8]='Player-me',[12]=0,[13]=0}
   local died={[2]='UNIT_DIED',[8]='Player-me'}
   A.GroupCombat(damage,t);A.GroupCombat(died,t)
-  assert((A.db.owners[A.owner].deaths or 0)==0,'below two percent is still rejected in instances')
+  assert((A.db.owners[A.owner].deaths or 0)==0,'zero effective damage without debuff is rejected in instances')
   t=t+5;damage[12]=20;A.GroupCombat(damage,t);A.GroupCombat(died,t)
   assert(A.db.owners[A.owner].deaths==1,'two-percent incoming damage still counts in instances')
   -- Own native recap path is also not a kill-location gate.

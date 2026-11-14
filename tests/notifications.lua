@@ -89,227 +89,65 @@ return function(A,event,tick,clock,units,combat,sent)
   print('PASS equal/lower reports and reentrant/erroring chat do not spam')
  end
  if os.getenv('BIHG_TRACER')~='version'then
-  local g='Player-notice';local t=clock();A.Observe(g,'Gnome',true,1000,t,false);A.Damage(g,20,0,true,t)
-  assert(A.Death(g,t,true),'personal qualifying award')
-  assert(count('Gnome kill recorded')==1,'actual personal award must print local confirmation')
-  print('PASS personal award -> local confirmation')
-  assert(not A.Death(g,t,true));assert(count('Gnome kill recorded')==1)
-  local before=count('Gnome kill recorded')
-  local gg='Player-group-notice';A.GroupObserve(gg,'Gnome',true,1000,t,false)
-  assert(A.GroupDamage(gg,20,0,'Player-me',t));assert(A.GroupDeath(gg,t,true))
-  assert(count('Gnome kill recorded')==before+1,'group personal commit confirms once')
-  assert(not A.GroupDeath(gg,t,true));assert(count('Gnome kill recorded')==before+1)
-  local proof={damage=501,maxHealth=1000,source='Player-gnome',time=t}
-  local old=count('Death to Gnomes recorded')
-  assert(A.PlayerDeath('notice-death','Gnome',t,'Player-gnome',proof))
-  assert(count('Death to Gnomes recorded')==old+1,'own group death confirms once')
-  assert(chat[#chat]:find('Tiny',1,true),'known opponent named without claiming final blow')
-  assert(not A.PlayerDeath('notice-death','Gnome',t,'Player-gnome',proof));assert(count('Death to Gnomes recorded')==old+1)
-  -- History/rebuild/ordinary Changed are not actual personal observations.
-  local all=#chat;A.AddGuildEvent('K',A.owner,'Player-me','Player-history-notice',t+10,t+10,t+10);A.RebuildOwnGuildTotals(t+10);A.Changed();assert(#chat==all)
-  print('PASS local group personal credit only; no replay/rebuild confirmations')
-  local failures=count('You did not qualify for kill credit.')
-  local missed='Player-missed';A.db.seen[missed]={name='Small-Realm',days={}}
-  A.GroupObserve(missed,'Gnome',true,1000,t,false)
-  A.groupSources['Player-friend']={name='Friend-Realm',guid='Player-friend'}
-  assert(A.GroupDamage(missed,900,0,'Player-friend',t));assert(A.GroupDeath(missed,t,true))
-  assert(count('You did not qualify for kill credit.')==failures+1,'guildmate-only kill reports local nonqualification once')
-  assert(chat[#chat]:find('Gnome death observed: Small-Realm. You did not qualify for kill credit.',1,true))
-  assert(not A.GroupDeath(missed,t,true));A.Death(missed,t,true)
-  assert(count('You did not qualify for kill credit.')==failures+1,'fallback cannot duplicate corpse notice')
-  local bare='Player-bare';A.Observe(bare,'Gnome',true,1000,t,false)
-  assert(not A.Death(bare,t,true));assert(count('You did not qualify for kill credit.')==failures+2,'personal zero contribution confirms observed death without credit')
-  print('PASS confirmed observed deaths without personal qualification')
-  for _,group in ipairs({false,true})do
-   local observe=group and A.GroupObserve or A.Observe
-   local death=group and A.GroupDeath or A.Death
-   for _,amount in ipairs({0,19,20})do
-    local id='Player-boundary-'..tostring(group)..'-'..amount;local n=count('You did not qualify for kill credit.');local k=count('Gnome kill recorded')
-    observe(id,'Gnome',true,1000,t,false)
-    if group then A.GroupDamage(id,amount,0,'Player-me',t)else A.Damage(id,amount,0,true,t)end
-    death(id,t,true)
-    assert(count('You did not qualify for kill credit.')==n+(amount<20 and 1 or 0))
-    assert(count('Gnome kill recorded')==k+(amount==20 and 1 or 0))
-    death(id,t,true);assert(count('You did not qualify for kill credit.')==n+(amount<20 and 1 or 0))
-   end
-   local id='Player-rez-'..tostring(group);local n=count('You did not qualify for kill credit.')
-   observe(id,'Gnome',true,1000,t,false);death(id,t,true)
-   observe(id,'Gnome',true,1000,t+1,false);death(id,t+1,true)
-   assert(count('You did not qualify for kill credit.')==n+2,'fresh confirmed living life gets a new notice')
-   local cc='Player-notice-cc-'..tostring(group);local k=count('Gnome kill recorded');n=count('You did not qualify for kill credit.')
-   observe(cc,'Gnome',true,1000,t,false)
-   if group then A.GroupCC(cc,770,'Player-me',t,true)else A.CC(cc,770,true,t,true)end
-   death(cc,t,true);assert(count('Gnome kill recorded')==k+1 and count('You did not qualify for kill credit.')==n)
-   local unknown='Player-unknown-'..tostring(group);observe(unknown,'Gnome',true,1000,t,false)
-   local record=group and A.groupTargets[unknown]or A.encounters[unknown];record.creditUnknown=true
-   n=#chat;death(unknown,t,true);assert(#chat==n,'ambiguous evidence cannot assert nonqualification')
+  -- Supersedes pre-1.9 percentage/nonqualification notifications. The actual
+  -- local honor callback is authoritative; aura completeness is not own HK.
+  A.db.options.killVerbose=false
+  COMBATLOG_HONORGAIN_NO_RANK='You killed %s (Honor: %d)'
+  local function kills()return A.db.owners[A.owner].total end
+  local function victim(id,name,source)
+   clock(clock()+10)
+   units.target={guid=id,name=name,race='Gnome',faction='Alliance',hp=1000,enemy=true}
+   C_UnitAuras.GetAuraDataByIndex=function(u,i)if u=='target'and i==1 and source then return{spellId=702,sourceUnit=source,isHarmful=true}end end
+   event('PLAYER_TARGET_CHANGED')
   end
-  -- A real incomplete aura scan must mark ambiguity, not manufacture a negative.
-  local secret={};local originalSecret=issecretvalue;issecretvalue=function(v)return rawequal(v,secret)end
-  local aura=C_UnitAuras.GetAuraDataByIndex
-  C_UnitAuras.GetAuraDataByIndex=function()return secret end
-  units.nameplateNotice={guid='Player-secret-notice',name='Hidden',race='Gnome',faction='Alliance',hp=1000,enemy=true}
-  A.Scan('nameplateNotice',nil,true);local n=count('You did not qualify for kill credit.')
-  units.nameplateNotice.dead=true;A.Scan('nameplateNotice',nil,true)
-  assert(count('You did not qualify for kill credit.')==n,'secret aura scan cannot claim known nonqualification')
-  C_UnitAuras.GetAuraDataByIndex=aura;issecretvalue=originalSecret;units.nameplateNotice=nil
-  print('PASS 2%/debuff qualification, zero credit, duplicate/fresh lives and ambiguous evidence')
-  local current=clock();local capture=DEFAULT_CHAT_FRAME.AddMessage
-  for _,mode in ipairs({'group','personal'})do
-   local observe=mode=='group'and A.GroupObserve or A.Observe;local death=mode=='group'and A.GroupDeath or A.Death
-   local uid='Player-reentrant-'..mode;local n=count('You did not qualify for kill credit.');local total=A.db.owners[A.owner].total
-   observe(uid,'Gnome',true,1000,current,false)
-   DEFAULT_CHAT_FRAME.AddMessage=function(self,s)capture(self,s);death(uid,current,true);A.Death(uid,current,true);A.GroupDeath(uid,current,true)end
-   death(uid,current,true);DEFAULT_CHAT_FRAME.AddMessage=capture
-   assert(count('You did not qualify for kill credit.')==n+1 and A.db.owners[A.owner].total==total,'reentrant nonqualification does not award or repeat')
-   local credited='Player-reentrant-success-'..mode;local k=count('Gnome kill recorded');n=count('You did not qualify for kill credit.')
-   observe(credited,'Gnome',true,1000,current,false)
-   if mode=='group'then A.GroupDamage(credited,20,0,'Player-me',current)else A.Damage(credited,20,0,true,current)end
-   DEFAULT_CHAT_FRAME.AddMessage=function(self,s)capture(self,s);death(credited,current,true);A.Death(credited,current,true);A.GroupDeath(credited,current,true)end
-   assert(death(credited,current,true));DEFAULT_CHAT_FRAME.AddMessage=capture
-   assert(count('Gnome kill recorded')==k+1 and count('You did not qualify for kill credit.')==n,'reentrant success is one positive and no negative')
-   for _,blocked in ipairs({'instance','guild','unverified','notplayer','friendly','unknownlife','unconfirmed'})do
-    local id='Player-skip-'..mode..'-'..blocked
-    if blocked=='notplayer'then id='Creature-skip'end
-    observe(id,'Gnome',blocked~='friendly',1000,current,blocked=='unknownlife'and nil or false)
-    if blocked=='unknownlife'then local r=mode=='group'and A.groupTargets[id]or A.encounters[id];if r then r.living=nil end end
-    local native=IsInInstance;local member=A.members[A.owner]
-    if blocked=='instance'then IsInInstance=function()return true,'pvp'end
-    elseif blocked=='guild'then A.members[A.owner]=nil
-    elseif blocked=='unverified'then A.guildUnverified=true end
-    local all=#chat;death(id,current,blocked~='unconfirmed');assert(#chat==all,'no negative in '..blocked)
-    IsInInstance=native;A.members[A.owner]=member;A.guildUnverified=false
-   end
+  local function corpse()units.target.dead=true;event('UNIT_HEALTH','target')end
+  local function honor(name)event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed '..name..' (Honor: 4)')end
+  victim('Player-notice','Notice','player');local n=kills();local k=count('Gnome kill recorded')
+  corpse();assert(kills()==n and count('Gnome kill recorded')==k,'debuff + corpse is pending, not personal credit')
+  local negatives=count('You did not qualify for kill credit.')
+  honor('Notice');assert(kills()==n+1 and count('Gnome kill recorded')==k+1,'own native named HK confirms locally once')
+  honor('Notice');event('PARTY_KILL','Player-me','Player-notice')
+  assert(kills()==n+1 and count('Gnome kill recorded')==k+1,'honor/corpse/PK replay is silent credit-wise')
+  assert(count('You did not qualify for kill credit.')==negatives,'pending native death cannot assert old participation nonqualification')
+  local all=#chat
+  A.RebuildOwnGuildTotals(clock());A.Changed()
+  assert(#chat==all,'history/rebuild is not a personal observation')
+  print('PASS native own HK -> one local confirmation; pending and history never claim old nonqualification')
+  local capture=DEFAULT_CHAT_FRAME.AddMessage
+  victim('Player-reentrant-hk','Reentrant');corpse();n=kills();k=count('Gnome kill recorded')
+  DEFAULT_CHAT_FRAME.AddMessage=function(self,text)capture(self,text);honor('Reentrant');event('PARTY_KILL','Player-me','Player-reentrant-hk')end
+  honor('Reentrant');DEFAULT_CHAT_FRAME.AddMessage=capture
+  assert(kills()==n+1 and count('Gnome kill recorded')==k+1,'chat reentry cannot duplicate a reserved life')
+  victim('Player-chat-failure','ChatFailure');corpse();n=kills()
+  DEFAULT_CHAT_FRAME.AddMessage=function()error('injected local chat failure')end
+  honor('ChatFailure');DEFAULT_CHAT_FRAME.AddMessage=capture
+  assert(kills()==n+1 and not A.lastError,'local chat failure cannot undo committed credit')
+  print('PASS native honor reservations and local chat errors do not duplicate or roll back credit')
+  victim('Player-late-notice','Again');corpse();honor('Again');n=kills()
+  clock(clock()+1);units.target.dead=false;event('UNIT_FLAGS','target')
+  for _,delay in ipairs({4,30})do
+   clock(clock()+delay);event('PARTY_KILL','Player-me','Player-late-notice')
+   assert(kills()==n and A.groupTargets['Player-late-notice']and not A.db.dead['Player-late-notice'],'late prior-life GUID callback cannot consume new living life')
   end
-  -- Actual scans: a living/removal event is not a death; readable corpse is.
-  local aura=C_UnitAuras.GetAuraDataByIndex;C_UnitAuras.GetAuraDataByIndex=function()return nil end
-  units.nameplateNotice={guid='Player-scan-missed',name='Uncredited',race='Gnome',faction='Alliance',hp=1000,enemy=true}
-  local n=count('You did not qualify for kill credit.');A.Scan('nameplateNotice',nil,true)
-  event('NAME_PLATE_UNIT_REMOVED','nameplateNotice');assert(count('You did not qualify for kill credit.')==n)
-  units.nameplateNotice.dead=true;A.Scan('nameplateNotice',nil,true);A.Scan('nameplateNotice',nil,true)
-  assert(count('You did not qualify for kill credit.')==n+1,'actual corpse scan reports once')
-  units.nameplateNotice=nil;C_UnitAuras.GetAuraDataByIndex=aura
-  combat(true);local id='Player-combat-notice';A.GroupObserve(id,'Gnome',true,1000,current,false);A.GroupCC(id,770,'Player-me',current,true)
-  local k=count('Gnome kill recorded');A.GroupDeath(id,current,true);assert(count('Gnome kill recorded')==k+1,'local chat works in combat without network sends');combat(false)
-  print('PASS real corpse scans, reentrancy, guild/location/life gates and combat-local confirmation')
-  local n=count('You did not qualify for kill credit.');local id='Player-party-missed'
-  A.GroupObserve(id,'Gnome',true,1000,current,false);event('PARTY_KILL','Player-friend',id)
-  assert(count('You did not qualify for kill credit.')==n+1,'native confirmed kill event reports nonqualification without guessing disappearance')
-  local id2='Player-collector-missed';A.GroupObserve(id2,'Gnome',true,1000,current,false)
-  A.GroupCombat({[2]='UNIT_DIED',[8]=id2},current)
-  assert(count('You did not qualify for kill credit.')==n+2,'confirmed death event reports nonqualification')
-  for _,group in ipairs({false,true})do
-   local observe=group and A.GroupObserve or A.Observe;local death=group and A.GroupDeath or A.Death
-   local stale='Player-stale-notice-'..tostring(group);observe(stale,'Gnome',true,1000,current,false)
-   local all=#chat;death(stale,current+A.WINDOW+1,true);assert(#chat==all,'expired living proof cannot correlate a new negative life notice')
+  corpse();honor('Again');assert(kills()==n+1,'readable actual second corpse and local HK counts new life once')
+  print('PASS +4/+30 prior-life callbacks rejected; fresh second corpse and HK counts')
+  for _,blocked in ipairs({'guild','unverified','instance'})do
+   victim('Player-gated-'..blocked,'Gated'..blocked);corpse();n=kills()
+   local key,unverified,instance=A.guildKey,A.guildUnverified,IsInInstance
+   if blocked=='guild'then A.guildKey=nil elseif blocked=='unverified'then A.guildUnverified=true else IsInInstance=function()return true,'pvp'end end
+   honor('Gated'..blocked);assert(kills()==n,'HK cannot bypass '..blocked..' authority')
+   A.guildKey=key;A.guildUnverified=unverified;IsInInstance=instance
   end
-  local stale='Player-stale-observation';A.GroupObserve(stale,'Gnome',true,1000,current,false)
-  local all=#chat;A.GroupObserve(stale,'Gnome',false,1000,current+A.WINDOW+1,true)
-  assert(#chat==all,'late corpse refresh cannot renew expired living-life proof')
-  print('PASS native death-event confirmation and conservative expired-life suppression')
-  -- Restricted CLEU tuples must preserve uncertainty before being discarded.
-  for _,mode in ipairs({'group','personal'})do
-   local go,gc,gd,gcc=A.GroupObserve,A.GroupCombat,A.GroupDeath,A.GroupCC
-   if mode=='personal'then A.GroupObserve=nil;A.GroupCombat=nil;A.GroupDeath=nil;A.GroupCC=nil end
-   local provider=C_UnitAuras.GetAuraDataByIndex;C_UnitAuras.GetAuraDataByIndex=function()return nil end
-   local native=CombatLogGetCurrentEventInfo;local secret={};local old=issecretvalue
-   issecretvalue=function(v)return rawequal(v,secret)end
-   for _,field in ipairs({'amount','source','target','missing','throw'})do
-    local id='Player-log-unknown-'..mode..'-'..field
-    units.nameplateNotice={guid=id,name='Opaque',race='Gnome',faction='Alliance',hp=1000,enemy=true}
-    A.Scan('nameplateNotice',nil,true)
-    local v={[2]='SWING_DAMAGE',[4]='Player-me',[8]=id,[12]=20,[13]=0}
-    if field=='amount'then v[12]=secret elseif field=='source'then v[4]=secret elseif field=='target'then v[8]=secret elseif field=='missing'then v[8]=nil;v[12]=secret end
-    CombatLogGetCurrentEventInfo=function()if field=='throw'then error('restricted tuple')end;return unpack(v,1,13)end
-    local n=#chat;local total=A.db.owners[A.owner].total
-    A.ReadCombatLog();event('PARTY_KILL','Player-me',id)
-    assert(#chat==n,'restricted '..field..' tuple cannot assert nonqualification ('..mode..')')
-    assert(A.db.owners[A.owner].total==total,'restricted tuple cannot invent participation')
-   end
-   CombatLogGetCurrentEventInfo=native;issecretvalue=old;C_UnitAuras.GetAuraDataByIndex=provider;units.nameplateNotice=nil
-   A.GroupObserve,A.GroupCombat,A.GroupDeath,A.GroupCC=go,gc,gd,gcc
-  end
-  print('PASS restricted CLEU amount/source/target/unidentified/error uncertainty in both paths')
-  for _,mode in ipairs({'group','personal'})do
-   local go,gc,gd,gcc=A.GroupObserve,A.GroupCombat,A.GroupDeath,A.GroupCC
-   if mode=='personal'then A.GroupObserve=nil;A.GroupCombat=nil;A.GroupDeath=nil;A.GroupCC=nil end
-   local provider=C_UnitAuras.GetAuraDataByIndex;local old=issecretvalue;local secret={}
-   issecretvalue=function(v)return rawequal(v,secret)end
-   for _,case in ipairs({'secret','missing','throw','cap','readable','positive'})do
-    local id='Player-corpse-evidence-'..mode..'-'..case
-    units.nameplateNotice={guid=id,name='Corpse',race='Gnome',faction='Alliance',hp=1000,enemy=true}
-    C_UnitAuras.GetAuraDataByIndex=function()return nil end;A.Scan('nameplateNotice',nil,true)
-    if case=='positive'then if mode=='group'then A.GroupDamage(id,20,0,'Player-me',clock())else A.Damage(id,20,0,true,clock())end end
-    local record=mode=='group'and A.groupTargets[id]or A.encounters[id]
-    local keys={sentinel=clock()};A.auras[id]=keys
-    local calls=0
-    C_UnitAuras.GetAuraDataByIndex=function(_,i)
-     calls=calls+1
-     if case=='throw'then error('corpse aura unavailable')end
-     if case=='secret'or case=='positive'then return secret end
-     if case=='cap'or i==1 then return {spellId=770,sourceUnit='player',auraInstanceID=2,expirationTime=clock()+20,isHarmful=true}end
-    end
-    if case=='missing'then C_UnitAuras.GetAuraDataByIndex=nil end
-    local n=count('You did not qualify for kill credit.');local k=count('Gnome kill recorded')
-    units.nameplateNotice.dead=true;A.Scan('nameplateNotice',nil,true)
-    assert(count('You did not qualify for kill credit.')==n+(case=='readable'and 1 or 0),'corpse completeness before finalization: '..mode..' '..case)
-    assert(count('Gnome kill recorded')==k+(case=='positive'and 1 or 0),'corpse auras cannot grant new credit: '..mode..' '..case)
-    assert(not record.cc and(not record.actors or not record.actors['Player-me']or not record.actors['Player-me'].cc),'corpse inspection cannot create participation')
-    assert(keys.sentinel and not keys['770:Player-me:2:'..tostring(clock()+20)],'corpse inspection cannot mutate aura dedup')
-    local done=calls;A.Scan('nameplateNotice',nil,true);assert(calls==done,'consumed corpse must not be rescanned')
-   end
-   issecretvalue=old;C_UnitAuras.GetAuraDataByIndex=provider;units.nameplateNotice=nil
-   A.GroupObserve,A.GroupCombat,A.GroupDeath,A.GroupCC=go,gc,gd,gcc
-  end
-  print('PASS corpse completeness, pure inspection, positive credit and bounded repeats in both paths')
-  for _,mode in ipairs({'group','personal'})do
-   local go,gc,gd,gcc=A.GroupObserve,A.GroupCombat,A.GroupDeath,A.GroupCC
-   if mode=='personal'then A.GroupObserve=nil;A.GroupCombat=nil;A.GroupDeath=nil;A.GroupCC=nil end
-   local observe=mode=='group'and A.GroupObserve or A.Observe
-   local death=mode=='group'and A.GroupDeath or A.Death
-   local function hit(id,t)if mode=='group'then A.GroupDamage(id,20,0,'Player-me',t)else A.Damage(id,20,0,true,t)end end
-   local t=clock();local oldTarget=units.target;local provider=C_UnitAuras.GetAuraDataByIndex
-   C_UnitAuras.GetAuraDataByIndex=function()return nil end
-   for _,path in ipairs({'direct','native','legacy'})do for _,amount in ipairs({0,20})do
-    local id='Player-replay-'..mode..'-'..path..'-'..amount
-    observe(id,'Gnome',true,1000,t,false);hit(id,t);assert(death(id,t,true))
-    observe(id,'Gnome',true,1000,t+1,false);if amount>0 then hit(id,t+1)end
-    units.target={guid=id,name='Rearmed',race='Gnome',faction='Alliance',hp=1000,enemy=true}
-    local records=mode=='group'and A.groupTargets or A.encounters;local living=records[id];local n=#chat;local total=A.db.owners[A.owner].total
-    local function callback(at)
-     clock(at)
-     if path=='direct'then death(id,at,nil,true)
-     elseif path=='native'then event('PARTY_KILL','Player-me',id)
-     else local native=CombatLogGetCurrentEventInfo;CombatLogGetCurrentEventInfo=function()return 0,'UNIT_DIED',false,nil,nil,nil,nil,id end;A.ReadCombatLog();CombatLogGetCurrentEventInfo=native end
-    end
-    for _,delay in ipairs({4,30})do callback(t+delay);assert(records[id]==living and not A.db.dead[id],'old GUID replay must retain living life at +'..delay..' '..mode..' '..path);assert(#chat==n and A.db.owners[A.owner].total==total,'old GUID replay cannot award or print negative')end
-    units.target.dead=true
-    if path=='direct'then death(id,t+31,true)else callback(t+31)end
-    local expected=amount>0 and 1 or 0
-    assert(A.db.owners[A.owner].total==total+expected,'event with readable new corpse credits once '..mode..' '..path)
-    assert(#chat==n+1,'actual new corpse emits exactly one positive or negative notice')
-    callback(t+32);assert(A.db.owners[A.owner].total==total+expected and #chat==n+1)
-   end end
-   for _,delay in ipairs({1,2})do
-    local id='Player-fast-life-'..mode..'-'..delay
-    observe(id,'Gnome',true,1000,t,false);hit(id,t);assert(death(id,t,true))
-    observe(id,'Gnome',true,1000,t+1,false);hit(id,t+1);assert(death(id,t+delay,true),'actual new corpse needs no arbitrary timeout')
-   end
-   units.target=oldTarget;C_UnitAuras.GetAuraDataByIndex=provider;clock(t)
-   A.GroupObserve,A.GroupCombat,A.GroupDeath,A.GroupCC=go,gc,gd,gcc
-  end
-  print('PASS +4/+30 replays retain living life; new corpses credit once, native/legacy and fast lives')
-  -- Instrument the real runtime; duplicate aliases and health churn stay cheap.
+  print('PASS local confirmed HK still requires guild and open-world eligibility')
   local savedTarget,savedFocus,savedMouse=units.target,units.focus,units.mouseover
-  local savedPlates=A.plates;A.plates={}
-  local provider=C_UnitAuras.GetAuraDataByIndex;local calls=0
-  C_UnitAuras.GetAuraDataByIndex=function(_,i)calls=calls+1;if i==1 then return {spellId=770,sourceUnit='player',auraInstanceID=9,isHarmful=true}end end
+  local savedPlates=A.plates;A.plates={};local calls=0
+  C_UnitAuras.GetAuraDataByIndex=function(u,i)calls=calls+1;if u=='target'and i==1 then return{spellId=770,sourceUnit='player',auraInstanceID=9,isHarmful=true}end end
   units.target={guid='Player-scan-benchmark',name='Benchmark',race='Gnome',faction='Alliance',hp=1000,enemy=true}
   units.focus=units.target;units.mouseover=units.target
-  A.ScanVisible();assert(calls==2,'duplicate alias benchmark must stay at 2 aura calls rather than 6')
+  A.ScanVisible();assert(calls==3,'duplicate aliases retain 2 hostile aura calls plus 1 incoming sentinel, not 6 hostile calls')
   calls=0;for i=1,100 do event('UNIT_HEALTH','target')end
-  assert(calls==0,'100 same-clock health events must cause zero aura calls')
-  print('PASS benchmark: duplicate aliases 6 -> 2 aura calls; 100 health events -> '..calls)
-  units.target,units.focus,units.mouseover=savedTarget,savedFocus,savedMouse;A.plates=savedPlates;C_UnitAuras.GetAuraDataByIndex=provider
+  assert(calls==0,'100 same-clock health events cause zero aura calls')
+  units.target,units.focus,units.mouseover=savedTarget,savedFocus,savedMouse;A.plates=savedPlates
+  print('PASS benchmark: duplicate aliases 6 -> 2 aura calls; 100 health events -> 0')
  end
 end

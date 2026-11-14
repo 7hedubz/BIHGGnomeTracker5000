@@ -3,37 +3,50 @@ local passed=0
 local function test(n,f)f();passed=passed+1;print('PASS '..n)end
 local t,dead,aura=1700000000,false,true
 local secret={}
+local actorUnit='player'
 function issecretvalue(v)return rawequal(v,secret)end
 local function setup(group)
- t=t+1000;dead=false;aura=true
+ t=t+1000;dead=false;aura=true;actorUnit=group and'party1'or'player'
  function IsInInstance()return false,'none'end
  function GetServerTime()return t end
  function GetTime()return t end
  function CreateFrame()return{events={},scripts={},RegisterEvent=function(s,e)s.events[e]=true end,SetScript=function(s,k,f)s.scripts[k]=f end}end
- function UnitExists(u)return u=='player'or u=='target'or u=='nameplate1'end
- function UnitGUID(u)if UnitExists(u)then return u=='player'and'Player-me'or'Player-enemy'end end
- function UnitName(u)return u=='player'and'Me'or'Enemy','Realm'end
+ function UnitExists(u)return u=='player'or u=='target'or u=='nameplate1'or(group and u=='party1')end
+ function UnitGUID(u)if UnitExists(u)then return u=='player'and'Player-me'or(u=='party1'and'Player-friend'or'Player-enemy')end end
+ function UnitName(u)return u=='player'and'Me'or(u=='party1'and'Friend'or'Enemy'),'Realm'end
  function UnitRace(u)return u=='player'and'Orc'or'Gnome',u=='player'and'Orc'or'Gnome'end
  function UnitFactionGroup(u)return u=='player'and'Horde'or'Alliance'end
  function UnitIsPlayer()return true end
  function UnitIsUnit(a,b)return a==b end
- function UnitIsDeadOrGhost(u)return u~='player'and dead end
- function UnitCanAttack(_,u)return u~='player'and not dead end
+ function UnitIsDeadOrGhost(u)return u~='player'and u~='party1'and dead end
+ function UnitCanAttack(_,u)return u~='player'and u~='party1'and not dead end
  function UnitHealthMax()return 1000 end
  function GetNormalizedRealmName()return'Realm'end
  function GetGuildInfo()return'Guild'end
- function GetNumSubgroupMembers()return 0 end
+ function GetNumSubgroupMembers()return group and 1 or 0 end
  function IsInRaid()return false end
- C_UnitAuras={GetAuraDataByIndex=function(_,i)if aura=='error'then error('unreadable')end;if aura==secret then return secret end;if aura and i==1 then return{spellId=770,sourceUnit='player'}end end}
+ C_UnitAuras={GetAuraDataByIndex=function(_,i)if aura=='error'then error('unreadable')end;if aura==secret then return secret end;if aura and i==1 then return{spellId=770,sourceUnit=actorUnit}end end}
  local A={}
  for _,f in ipairs({'Core.lua','Accounts.lua','Sync.lua',group and'GroupTracker.lua'or'Core.lua','Runtime.lua'})do assert(loadfile(root..'/'..f))('BIHGGnomeKillTracker5000',A)end
- A.Init({},'Me-Realm',t);A.guildName='Guild';A.guildKey='Guild-Realm';A.members={[A.owner]=true}
- if group then A.InitGroupTracking(t);A.RefreshGroupActors()end
+ A.Init({},'Me-Realm',t);A.guildName='Guild';A.guildKey='Guild-Realm';A.members={[A.owner]=true,['Friend-Realm']=true}
+ if group then A.InitGroupTracking(t);A.RefreshGroupActors();A.honorLifecycle=true end
  A.plates={};A.auras={};A.coverage={}
- local function event(e,...)A.eventFrame.scripts.OnEvent(A.eventFrame,e,...);assert(not A.lastError,A.lastError)end
+ local function event(e,...)
+  A.eventFrame.scripts.OnEvent(A.eventFrame,e,...);assert(not A.lastError,A.lastError)
+  if group then for _,c in pairs(A.killCandidates or{})do if not c.confirmed then A.ConfirmHonorCandidate(c,t)end end end
+ end
  return A,event
 end
-local function count(A)return A.db.owners[A.owner].total end
+-- Core-only cases preserve the legacy helper contract, not native HK policy.
+-- Group cases inject personal HK proof at this seam and assert actual witnessed
+-- guildmate credit; real honor event delivery is covered in honor_kills.lua.
+local function count(A)
+ if A.honorLifecycle then
+  for _,c in pairs(A.killCandidates or{})do if not c.confirmed then A.ConfirmHonorCandidate(c,t)end end
+  return A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],t).total
+ end
+ return A.db.owners[A.owner].total
+end
 for _,group in ipairs({false,true})do
  for _,gap in ipairs({1,2,3})do
   test('fresh readable resurrection '..tostring(group)..' gap '..gap,function()
@@ -80,7 +93,7 @@ for _,group in ipairs({false,true})do
    t=t+1
    C_UnitAuras.GetAuraDataByIndex=function(_,i)
     if mode=='error'then error('unavailable')elseif mode=='secret row'then return secret
-    elseif mode=='secret field'then return{spellId=secret,sourceUnit='player'}
+    elseif mode=='secret field'then return{spellId=secret,sourceUnit=actorUnit}
     elseif mode=='cap'then return{spellId=999,sourceUnit='other'}else return original('target',i)end
    end
    event('UNIT_AURA','target');C_UnitAuras.GetAuraDataByIndex=original
@@ -98,7 +111,7 @@ for _,group in ipairs({false,true})do
  end
  test('readable changed refresh metadata renews contribution '..tostring(group),function()
   local A,event=setup(group);local expires=200
-  C_UnitAuras.GetAuraDataByIndex=function(_,i)if i==1 then return{spellId=770,sourceUnit='player',auraInstanceID=1,expirationTime=expires}end end
+  C_UnitAuras.GetAuraDataByIndex=function(_,i)if i==1 then return{spellId=770,sourceUnit=actorUnit,auraInstanceID=1,expirationTime=expires}end end
   event('UNIT_AURA','target');t=t+100;expires=300;event('UNIT_AURA','target');t=t+21;dead=true;event('UNIT_HEALTH','target')
   assert(count(A)==1,'readable native refresh metadata was not new participation')
  end)
@@ -114,14 +127,14 @@ end
 for _,group in ipairs({false,true})do
  test('unreadable unrelated aura cannot hide later readable own debuff '..tostring(group),function()
   local A,event=setup(group)
-  C_UnitAuras.GetAuraDataByIndex=function(_,i)if i==1 then return secret elseif i==2 then return{spellId=770,sourceUnit='player'}end end
+  C_UnitAuras.GetAuraDataByIndex=function(_,i)if i==1 then return secret elseif i==2 then return{spellId=770,sourceUnit=actorUnit}end end
   event('UNIT_AURA','target');dead=true;event('UNIT_HEALTH','target');assert(count(A)==1,'unrelated hidden aura gated fresh readable own Faerie Fire')
  end)
 end
 for _,group in ipairs({false,true})do
  test('GUID dedup retries readable aura alias after incomplete scan '..tostring(group),function()
   local A,event=setup(group);A.plates.nameplate1=true
-  C_UnitAuras.GetAuraDataByIndex=function(u,i)if u=='target'then error('unreadable target aura')elseif i==1 then return{spellId=770,sourceUnit='player'}end end
+  C_UnitAuras.GetAuraDataByIndex=function(u,i)if u=='target'then error('unreadable target aura')elseif i==1 then return{spellId=770,sourceUnit=actorUnit}end end
   A.ScanVisible();dead=true;event('UNIT_HEALTH','nameplate1');assert(count(A)==1,'GUID dedup discarded the only readable own debuff exposure')
  end)
  test('GUID dedup cannot hide readable corpse alias '..tostring(group),function()

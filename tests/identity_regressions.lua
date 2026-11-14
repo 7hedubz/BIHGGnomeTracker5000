@@ -16,7 +16,9 @@ for _,kind in ipairs({'K','D'})do
   A=addon();A.Init(db,owner,now);A.InitAccount(account,'hero',now);A.guildKey='Guild-Realm';A.members={[owner]=true,['Mage-Realm']=true};A.InitGroupTracking(now)
  end
  local function replay(at,target)
-  return A.Receive('5|E|'..kind..'|'..A.EncodeAlias(owner)..'|Player-hero|'..target..'|'..at..'|'..(at-1),'GUILD','Mage-Realm',now)
+  local packet='5|E|'..kind..'|'..A.EncodeAlias(owner)..'|Player-hero|'..target..'|'..at..'|'..(at-1)
+  if kind=='K'and at>=now then packet='5|H|'..A.EncodeAlias(owner)..'|Player-hero|'..target..'|'..at..'|'..(at-1)..'|Player-hero:'..at..'|root|H'end
+  return A.Receive(packet,'GUILD','Mage-Realm',now)
  end
  init();assert(not next(db.owners[owner][kind=='K'and'days'or'deathDays']),'fresh Init really prunes 401-day bucket')
  assert(replay(expired,'Player-old'),'old witness accepted as evidence')
@@ -33,7 +35,11 @@ for _,case in ipairs({{5,1,7},{7,1,8},{7,3,9}})do
   local A=addon();A.Init({},'Viewer-Realm',now);A.InitAccount({},'viewer',now);A.guildKey='Guild-Realm';A.members={['Hero-Realm']=true,['Mage-Realm']=true};A.InitGroupTracking(now)
   local key=kind=='K'and'total'or'deaths';local days=kind=='K'and'days'or'deathDays';local day=A.Day(now)
   local r={total=0,deaths=0,days={},deathDays={},guildBase={since=now,total=0,deaths=0,days={},deathDays={}}};r.guildBase[key]=case[1];r.guildBase[days][day]=5;A.PeerRecords()['Hero-Realm']=r
-  local function replay(at,id)assert(A.Receive('5|E|'..kind..'|'..A.EncodeAlias('Hero-Realm')..'|Player-hero|Player-'..id..'|'..at..'|'..(at-1),'GUILD','Mage-Realm',now+1))end
+  local function replay(at,id)
+   local packet='5|E|'..kind..'|'..A.EncodeAlias('Hero-Realm')..'|Player-hero|Player-'..id..'|'..at..'|'..(at-1)
+   if kind=='K'and at>=now then packet='5|H|'..A.EncodeAlias('Hero-Realm')..'|Player-hero|Player-'..id..'|'..at..'|'..(at-1)..'|Player-hero:'..at..'|root|H'end
+   assert(A.Receive(packet,'GUILD','Mage-Realm',now+1))
+  end
   replay(now-10,'same');for i=1,case[2]do replay(now-86400-i*10,'disjoint'..i)end;replay(now+1,'post')
   local effective=A.GuildEffectiveRecord('Hero-Realm',r,now+1)
   assert(effective[key]==case[3],'dated disjoint evidence consumes only unknown baseline budget, not all lifetime history')

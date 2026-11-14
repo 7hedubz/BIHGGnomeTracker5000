@@ -11,9 +11,12 @@ local function row(amount,source,event,time)
 end
 local function proof(events,hp,death,start) return A.GnomeDeathEvidence(events,hp or 100,death or 100,start or 90) end
 
-test('two percent aggregates only Gnomes without requiring their final blow',function()
- eq(proof({row(19)},1000),nil)
- eq(proof({row(19),row(981,'Player-human')},1000),nil)
+test('any positive effective Gnome damage qualifies without health or final blow',function()
+ assert(proof({row(19)},1000))
+ assert(proof({row(19),row(981,'Player-human')},1000))
+ local tiny=A.GnomeDeathEvidence({row(0.01)},nil,100,90)
+ assert(tiny and A.ValidGnomeDeathEvidence(tiny,100),'positive damage requires no HP')
+ eq(A.GnomeDeathEvidence({row(0)},nil,100,90),nil)
  local p=proof({row(9),row(11,'Player-b'),row(980,'Player-human','SPELL_DAMAGE',100)},1000)
  assert(p,'exact combined two percent must produce evidence')
  eq(p.damage,20); eq(p.maxHealth,1000); eq(p.time,100); eq(p.source,'Player-b')
@@ -28,7 +31,7 @@ test('damage policy whitelists events and subtracts conservative mitigation',fun
  end
  local e=row(100); e.overkill=10;e.absorbed=15;e.resisted=10;e.blocked=14
  eq(proof({e}).damage,51)
- e.blocked=64;eq(proof({e}),nil)
+ e.blocked=65;eq(proof({e}),nil)
  e=row(51);e.overkill=-1;eq(proof({e}).damage,51)
  e=row(5);e.overkill=100;eq(proof({e,row(51)}).damage,51)
 end)
@@ -61,7 +64,7 @@ test('only readable finite in-combat player Gnome damage is evidence',function()
  local events={row(999)};secretTables[events]=true;eq(proof(events),nil)
  eq(proof(secret),nil);eq(proof({secret,false,'bad'}),nil)
  for _,v in ipairs({secret,'bad',false,0,-1,math.huge,0/0}) do
-  eq(A.GnomeDeathEvidence({row(999)},v,100,90),nil)
+  assert(A.GnomeDeathEvidence({row(999)},v,100,90),'HP is irrelevant to positive damage proof')
  end
  for _,v in ipairs({secret,'bad',false,math.huge,0/0}) do
   eq(A.GnomeDeathEvidence({row(999)},100,v,90),nil)
@@ -74,24 +77,24 @@ test('only readable finite in-combat player Gnome damage is evidence',function()
  eq(proof({row(999),row(math.huge)}).damage,999,'bad rows skipped without discarding readable evidence')
  eq(proof({row(1e308),row(1e308)}),nil,'overflow cannot be proof')
 end)
-test('proof validation requires readable two percent and exact death time',function()
+test('proof validation requires positive effective damage and exact death time',function()
  local p=proof({row(51)})
  eq(A.ValidGnomeDeathEvidence(p,100),true)
  eq(A.ValidGnomeDeathEvidence(p,101),false)
  eq(A.ValidGnomeDeathEvidence(p,secret),false)
  eq(A.ValidGnomeDeathEvidence(nil,100),false)
  eq(A.ValidGnomeDeathEvidence(secret,100),false)
- for _,field in ipairs({'damage','maxHealth','source','time'}) do
+ for _,field in ipairs({'damage','source','time'}) do
   local old=p[field]
   for _,bad in ipairs({secret,false,'bad',math.huge,-math.huge,0/0}) do
    p[field]=bad;eq(A.ValidGnomeDeathEvidence(p,100),false,field)
   end
   p[field]=nil;eq(A.ValidGnomeDeathEvidence(p,100),false,field);p[field]=old
  end
- p.damage=1;eq(A.ValidGnomeDeathEvidence(p,100),false)
+ p.damage=1;eq(A.ValidGnomeDeathEvidence(p,100),true)
  p.damage=0;eq(A.ValidGnomeDeathEvidence(p,100),false)
- p.damage=51;p.maxHealth=0;eq(A.ValidGnomeDeathEvidence(p,100),false)
- p.maxHealth=-100;eq(A.ValidGnomeDeathEvidence(p,100),false)
+ p.damage=51;p.maxHealth=0;eq(A.ValidGnomeDeathEvidence(p,100),true)
+ p.maxHealth=-100;eq(A.ValidGnomeDeathEvidence(p,100),true)
  p.maxHealth=100;p.source='Creature-a';eq(A.ValidGnomeDeathEvidence(p,100),false)
  p.source='Player-';eq(A.ValidGnomeDeathEvidence(p,100),false)
  p.source='Player-a';secretTables[p]=true;eq(A.ValidGnomeDeathEvidence(p,100),false)

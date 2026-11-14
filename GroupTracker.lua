@@ -610,9 +610,6 @@ function A.KillOutcome(reason,t,g)
  local count=0;for k,v in pairs(A.killOutcomeThrottle)do if t-v>8 then A.killOutcomeThrottle[k]=nil else count=count+1 end end
  if count<64 then A.killOutcomeThrottle[key]=t end
  list[#list+1]={reason=reason,time=t};while #list>32 do table.remove(list,1)end
- if A.db.options.killVerbose~=false and(not A.killLastNotice or t<A.killLastNotice or t>A.killLastNotice)then
-  A.killLastNotice=t;A.LocalNotice('Kill detection: '..reason)
- end
 end
 function A.KillDebugLines()
  local h=A.honorState or{};local lines={'BIHG kill coverage: localized named parser; generic requires native victim + HK increment; 8s correlation; honorEvent='..tostring(A.coverage and A.coverage.honor or false)..'; counter='..(h.provider or'unavailable')}

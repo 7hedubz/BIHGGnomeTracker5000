@@ -91,7 +91,20 @@ return function(A,event,tick,clock,units,combat,sent)
  if os.getenv('BIHG_TRACER')~='version'then
   -- Supersedes pre-1.9 percentage/nonqualification notifications. The actual
   -- local honor callback is authoritative; aura completeness is not own HK.
-  A.db.options.killVerbose=false
+  -- Progress/rejection evidence belongs in manual debug, even with a saved
+  -- legacy verbose flag. Only committed credit gets an automatic notice.
+  for _,setting in ipairs({'unset',true,false})do
+   A.db.options.killVerbose=setting;if setting=='unset'then A.db.options.killVerbose=nil end
+   for _,reason in ipairs({'ambiguous HK','native death candidate','honor confirmation unavailable','HK unconfirmed'})do
+    clock(clock()+3);local before=#chat
+    A.KillOutcome(reason,clock(),'Player-quiet-'..tostring(setting)..reason)
+    assert(#chat==before,'unconfirmed kill diagnostics must not print automatically')
+    assert(table.concat(A.KillDebugLines(),' '):find(reason,1,true),'quiet diagnostic remains available on request')
+   end
+  end
+  A.db.options.killVerbose=false;SlashCmdList.BIHGGKT('killverbose')
+  assert(A.db.options.killVerbose==false,'legacy command must not re-enable automatic diagnostic chat')
+  A.db.options.killVerbose=true
   COMBATLOG_HONORGAIN_NO_RANK='You killed %s (Honor: %d)'
   local function kills()return A.db.owners[A.owner].total end
   local function victim(id,name,source)

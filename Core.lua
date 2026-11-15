@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.9.2'
+A.VERSION='1.10.0'
 -- Local-only feedback; a broken chat widget must never invalidate credit.
 function A.LocalNotice(text)
  if DEFAULT_CHAT_FRAME and type(DEFAULT_CHAT_FRAME.AddMessage)=='function'then pcall(DEFAULT_CHAT_FRAME.AddMessage,DEFAULT_CHAT_FRAME,'|cffffb347BIHG:|r '..text)end
@@ -20,7 +20,7 @@ function A.OpponentName(guid)
 end
 function A.CreditNotice(kind,guid)
  local name=A.OpponentName(guid)
- A.LocalNotice((kind=='K'and'Gnome kill recorded'or'Death to Gnomes recorded')..(name and(': '..name)or''))
+ if kind=='K'then A.LocalNotice('Gnome kill recorded'..(name and(': '..name)or''))end
 end
 function A.NonqualifyingDeathNotice(guid,e,confirmed,now)
  if confirmed~=true or not e.living or e.creditUnknown or not e.hp or e.hp<=0
@@ -77,6 +77,7 @@ end
 A.frames = {'Lifetime','7 days','30 days','Today','This week','This month','This year'}
 function A.Day(t) return math.floor(t / 86400) end
 function A.Init(db, owner, now)
+ if A.RemoveDeathData then A.RemoveDeathData(db)end
  db.version=1; db.owners=db.owners or {}; db.dead=db.dead or {}; db.options=db.options or {}
  A.db=db; A.owner=owner; A.now=now
  db.owners[owner]=db.owners[owner] or {total=0,days={}}
@@ -85,8 +86,8 @@ function A.Init(db, owner, now)
  for _,r in pairs(db.owners) do records[#records+1]=r end
  for _,guild in pairs(db.guilds or {}) do for _,r in pairs(guild) do records[#records+1]=r end end
  for _,r in ipairs(records) do
-  r.days=r.days or {};r.deathDays=r.deathDays or {}
-  for _,buckets in ipairs({r.days,r.deathDays}) do
+  r.days=r.days or {}
+  for _,buckets in ipairs({r.days}) do
    for d in pairs(buckets) do if tonumber(d)<A.Day(now)-A.RETENTION+1 then buckets[d]=nil end end
   end
  end
@@ -100,126 +101,7 @@ function A.Award(now)
  if A.Changed then A.Changed() end
  return true
 end
-local deathDamageEvents={SWING_DAMAGE=true,RANGE_DAMAGE=true,SPELL_DAMAGE=true,SPELL_PERIODIC_DAMAGE=true,DAMAGE_SHIELD=true}
-local function deathSecret(v) return A.Secret and A.Secret(v) end
-local function deathTable(v)
- return not deathSecret(v) and type(v)=='table' and not (issecrettable and issecrettable(v))
-end
-local function deathNumber(v)
- return not deathSecret(v) and type(v)=='number' and v==v and v>-math.huge and v<math.huge
-end
-local function deathPlayer(v)
- return not deathSecret(v) and type(v)=='string' and v:match('^Player%-.+')~=nil
-end
-local function deathMitigation(v,overkill)
- if deathSecret(v) then return nil end
- if v==nil then return 0 end
- if not deathNumber(v) or (not overkill and v<0) then return nil end
- return math.max(0,v)
-end
-local function deathRow(e,deathTime,combatStart)
- if not deathTable(e) then return nil,nil,nil,'events unreadable' end
- local event,t,g,amount,hidden=e.event,e.timestamp,e.sourceGUID,e.amount,e.hideCaster
- if deathSecret(event) or type(event)~='string' or not deathDamageEvents[event]then return nil,nil,nil,'no supported damage/harmful event' end
- if not deathNumber(t) or t<combatStart or t>deathTime+1 then return nil,nil,nil,'life/time mismatch' end
- if not deathPlayer(g)then return nil,nil,nil,'missing/unreadable source GUID' end
- if not deathNumber(amount) or amount<0 then return nil,nil,nil,'unreadable/malformed damage' end
- if deathSecret(hidden) or (hidden~=nil and hidden~=false) then return nil,nil,nil,'hidden/unreadable caster' end
- local overkill=deathMitigation(e.overkill,true)
- local absorbed=deathMitigation(e.absorbed)
- local resisted=deathMitigation(e.resisted)
- local blocked=deathMitigation(e.blocked)
- if not overkill or not absorbed or not resisted or not blocked then return nil,nil,nil,'unreadable/malformed mitigation' end
- if type(A.Race)~='function' then return nil,nil,nil,'missing/unreadable source race' end
- local ok,race=pcall(A.Race,g)
- if not ok or deathSecret(race) or type(race)~='string' or race=='' then return nil,nil,nil,'missing/unreadable source race' end
- if race~='Gnome' then return nil,0,true,'readable non-Gnome source' end
- local effective=math.max(0,amount-overkill-absorbed-resisted-blocked)
- return g,effective,true,effective>0 and 'positive Gnome damage' or 'no positive effective damage'
-end
-local deathAuraEvents={SPELL_AURA_APPLIED=true,SPELL_AURA_REFRESH=true,SPELL_AURA_APPLIED_DOSE=true}
-local function deathHarmfulRow(e,deathTime,combatStart,sourceRace)
- if not deathTable(e) then return end
- local event,t,g,spell,aura,hidden=e.event,e.timestamp,e.sourceGUID,e.spellId,e.auraType,e.hideCaster
- if deathSecret(event) or type(event)~='string' or not deathAuraEvents[event]then return end
- if not deathNumber(t) or t<combatStart or t>deathTime+1 then return nil,'life/time mismatch'end
- if not deathPlayer(g)then return nil,'missing/unreadable source GUID'end
- if not deathNumber(spell) or spell<1 or spell%1~=0 or deathSecret(aura) or aura~='DEBUFF'then return end
- if deathSecret(hidden) or(hidden~=nil and hidden~=false)then return nil,'hidden/unreadable caster'end
- if deathSecret(sourceRace)then return end
- if sourceRace~=nil then if sourceRace=='Gnome'then return g end;return end
- if type(A.Race)~='function'then return nil,'missing/unreadable source race'end
- local ok,race=pcall(A.Race,g)
- if not ok or deathSecret(race)or type(race)~='string'or race==''then return nil,'missing/unreadable source race'end
- if race=='Gnome'then return g end
- return nil,'readable non-Gnome source'
-end
-function A.GnomeHarmfulEvidence(row,t,start,race)
- if not deathNumber(t)or not deathNumber(start)or start>t then return end
- local source=deathHarmfulRow(row,t,start,race)
- if source then return {damage=0,source=source,time=t,harmful=true}end
-end
-function A.GnomeDeathEvidence(events,maxHealth,deathTime,combatStart)
- local details={}
- if not deathTable(events)then details['events unreadable']=true;return nil,nil,details end
- if not deathNumber(deathTime) or not deathNumber(combatStart) or combatStart>deathTime then details['life/time mismatch']=true;return nil,nil,details end
- local health=deathNumber(maxHealth)and maxHealth>0 and maxHealth or nil
- local total,sources,harmful,overflow=0,{},nil,false
- local rows,unreadable=0,false
- for _,e in pairs(events) do
-  local guid,damage,confirmed,detail=deathRow(e,deathTime,combatStart)
-  local applied,harmfulDetail=deathHarmfulRow(e,deathTime,combatStart)
-  if applied then details['confirmed harmful Gnome application']=true
-  elseif deathTable(e) and not deathSecret(e.event) and type(e.event)=='string' and deathAuraEvents[e.event]
-   and not deathSecret(e.auraType) and e.auraType=='DEBUFF'then
-   details['missing harmful caster proof']=true
-   if harmfulDetail then details[harmfulDetail]=true end
-   if not deathPlayer(e.sourceGUID)then details['missing/unreadable source GUID']=true end
-  elseif detail then details[detail]=true end
-  if applied and(not harmful or applied<harmful)then harmful=applied end
-  rows=rows+1;if not confirmed and not applied then unreadable=true end
-  if guid then
-   total=total+damage
-   if not deathNumber(total) then overflow=true end
-   sources[guid]=(sources[guid] or 0)+damage
-  end
- end
- if harmful then return {damage=0,maxHealth=health,source=harmful,time=deathTime,harmful=true},nil,details end
- if overflow then details['damage accumulation overflow']=true;return nil,nil,details end
- if total<=0 then
-  if rows==0 then details['events empty']=true;return nil,nil,details end
-  return nil,unreadable and 'unreadable/missing attribution' or 'insufficient confirmed Gnome damage',details
- end
- local source,best=nil,0
- for guid,damage in pairs(sources) do
-  if damage>best or (damage==best and (not source or guid<source)) then source,best=guid,damage end
- end
- return {damage=total,maxHealth=health,source=source,time=deathTime},nil,details
-end
-function A.ValidGnomeDeathEvidence(proof,now)
- if not deathTable(proof) or not deathNumber(now) then return false end
- local damage,hp,source,time=proof.damage,proof.maxHealth,proof.source,proof.time
- if not deathPlayer(source) or not deathNumber(time) or time~=now or deathSecret(proof.harmful)then return false end
- if proof.harmful==true then return deathNumber(damage)and damage>=0 end
- return deathNumber(damage) and damage>0
-end
-function A.PlayerDeath(id,race,now,killer,proof)
- if not A.ValidGnomeDeathEvidence(proof,now) or deathSecret(killer) or killer~=proof.source then return false end
- if A.GroupOwnDeath then return A.GroupOwnDeath(id,race,now,killer,proof)end
- if deathSecret(race) or race~='Gnome' or deathSecret(id) or type(id)~='string' then return false end
- A.db.recaps=A.db.recaps or {}
- if A.db.recaps[id] then return false end
- A.db.recaps[id]=now
- for k,t in pairs(A.db.recaps) do if now-t>86400 then A.db.recaps[k]=nil end end
- local r=A.db.owners[A.owner]; r.deaths=(r.deaths or 0)+1
- r.deathDays=r.deathDays or {}; local d=A.Day(now)
- r.deathDays[d]=(r.deathDays[d] or 0)+1
- A.CreditNotice('D',killer)
- if A.Changed then A.Changed() end
- return true
-end
 function A.Score(r,frame,now,metric)
- if metric=='deaths' then r={total=r.deaths or 0,days=r.deathDays or {}} end
  if frame=='Lifetime' then return r.total end
  local today=A.Day(now); local first=today
  if frame=='7 days' then first=today-6

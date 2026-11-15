@@ -14,13 +14,15 @@ assert(#lines==11 and lines[1]:find('Lifetime',1,true)and lines[1]:find('cached'
 for i=2,#lines do assert(lines[i]:match('^#'..(i-1)..' ')and not lines[i]:find(' ; ',1,true),'one ranked person per line, in order')end
 for _,line in ipairs(lines)do assert(#line<=255,'chat line exceeds byte budget');assert(not line:find('-Realm',1,true),'report leaks realm suffix')end
 local empty=A.BuildTopReport('Today',now+86400);assert(#empty==1 and empty[1]:find('No recorded',1,true),'empty period does not invent top ten')
-A.db.owners[A.owner].days[day]=2;A.db.owners[A.owner].deathDays[day]=1
-A.account.characters['Alt-Realm']={total=4,deaths=2,days={[day]=4,[day-2]=1},deathDays={[day]=2},seen={}}
+A.db.owners[A.owner].days[day]=2
+A.account.characters['Alt-Realm']={total=4,days={[day]=4,[day-2]=1},seen={}}
 A.members['Alt-Realm']=true
 A.account.characters['NonGuild-Realm']={total=999,deaths=999,days={[day]=999},deathDays={[day]=999},seen={}}
 local trend=A.ActivityTrend('7 days',now)
-assert(#trend==7 and trend[7].kills==6 and trend[7].deaths==3,'trend aggregates account alts by UTC day')
-assert(#A.ActivityTrend('Lifetime',now)==3,'lifetime trend starts at oldest retained own-account day')
+assert(#trend==7 and trend[7].kills==6 and trend[7].deaths==nil,'trend is kill-only and does not return retired death data')
+A.account.characters['RetiredMetric-Realm']={total=0,days={},deathDays={[day-90]=5}};A.members['RetiredMetric-Realm']=true
+assert(A.ChartBounds('Lifetime',now)==day-2,'retired death-only buckets cannot extend the kill chart bounds')
+assert(#A.ActivityTrend('Lifetime',now)==3,'lifetime trend starts at oldest retained own-account kill day')
 local sent={};A.Safe=function(fn,...)return fn and fn(...)end;A.Secret=function()return false end
 IsInInstance=function()return false end
 SendChatMessage=function(msg,channel)sent[#sent+1]={msg,channel}end

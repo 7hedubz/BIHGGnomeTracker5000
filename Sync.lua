@@ -145,16 +145,20 @@ function A.Receive(msg,channel,sender,now)
   if not stamp or stamp>now+60 or stamp<now-86400 then return false end
   local scores={}
   for i=1,7 do scores[i]=integer(fields[i+3],1000000000);if not scores[i] or (i>1 and scores[i]>scores[1]) then return false end end
-  local peers=A.PeerRecords();local r=peers[sender] or {total=0,deaths=0,days={},deathDays={}};peers[sender]=r
+  local peers=A.PeerRecords();local r=peers[sender] or {total=0,days={}};peers[sender]=r
   if not r.encounterStamp or stamp>=r.encounterStamp then r.encounterStamp=stamp;r.encounterScores=scores end
   r.updated=now;refresh();return true
  end
- local k,d,day,dk,dd=msg:match('^2|S|(%d+)|(%d+)|(%d+)|(%d+)|(%d+)$')
- k=integer(k,1000000000); d=integer(d,1000000000); day=integer(day,1000000); dk=integer(dk,1000000000); dd=integer(dd,1000000000)
- if not k or not d or not day or not dk or not dd or dk>k or dd>d or day>A.Day(now) or day<A.Day(now)-A.RETENTION+1 then return false end
- local peers=A.PeerRecords(); local r=peers[sender] or {total=0,deaths=0,days={},deathDays={}}
- peers[sender]=r;r.observerOnly=false; r.total=math.max(r.total,k); r.deaths=math.max(r.deaths,d)
- r.days[day]=math.max(r.days[day] or 0,dk); r.deathDays[day]=math.max(r.deathDays[day] or 0,dd); r.updated=now
+ -- Preserve the legacy score envelope for older kill-only consumers. The
+ -- second/fifth numeric slots are ignored on receive and always zero on send.
+ -- Only capture live kill fields; the legacy reserved positions are syntax,
+ -- not counters to parse, compare, buffer or save.
+ local k,day,dk=msg:match('^2|S|(%d+)|%d+|(%d+)|(%d+)|%d+$')
+ k=integer(k,1000000000);day=integer(day,1000000);dk=integer(dk,1000000000)
+ if not k or not day or not dk or dk>k or day>A.Day(now) or day<A.Day(now)-A.RETENTION+1 then return false end
+ local peers=A.PeerRecords(); local r=peers[sender] or {total=0,days={}}
+ peers[sender]=r;r.observerOnly=false; r.total=math.max(r.total or 0,k)
+ r.days=r.days or {};r.days[day]=math.max(r.days[day] or 0,dk);r.updated=now
  refresh()
  return true
 end
@@ -175,7 +179,6 @@ function A.BuildPackets(full,now)
  local r=A.db.owners[A.owner]; local today=A.Day(now); local days={[today]=true}
  if full then
   for day in pairs(r.days) do if day>=today-A.RETENTION+1 then days[day]=true end end
-  for day in pairs(r.deathDays or {}) do if day>=today-A.RETENTION+1 then days[day]=true end end
  end
  local sorted={}; for day in pairs(days) do sorted[#sorted+1]=day end; table.sort(sorted,function(a,b)return a>b end)
  local result=A.AccountPackets and A.AccountPackets(now) or {}
@@ -183,7 +186,7 @@ function A.BuildPackets(full,now)
  local encounter={'2','E',tostring(now)}
  for _,label in ipairs(A.frames) do encounter[#encounter+1]=tostring(A.EncounterCount(label,now)) end
  result[#result+1]=table.concat(encounter,'|')
- for _,day in ipairs(sorted) do result[#result+1]=string.format('2|S|%d|%d|%d|%d|%d',r.total,r.deaths or 0,day,r.days[day] or 0,(r.deathDays or {})[day] or 0) end
+ for _,day in ipairs(sorted) do result[#result+1]=string.format('2|S|%d|%d|%d|%d|%d',r.total,0,day,r.days[day] or 0,0) end
  if full and A.AltPackets then for _,packet in ipairs(A.AltPackets(now)) do result[#result+1]=packet end end
  if A.GroupPackets then for _,packet in ipairs(A.GroupPackets(full,now))do result[#result+1]=packet end end
  return result

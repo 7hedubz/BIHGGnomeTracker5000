@@ -14,7 +14,7 @@ eq(A.SetAlias('bad|alias',now),false);eq(A.SetAlias('',now),false)
 A.guildKey='Guild-Realm';A.members={['First-Realm']=true,['Second-Realm']=true,['Peer-Realm']=true,['PeerAlt-Realm']=true}
 local first=A.db;A.Init({},'Second-Realm',now+1);A.InitAccount(account,'ignored-id',now+1)
 eq(account.id,'account-first','same account retains stable ID');eq(account.alias,'DoHeal','alt inherits nickname')
-A.Award(now+1);A.PlayerDeath('death1','Gnome',now+1,'Player-gnome',{damage=600,maxHealth=1000,source='Player-gnome',time=now+1})
+A.Award(now+1)
 A.Encounter('Player-unique','Tiny','Gnome','Alliance',now+1);A.Encounter('Player-2','Other','Gnome','Alliance',now+1)
 A.SnapshotAccount(now+1)
 eq(A.AccountEncounterCount('Lifetime',now+1),2)
@@ -22,7 +22,7 @@ first.seen={['Player-unique']={race='Gnome',first=now,last=now,days={[day]=true}
 account.characters['First-Realm'].seen=first.seen
 eq(A.AccountEncounterCount('Lifetime',now+1),2,'same Gnome across alts deduplicates')
 local groups=A.LeaderboardGroups('Lifetime',now+1)
-eq(#groups,1);eq(groups[1].name,'DoHeal');eq(groups[1].k,4);eq(groups[1].d,1);eq(#groups[1].children,2)
+eq(#groups,1);eq(groups[1].name,'DoHeal');eq(groups[1].k,4);eq(groups[1].d,nil,'death metric removed');eq(#groups[1].children,2)
 A.Init(first,'First-Realm',now+2);A.InitAccount(account,'ignored',now+2)
 eq(A.LeaderboardGroups('Lifetime',now+2)[1].k,4,'migration/relogin does not duplicate totals')
 local packets=A.BuildPackets(true,now+2);local identity,unique
@@ -38,7 +38,7 @@ eq(B.Receive('2|S|1|1|'..day..'|1|1','GUILD','Second-Realm',now+2),true)
 eq(B.Receive(unique,'GUILD','First-Realm',now+2),true)
 local found
 for _,g in ipairs(B.LeaderboardGroups('Lifetime',now+2))do if g.name=='DoHeal' then found=g end end
-assert(found);eq(found.k,4);eq(found.d,1);eq(found.encountered,2);eq(#found.children,2)
+assert(found);eq(found.k,4);eq(found.d,nil,'received legacy death metrics are ignored');eq(found.encountered,2);eq(#found.children,2)
 eq(B.Receive(identity,'GUILD','Stranger-Realm',now+2),false)
 -- Same nickname is cosmetic; a separate identity never joins DoHeal's stats.
 local collision='3|I|other-account|'..A.EncodeAlias('DoHeal')..'|'..(now+3)

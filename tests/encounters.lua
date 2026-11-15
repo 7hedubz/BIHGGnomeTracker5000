@@ -4,6 +4,11 @@ if arg[2]~='encounters' then
  return assert(loadfile((arg[0]:match('^(.*)/')or'tests')..'/integration.lua'))()
 end
 return function(A,event,tick,clock,units,transition)
+ A.OpenView('Leaderboard',false)
+ assert(#A.statCards==1,'only the kill summary card remains')
+ assert(A.headers[2]:GetText()=='Kills'and not A.headers[3]:IsShown(),'leaderboard has no death column')
+ assert(not A.rows[1][3]:IsShown()and A.rows[1][3]:GetText()=='','retired death cells are cleared, not merely relabeled')
+ A.sort='deaths';A.RefreshUI();assert(A.sort=='kills','retired death sorting falls back to kills')
  local t=clock();local g='Player-history';local kills=A.db.owners[A.owner].total
  units.target={guid=g,name='History',race='Human',faction='Alliance',hp=1000,enemy=true}
  function UnitLevel()return 72 end;function UnitClass()return 'Death Knight','DEATHKNIGHT'end
@@ -63,7 +68,7 @@ return function(A,event,tick,clock,units,transition)
  assert(GameTooltip.shown and GameTooltip:GetOwner()==unrelated,'window hide preserves unrelated tooltip')
  A.OpenView('Encounters',false)
  A.OpenView('Leaderboard',false)
- for j=4,6 do assert(not A.headers[j]:IsShown()and not A.rows[1][j]:IsShown()and A.rows[1][j].text=='','mode switch hides and clears every history-only column')end
+ for j=3,6 do assert(not A.headers[j]:IsShown()and not A.rows[1][j]:IsShown()and A.rows[1][j].text=='','mode switch hides and clears every history-only column')end
  A.OpenView('Encounters',false);A.rows[1].button.scripts.OnEnter(A.rows[1].button)
  transition(true);event('PLAYER_REGEN_DISABLED')
  assert(not A.window:IsShown()and not GameTooltip.shown,'secure combat entry closes encounter window and its tooltip')

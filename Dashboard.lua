@@ -47,10 +47,8 @@ function A.ChartBounds(period,now,scope)
  if period~='Lifetime'then return math.min(today,math.max(floor,A.FirstDay(period,now))),today end
  local first=today
  for _,r in ipairs(chartRecords(now,scope))do
-  for _,key in ipairs({'days','deathDays'})do
-   for day,n in pairs(r[key]or{})do
-    if integer(day)and day>=floor and day<first and type(n)=='number'and n>0 then first=day end
-   end
+  for day,n in pairs(r.days or{})do
+   if integer(day)and day>=floor and day<first and type(n)=='number'and n>0 then first=day end
   end
  end
  return first,today
@@ -91,9 +89,9 @@ function A.ActivityTrend(period,now,first,last,scope)
  if not validRange(first,last,min,max)then return data end
  local records=chartRecords(now,scope)
  for day=first,last do
-  local k,d=0,0
-  for _,r in ipairs(records)do k=k+((r.days or {})[day]or 0);d=d+((r.deathDays or {})[day]or 0)end
-  data[#data+1]={day=day,kills=k,deaths=d}
+  local k=0
+  for _,r in ipairs(records)do k=k+((r.days or {})[day]or 0)end
+  data[#data+1]={day=day,kills=k}
  end
  return data
 end

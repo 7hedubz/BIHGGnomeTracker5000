@@ -170,12 +170,12 @@ do
  C_UnitAuras.GetAuraDataByIndex=function(...)calls=calls+1;return original(...)end
  units.focus=units.target;units.mouseover=units.target;units.nameplate1=units.target;units.playertarget=units.target;A.plates.nameplate1=true
  now=now+1;A.ScanVisible()
- assert(calls==3,'five hostile aliases share one enumeration (2 calls), plus one bounded out-of-combat incoming victim scan; got '..calls)
+ assert(calls==2,'five hostile aliases share one enumeration (2 calls), with no retired incoming victim scan; got '..calls)
  calls=0
  for i=1,100 do event('UNIT_HEALTH','target')end
  assert(calls==0,'health bursts must not repeatedly enumerate unchanged auras')
  event('UNIT_AURA','target');assert(calls==2,'explicit aura notification must inspect fresh data immediately')
- print('WORKLOAD duplicate hostile token aura calls: 2 (baseline 6), plus 1 bounded incoming victim poll; 100 health events: 0; fresh target aura event: 2')
+ print('WORKLOAD duplicate hostile token aura calls: 2 (baseline 6), no incoming victim poll; 100 health events: 0; fresh target aura event: 2')
  units.focus=nil;units.mouseover=nil;units.nameplate1=nil;units.playertarget=nil;A.plates.nameplate1=nil
  C_UnitAuras.GetAuraDataByIndex=original
 end
@@ -224,21 +224,6 @@ COMBATLOG_HONORGAIN_NO_RANK='You killed %s (Honor: %d)'
 event('CHAT_MSG_COMBAT_HONOR_GAIN','You killed Tiny (Honor: 4)')
 assert(A.db.owners[A.owner].total==1,'fresh named local HK confirms observed Gnome credit without CLEU')
 tick();event('PARTY_KILL','Player-me','Player-gnome');assert(A.db.owners[A.owner].total==1,'duplicate death ignored')
-event('PLAYER_DEAD');delayed();assert((A.db.owners[A.owner].deaths or 0)==0,'zero effective Gnome damage without harmful proof does not qualify')
-event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');now=now+1
-C_DeathRecap.GetRecapLink=function()return '|Hdeath:10|h'end
-C_DeathRecap.GetRecapEvents=function()return{{event='SWING_DAMAGE',amount=100,sourceGUID='Player-human',timestamp=now,hideCaster=false},{event='SPELL_DAMAGE',amount=20,sourceGUID='Player-gnome',timestamp=now-1,hideCaster=false}}end
-event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'exactly two percent health from a Gnome qualifies even when a different race lands the final blow')
-event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==1,'same actual death and recap ignored')
-event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');now=now+2;event('PLAYER_DEAD');delayed()
-assert(A.db.owners[A.owner].deaths==1,'a recap already used in a previous life cannot qualify a new death')
-event('PLAYER_ALIVE');units.player.hp=2000;event('PLAYER_REGEN_DISABLED');now=now+4;units.player.hp=1000
-C_DeathRecap.GetRecapLink=function()return '|Hdeath:11|h'end
-event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==2,'positive attributed damage is independent of max health')
-event('PLAYER_ALIVE');local absoluteClock=GetTime;GetTime=function()return now-1700000000 end;event('PLAYER_REGEN_DISABLED');now=now+4
-C_DeathRecap.GetRecapLink=function()return '|Hdeath:12|h'end
-C_DeathRecap.GetRecapEvents=function()return{{event='SPELL_DAMAGE',amount=600,sourceGUID='Player-gnome',timestamp=GetTime(),hideCaster=false}}end
-event('PLAYER_DEAD');delayed();assert(A.db.owners[A.owner].deaths==3,'fresh monotonic-clock recaps normalize to the persisted server-time death');GetTime=absoluteClock
 A.ToggleUI();A.RefreshUI();assert(A.window:IsShown(),'UI opens')
 A.mode='Encounters';A.RefreshUI();A.mode='Leaderboard';A.RefreshUI()
 A.dirty=true;inside=true;combat=true;local n=#sent;A.Pump(now);assert(#sent==n,'combat prevents sends even in dungeon')
@@ -279,14 +264,14 @@ issecretvalue=function()return false end
 local oldRoster=GetNumGuildMembers;GetNumGuildMembers=function()return 0 end
 A.Roster();assert(A.PeerRecords()['Friend-Realm'],'unloaded roster preserves cached stats')
 GetNumGuildMembers=oldRoster;A.Roster()
--- Leaderboard exposes only kills/deaths; encounter history keeps its own six fields.
+-- Leaderboard exposes kills only; encounter history keeps its own six fields.
 A.mode='Leaderboard';A.RefreshUI()
-assert(#A.statCards==2,'summary contains only kills and deaths')
-assert(A.headers[1].text=='Alias / character'and A.headers[2].text=='Kills'and A.headers[3].text=='Deaths','leaderboard has only character, kills and deaths headings')
+assert(#A.statCards==1,'summary contains only kills')
+assert(A.headers[1].text=='Alias / character'and A.headers[2].text=='Kills'and not A.headers[3]:IsShown(),'leaderboard has only character and kills headings')
 assert(not A.headers[4]:IsShown()and not A.headers[5]:IsShown()and not A.headers[6]:IsShown(),'no K/D or Encountered columns remain on the board')
 assert(not A.rows[1][4]:IsShown()and A.rows[1][4].text=='','no stale encounter date or removed metric cell is visible on the board')
-A.headers[3].scripts.OnClick();assert(A.sort=='deaths','death sorting still works')
-A.headers[3].scripts.OnClick();assert(A.ascending,'reverse sort')
+A.headers[2].scripts.OnClick();assert(A.sort=='kills','kill sorting still works')
+local beforeReverse=A.ascending;A.headers[2].scripts.OnClick();assert(A.ascending~=beforeReverse,'reverse sort')
 for i=1,7 do A.periodButtons[i].scripts.OnClick()end
 A.window.scripts.OnMouseWheel(nil,-1)
 SlashCmdList.BIHGGKT('alerts');SlashCmdList.BIHGGKT('encounters');assert(A.window:IsShown(),'encounter command opens')
@@ -600,8 +585,8 @@ DEFAULT_CHAT_FRAME.AddMessage=function(_,text)debugOutput[#debugOutput+1]=text e
 local publicBefore=#partyMessages;local addonBefore=#sent
 event('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','SendChatMessage()');SlashCmdList.BIHGGKT('debug')
 local debugText=table.concat(debugOutput,' ')
-assert(A.VERSION=='1.9.2'and tocVersion==A.VERSION,'release metadata matches actual TOC')
-assert(debugText:find('BIHG own death outcomes',1,true)and debugText:find('counted',1,true),'actual slash exposes persisted own death diagnostics')
+assert(A.VERSION=='1.10.0'and tocVersion==A.VERSION,'release metadata matches actual TOC')
+assert(not debugText:find('BIHG own death outcomes',1,true),'actual slash must not expose retired death diagnostics')
 assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
 assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')
 DEFAULT_CHAT_FRAME.AddMessage=originalLocalMessage
@@ -630,17 +615,6 @@ assert(sharedVisible and not A.db.seen['Player-alt-history'],'actual encounter U
 local liveKey,liveMembers=A.guildKey,A.members;A.guildKey=nil;A.members={};A.OpenView('Leaderboard',false)
 assert(A.summary.text:find('cached guild history (read-only)',1,true)and not A.reportButton:IsShown()and A.guildKey==nil,'cached-only UI is explicitly labeled and cannot authorize public posting')
 A.guildKey=liveKey;A.members=liveMembers;A.RefreshUI()
--- A transient max-health peak must constrain both recap and incoming-event proofs.
-event('PLAYER_ALIVE');local oldAffectingCombat=UnitAffectingCombat;UnitAffectingCombat=function()return true end
-units.player.hp=1000;event('PLAYER_REGEN_DISABLED');A.RefreshGroupActors();local deathBeforePeak=A.db.owners[A.owner].deaths
-units.player.hp=2000;event('UNIT_MAXHEALTH','player');units.player.hp=1000;event('UNIT_MAXHEALTH','player')
-local incoming={};incoming[2]='SWING_DAMAGE';incoming[4]='Player-gnome';incoming[8]='Player-me';incoming[12]=39;incoming[13]=0
-A.GroupCombat(incoming,now);local ownDied={};ownDied[2]='UNIT_DIED';ownDied[8]='Player-me';A.GroupCombat(ownDied,now)
-assert(A.db.owners[A.owner].deaths==deathBeforePeak+1,'positive incoming damage counts independently of max-health peak')
--- Late collector creation at the lower current health still uses the known own peak.
-A.RefreshGroupActors();A.GroupCombat(incoming,now);A.GroupCombat(ownDied,now)
-assert(A.db.owners[A.owner].deaths==deathBeforePeak+1,'same death still deduplicates independently of health')
-UnitAffectingCombat=oldAffectingCombat
 A.SetNearbyEnabled(false)
 local pausedLocalAlerts=0;local oldLocalMessage=DEFAULT_CHAT_FRAME.AddMessage
 local oldLegacyAlerts=A.db.options.alerts;A.db.options.alerts=true

@@ -4,7 +4,7 @@ return function(A,event,tick,clock,units,combat,sent)
  local chat={};DEFAULT_CHAT_FRAME.AddMessage=function(_,s)chat[#chat+1]=s end
  local function count(text)local n=0;for _,s in ipairs(chat)do if s:find(text,1,true)then n=n+1 end end;return n end
  if os.getenv('BIHG_TRACER')~='personal'then
-  assert(A.Receive('2|V|1.10.0','GUILD','Friend-Realm',clock()),'validated peer version accepted')
+  assert(A.Receive('2|V|1.11.0','GUILD','Friend-Realm',clock()),'validated peer version accepted')
   assert(count('update')==1,'actual Receive must immediately print newer peer version locally')
   print('PASS Receive -> local version notice')
   local first=clock()
@@ -157,7 +157,7 @@ return function(A,event,tick,clock,units,combat,sent)
   C_UnitAuras.GetAuraDataByIndex=function(u,i)calls=calls+1;if u=='target'and i==1 then return{spellId=770,sourceUnit='player',auraInstanceID=9,isHarmful=true}end end
   units.target={guid='Player-scan-benchmark',name='Benchmark',race='Gnome',faction='Alliance',hp=1000,enemy=true}
   units.focus=units.target;units.mouseover=units.target
-  A.ScanVisible();assert(calls==3,'duplicate aliases retain 2 hostile aura calls plus 1 incoming sentinel, not 6 hostile calls')
+  A.ScanVisible();assert(calls==2,'duplicate aliases retain only 2 hostile aura calls; retired incoming sentinel must not run')
   calls=0;for i=1,100 do event('UNIT_HEALTH','target')end
   assert(calls==0,'100 same-clock health events cause zero aura calls')
   units.target,units.focus,units.mouseover=savedTarget,savedFocus,savedMouse;A.plates=savedPlates

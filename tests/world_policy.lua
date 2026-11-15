@@ -109,14 +109,10 @@ test('actual runtime transitions isolate lives and clear eligibility before scan
    IsInInstance=function()return false,'none'end
    local A=make(true);local units,event=runtime(A)
    A.ScanVisible();assert(A.groupTargets['Player-same'].actors['Player-me'].cc)
-   A.groupIncoming['Player-me']={started=t,health=1000,events={{event='SWING_DAMAGE',timestamp=t,sourceGUID='Player-gnome',amount=600}}}
-   A.pendingDeath={time=t,health=1000};A.deathFight={started=t,health=1000}
    IsInInstance=function()return true,kind end
    units.target.dead=true;event(eventName)
    assert(not next(A.groupTargets),'transition must discard world eligibility before instance scans')
    assert(not next(A.auras),'transition must discard aura acceptance keys')
-   for _,state in pairs(A.groupIncoming)do assert(#state.events==0,'incoming evidence cannot cross location boundary')end
-   assert(A.pendingDeath and A.pendingDeath.time==t,'kill boundary must not erase already-frozen own death')
    event('PARTY_KILL','Player-me','Player-same')
    assert(not A.db.dead['Player-same'],'blocked corpse never marks dedup')
    IsInInstance=function()return false,'none'end;event(eventName)
@@ -133,24 +129,16 @@ test('actual runtime transitions isolate lives and clear eligibility before scan
   end
  end
 end)
-test('instance deaths require positive effective evidence and detection remains independent',function()
+test('instance encounter detection remains independent of removed death tracking',function()
  for _,kind in ipairs({'pvp','arena','party','raid','scenario'})do
   IsInInstance=function()return true,kind end
   local A=make(true);local units,event=runtime(A)
   local notices=0;A.NearbyNotice=function()notices=notices+1 end
   A.ScanVisible();assert(notices==1 and A.db.seen['Player-same'],'instance encounter and Nearby detection continue')
   assert(not next(A.groupTargets),'detection must not seed instance kill eligibility')
-  local damage={[2]='SWING_DAMAGE',[4]='Player-gnome',[8]='Player-me',[12]=0,[13]=0}
-  local died={[2]='UNIT_DIED',[8]='Player-me'}
-  A.GroupCombat(damage,t);A.GroupCombat(died,t)
-  assert((A.db.owners[A.owner].deaths or 0)==0,'zero effective damage without debuff is rejected in instances')
-  t=t+5;damage[12]=20;A.GroupCombat(damage,t);A.GroupCombat(died,t)
-  assert(A.db.owners[A.owner].deaths==1,'two-percent incoming damage still counts in instances')
-  -- Own native recap path is also not a kill-location gate.
-  t=t+5;event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');t=t+1
-  C_DeathRecap={GetRecapLink=function()return '|Hdeath:99|h'end,GetRecapMaxHealth=function()return 1000 end,GetRecapEvents=function()return{{event='SPELL_DAMAGE',amount=600,sourceGUID='Player-gnome',timestamp=t}}end}
-  event('PLAYER_DEAD');assert(A.db.owners[A.owner].deaths==2,'fresh own recap still qualifies in instances')
-  C_DeathRecap=nil
+  A.GroupCombat({[2]='SWING_DAMAGE',[4]='Player-gnome',[8]='Player-me',[12]=600,[13]=0},t)
+  A.GroupCombat({[2]='UNIT_DIED',[8]='Player-me'},t)
+  assert(A.db.owners[A.owner].deaths==nil and A.groupIncoming==nil,'instance damage/death cannot create retired data')
  end
 end)
 test('automatic policy checks discard stale personal and guild contributions on state changes',function()
@@ -165,25 +153,6 @@ test('automatic policy checks discard stale personal and guild contributions on 
   IsInInstance=function()return false,'none'end
   assert(not death('Player-stale',t+2),'world contribution cannot survive a blocked death')
   observe('Player-stale','Gnome',true,1000,t+3,false);assert(cc());assert(death('Player-stale',t+4))
- end
-end)
-test('native recap and group incoming evidence cannot cross either transition direction',function()
- for _,entering in ipairs({true,false})do
-  IsInInstance=function()return not entering,entering and 'none'or'pvp'end
-  local A=make(true);local units,event=runtime(A)
-  A.ScanVisible()
-  local damage={[2]='SWING_DAMAGE',[4]='Player-gnome',[8]='Player-me',[12]=600,[13]=0}
-  A.GroupCombat(damage,t)
-  local before=t
-  C_DeathRecap={GetRecapLink=function()return '|Hdeath:199|h'end,GetRecapMaxHealth=function()return 1000 end,GetRecapEvents=function()return{{event='SPELL_DAMAGE',amount=600,sourceGUID='Player-gnome',timestamp=before}}end}
-  IsInInstance=function()return entering,entering and 'pvp'or'none'end
-  event('PLAYER_ENTERING_WORLD');t=t+1;event('PLAYER_DEAD')
-  assert((A.db.owners[A.owner].deaths or 0)==0,'old incoming/recap proof cannot cross boundary')
-  event('PLAYER_ALIVE');event('PLAYER_REGEN_DISABLED');t=t+1
-  C_DeathRecap.GetRecapLink=function()return '|Hdeath:200|h'end
-  C_DeathRecap.GetRecapEvents=function()return{{event='SPELL_DAMAGE',amount=600,sourceGUID='Player-gnome',timestamp=t}}end
-  event('PLAYER_DEAD');assert(A.db.owners[A.owner].deaths==1,'fresh destination-side recap qualifies')
-  C_DeathRecap=nil
  end
 end)
 test('unreadable native state cannot bypass any personal or group lifecycle entry',function()

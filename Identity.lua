@@ -16,8 +16,9 @@ local function clone(t,seen)
  local out={};seen[t]=out;for k,v in pairs(t)do out[k]=clone(v,seen)end;return out
 end
 local function mergeCounts(t,s)
- t.total=math.max(t.total or 0,s.total or 0);t.deaths=math.max(t.deaths or 0,s.deaths or 0)
- for _,key in ipairs({'days','deathDays'})do t[key]=t[key]or {};for day,n in pairs(s[key]or {})do t[key][day]=math.max(t[key][day]or 0,n)end end
+ A.RemoveDeathData(t);A.RemoveDeathData(s)
+ t.total=math.max(t.total or 0,s.total or 0)
+ t.days=t.days or {};for day,n in pairs(s.days or {})do t.days[day]=math.max(t.days[day]or 0,n)end
 end
 local function merge(t,s,now,skipBaseline)
  if t==s then return end
@@ -26,11 +27,11 @@ local function merge(t,s,now,skipBaseline)
  A.PruneEncounters(now,true)
  mergeCounts(t,s)
  local baseline=not skipBaseline and s.guildBase or nil
- if not skipBaseline and not baseline and not s.observerOnly and((s.total or 0)>0 or(s.deaths or 0)>0)then baseline={since=s.updated or now,total=s.total,deaths=s.deaths,days=clone(s.days),deathDays=clone(s.deathDays)}end
+ if not skipBaseline and not baseline and not s.observerOnly and(s.total or 0)>0 then baseline={since=s.updated or now,total=s.total,days=clone(s.days)}end
  if baseline then
   if not t.guildBase then t.guildBase=clone(baseline)else
    local a,b=t.guildBase,baseline
-   local aHas=(a.total or 0)>0 or(a.deaths or 0)>0;local bHas=(b.total or 0)>0 or(b.deaths or 0)>0
+   local aHas=(a.total or 0)>0;local bHas=(b.total or 0)>0
    local since=math.max(a.since or 0,b.since or 0)
    -- A newer empty ghost must not move an established baseline forward and
    -- swallow witnessed kills that happened after the real legacy baseline.
@@ -66,6 +67,7 @@ function A.CanonicalCharacterName(name,guid)
  return g and((r.characterNamesByGUID and r.characterNamesByGUID[g])or(s and s.guids[g]))or name
 end
 local function archive(r,guid,name,record)
+ A.RemoveDeathData(record)
  r.identityArchives=r.identityArchives or {};r.identityArchives[guid]=r.identityArchives[guid]or {}
  if not r.identityArchives[guid][name]then r.identityArchives[guid][name]=clone(record)end
 end
@@ -81,8 +83,8 @@ function A.PrepareLocalIdentity(r,now)
    if other and player(other.characterGUID)then archive(r,other.characterGUID,name,other)end
    -- A legacy key collision proves neither that its six old kills are new nor
    -- that they belong to this GUID. Keep the original, credit only actor events.
-   record.total=0;record.deaths=0;record.days={};record.deathDays={}
-   record.guildBase={since=0,total=0,deaths=0,days={},deathDays={}};record.identityUncertain=true
+   record.total=0;record.days={}
+   record.guildBase={since=0,total=0,days={}};record.identityUncertain=true
   end
  end end
 end
@@ -191,7 +193,7 @@ local function bindGuildCharacter(guid,sender,direct,now,isDirect)
  local canonical=owned or s.guids[guid]or sender;local previous=peers[canonical]
  if conflictingClaim(canonical,guid)then return false end
  if previous and previous.accountID and previous.accountID~=direct.accountID then return false end
- local target=previous or(isDirect and direct)or {total=0,deaths=0,days={},deathDays={}};local aliases=rewriteEvents(r,guid,canonical,A.guildKey);aliases[sender]=true
+ local target=previous or(isDirect and direct)or {total=0,days={}};local aliases=rewriteEvents(r,guid,canonical,A.guildKey);aliases[sender]=true
  for name,record in pairs(peers)do if record.characterGUID==guid then aliases[name]=true end end
  for name in pairs(aliases)do
   local old=peers[name]

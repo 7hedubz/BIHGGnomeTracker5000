@@ -7,7 +7,7 @@ local function setup()
  local today=20000;local now=today*86400+123
  A.Init({},'Me-Realm',now);A.InitAccount({},'mine',now)
  A.guildKey='Guild-Realm';A.members={['Me-Realm']=true,['Alt-Realm']=true};A.chartRange=nil
- A.account.characters['Alt-Realm']={days={},deathDays={}}
+ A.account.characters['Alt-Realm']={days={}}
  return today,now,A.account.characters['Me-Realm'],A.account.characters['Alt-Realm']
 end
 
@@ -36,8 +36,8 @@ end)
 test('Lifetime starts at retained effective own-account activity in view scope',function()
  local today,now,own,alt=setup()
  local first,last=A.ChartBounds('Lifetime',now);eq(first,today);eq(last,today)
- own.days[today-40]=2;alt.deathDays[today-60]=1
- A.account.characters['Out-Realm']={days={[today-100]=99},deathDays={}}
+ own.days[today-40]=2;alt.days[today-60]=1
+ A.account.characters['Out-Realm']={days={[today-100]=99}}
  A.PeerRecords()['Peer-Realm']={days={[today-200]=99}};A.members['Peer-Realm']=true
  first=A.ChartBounds('Lifetime',now);eq(first,today-60)
  own.days[today-500]=1;own.days[today+1]=1;alt.days[today-90]=0
@@ -45,7 +45,7 @@ test('Lifetime starts at retained effective own-account activity in view scope',
  own.days[today-399]=1;eq(A.ChartBounds('Lifetime',now),today-399)
  local effective=A.GuildEffectiveRecord;local key='Cached-Realm';A.guildKey=nil
  A.account.guilds={[key]={}};A.account.guildMembership={[key]={members={['Alt-Realm']=true}}};A.account.viewGuilds={Realm=key}
- A.GuildEffectiveRecord=function(name,r,at,scope)eq(scope,key);eq(name,'Alt-Realm');eq(at,now);return{days={},deathDays={[today-80]=3}}end
+ A.GuildEffectiveRecord=function(name,r,at,scope)eq(scope,key);eq(name,'Alt-Realm');eq(at,now);return{days={[today-80]=3}}end
  eq(A.ChartBounds('Lifetime',now),today-80)
  A.GuildEffectiveRecord=effective
 end)
@@ -78,10 +78,10 @@ test('handles round, clamp and never cross including same-day bounds',function()
  A.ResetChartRange('Today',now);eq(A.SetChartHandle('Today',now,'first',today-9),false);eq(A.SetChartHandle('Today',now,'last',today+9),false)
 end)
 test('daily series use complete periods and exact inclusive endpoints without truncation',function()
- local today,now,own,alt=setup();own.days[today-399]=1;own.days[today-80]=7;own.days[today]=3;alt.deathDays[today-79]=2
+ local today,now,own,alt=setup();own.days[today-399]=1;own.days[today-80]=7;own.days[today]=3;alt.deathDays={[today-79]=2} -- Simulate an unmigrated legacy record; it must not affect kill series.
  local all=A.ActivityTrend('Lifetime',now);eq(#all,400);eq(all[1].day,today-399);eq(all[400].day,today)
  local selected=A.ActivityTrend('Lifetime',now,today-80,today-78)
- eq(#selected,3);eq(selected[1].kills,7);eq(selected[2].kills,0);eq(selected[2].deaths,2);eq(selected[3].day,today-78)
+ eq(#selected,3);eq(selected[1].kills,7);eq(selected[2].kills,0);eq(selected[2].deaths,nil);eq(selected[3].day,today-78)
  for _,period in ipairs({'Today','7 days','30 days','This week','This month','This year','Lifetime'})do
   local min,max=A.ChartBounds(period,now);local data=A.ActivityTrend(period,now);eq(#data,max-min+1);eq(data[1].day,min);eq(data[#data].day,max)
  end

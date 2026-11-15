@@ -1,4 +1,16 @@
 local _,A=...
+-- Purge the retired own-death feature in every saved copy (including archives).
+-- Do not remove `dead`, kill-event timestamps or life IDs: those identify enemy
+-- lives and prevent duplicate K credit, rather than counting player deaths.
+local deathFields={deaths=true,deathDays=true,recaps=true,deathOutcomes=true,deathRecapsSeen=true,playerDeaths=true}
+function A.RemoveDeathData(value,visited)
+ if type(value)~='table'then return end
+ visited=visited or {};if visited[value]then return end;visited[value]=true
+ for key,child in pairs(value)do
+  if deathFields[key]or(type(child)=='table'and child.kind=='D')then value[key]=nil
+  elseif type(child)=='table'then A.RemoveDeathData(child,visited)end
+ end
+end
 local function short(name)return type(name)=='string' and (name:match('^([^-]+)') or name) or 'Unknown' end
 function A.EncodeAlias(value)return (value:gsub('.',function(c)return string.format('%02x',string.byte(c))end))end
 function A.DecodeAlias(value)
@@ -11,17 +23,16 @@ local function clone(t)
  if type(t)~='table'then return t end;local out={};for k,v in pairs(t)do out[k]=clone(v)end;return out
 end
 local function merge(target,source)
- target=target or {total=0,deaths=0,days={},deathDays={}}
- target.total=math.max(target.total or 0,source.total or 0);target.deaths=math.max(target.deaths or 0,source.deaths or 0)
- for _,key in ipairs({'days','deathDays'}) do
-  target[key]=target[key] or {}
-  for day,n in pairs(source[key] or {}) do target[key][day]=math.max(target[key][day] or 0,n) end
- end
+ A.RemoveDeathData(target);A.RemoveDeathData(source)
+ target=target or {total=0,days={}}
+ target.total=math.max(target.total or 0,source.total or 0)
+ target.days=target.days or {}
+ for day,n in pairs(source.days or {})do target.days[day]=math.max(target.days[day]or 0,n)end
  if source.guildBase and target~=source then
   local b=source.guildBase;local a=target.guildBase
   if not a then target.guildBase=clone(b)else
-   local aHas=(a.total or 0)>0 or(a.deaths or 0)>0
-   local bHas=(b.total or 0)>0 or(b.deaths or 0)>0
+   local aHas=(a.total or 0)>0
+   local bHas=(b.total or 0)>0
    local since=math.max(a.since or 0,b.since or 0)
    if aHas~=bHas then since=aHas and(a.since or 0)or(b.since or 0)end
    merge(a,b);a.since=since
@@ -56,6 +67,7 @@ function A.KnownEncounters()
  return A.account.knownEncounters or{}
 end
 function A.InitAccount(account,id,now)
+ A.RemoveDeathData(A.db);A.RemoveDeathData(account)
  account.version=1;account.id=account.id or id;account.alias=account.alias or short(A.owner)
  account.aliasRev=account.aliasRev or now;account.characters=account.characters or {};account.guilds=account.guilds or {}
  A.account=account
@@ -97,7 +109,7 @@ function A.InitAccount(account,id,now)
  A.db.guilds=account.guilds
  local firstDay=A.Day(now)-A.RETENTION+1
  for _,record in pairs(account.characters) do
-  for _,key in ipairs({'days','deathDays'}) do for day in pairs(record[key] or {}) do if day<firstDay then record[key][day]=nil end end end
+  for day in pairs(record.days or {})do if day<firstDay then record.days[day]=nil end end
   for _,entry in pairs(record.seen or {}) do for day in pairs(entry.days or {}) do if day<firstDay then entry.days[day]=nil end end end
  end
  A.SnapshotAccount(now)
@@ -105,6 +117,7 @@ function A.InitAccount(account,id,now)
 end
 function A.SnapshotAccount(now)
  if not A.account or A.identityConflict then return end
+ A.RemoveDeathData(A.db);A.RemoveDeathData(A.account)
  A.PruneEncounters(now,true)
  local r=A.db.owners[A.owner];r.seen=A.db.seen or {};r.updated=now
  A.account.characters[A.owner]=r
@@ -152,7 +165,7 @@ function A.ReceiveAccount(msg,sender,now)
  if id then
   local alias=A.DecodeAlias(encoded);rev=tonumber(rev)
   if #id>80 or not alias or not rev or rev>4102444800 then return false end
-  local peers=A.PeerRecords();local r=peers[sender] or {total=0,deaths=0,days={},deathDays={}};peers[sender]=r
+  local peers=A.PeerRecords();local r=peers[sender] or {total=0,days={}};peers[sender]=r
   -- A character's direct declaration takes precedence over an inherited alt claim.
   if not r.bindingDirect or not r.aliasRev or rev>=r.aliasRev then
    if r.accountID~=id then r.accountEncounterScores=nil;r.accountEncounterStamp=nil end
@@ -216,10 +229,10 @@ function A.LeaderboardGroups(period,now)
  for name,r in pairs(records) do
   local key=r.accountID and 'account:'..r.accountID or 'character:'..name
   local g=groups[key]
-  if not g then g={id=key,name=r.alias or short(name),aliasRev=-1,k=0,d=0,children={},isGroup=true,encountered=-1};groups[key]=g end
+  if not g then g={id=key,name=r.alias or short(name),aliasRev=-1,k=0,children={},isGroup=true,encountered=-1};groups[key]=g end
   if r.alias and (r.aliasRev or 0)>=g.aliasRev then g.name=r.alias;g.aliasRev=r.aliasRev or 0 end
   local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r
-  local k=A.Score(effective,period,now);local d=A.Score(effective,period,now,'deaths')
+  local k=A.Score(effective,period,now)
   local encountered=name==A.owner and A.EncounterCount(period,now) or A.EncounterScore(r,period,now)
   if A.account and A.account.characters[name] then
    local identities={};local first=A.FirstDay(period,now);local today=A.Day(now)
@@ -228,9 +241,9 @@ function A.LeaderboardGroups(period,now)
    end end
    encountered=0;for _ in pairs(identities) do encountered=encountered+1 end
   end
-  g.children[#g.children+1]={name=name,k=k,d=d,kd=d>0 and k/d or (k>0 and math.huge or 0),encountered=encountered or -1,isOwn=name==A.owner,observed=r.observerOnly}
+  g.children[#g.children+1]={name=name,k=k,encountered=encountered or -1,isOwn=name==A.owner,observed=r.observerOnly}
   g.observed=g.observed or r.observerOnly
-  g.k=g.k+k;g.d=g.d+d;g.isOwn=g.isOwn or name==A.owner
+  g.k=g.k+k;g.isOwn=g.isOwn or name==A.owner
   if r.accountEncounterScores and (period=='Lifetime' or A.Day(r.accountEncounterStamp)==A.Day(now)) and (not g.encounterStamp or r.accountEncounterStamp>g.encounterStamp) then
    for i,label in ipairs(A.frames) do if label==period then g.encountered=r.accountEncounterScores[i];g.encounterStamp=r.accountEncounterStamp end end
   end
@@ -239,7 +252,6 @@ function A.LeaderboardGroups(period,now)
  for _,g in pairs(groups) do
   if A.account and g.id=='account:'..A.account.id then g.encountered=A.AccountEncounterCount(period,now,members)
   elseif #g.children==1 and g.encountered<0 then g.encountered=g.children[1].encountered end
-  g.kd=g.d>0 and g.k/g.d or (g.k>0 and math.huge or 0)
   table.sort(g.children,function(a,b)return a.name<b.name end);out[#out+1]=g
  end
  return out
@@ -265,9 +277,9 @@ function A.AltPackets(now)
   for _,period in ipairs(A.frames) do encounter[#encounter+1]=tostring(A.CharacterEncounterCount(r,period,now)) end
   packets[#packets+1]=prefix..table.concat(encounter,'|')
   local days={[today]=true}
-  for _,key in ipairs({'days','deathDays'}) do for day in pairs(r[key] or {}) do if day>=today-A.RETENTION+1 and day<=today then days[day]=true end end end
+  for day in pairs(r.days or {})do if day>=today-A.RETENTION+1 and day<=today then days[day]=true end end
   local sorted={};for day in pairs(days) do sorted[#sorted+1]=day end;table.sort(sorted,function(a,b)return a>b end)
-  for _,day in ipairs(sorted) do packets[#packets+1]=prefix..string.format('2|S|%d|%d|%d|%d|%d',r.total,r.deaths or 0,day,(r.days or {})[day] or 0,(r.deathDays or {})[day] or 0) end
+  for _,day in ipairs(sorted) do packets[#packets+1]=prefix..string.format('2|S|%d|%d|%d|%d|%d',r.total,0,day,(r.days or {})[day] or 0,0) end
   if type(r.characterGUID)=='string'and r.characterGUID:match('^Player%-[%w%-]+$')then packets[#packets+1]='6|R|'..A.EncodeAlias(name)..'|'..r.characterGUID end
  end
  return packets
@@ -286,6 +298,13 @@ function A.ReplayAltScores(sender,name,now)
 end
 function A.ReceiveAlt(msg,sender,now)
  local encoded,payload=msg:match('^4|R|(%x+)|(2|[SE]|.+)$')
+ -- Normalize before buffering: even short-lived pending payloads must not
+ -- preserve legacy death counts. The old slots are reserved zero placeholders.
+ if payload and payload:sub(1,4)=='2|S|'then
+  local k,d,day,dk,dd=payload:match('^2|S|(%d+)|(%d+)|(%d+)|(%d+)|(%d+)$')
+  if not k then return false end
+  payload='2|S|'..k..'|0|'..day..'|'..dk..'|0';msg='4|R|'..encoded..'|'..payload
+ end
  local name=encoded and A.DecodeAlias(encoded)
  if name and A.CanonicalCharacterName then local old=A.PeerRecords()[name];name=A.CanonicalCharacterName(name,old and old.characterGUID)end
  local source=A.PeerRecords()[sender]

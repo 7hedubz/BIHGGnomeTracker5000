@@ -188,12 +188,11 @@ function A.RefreshUI()
  if owner then for _,row in ipairs(A.rows or{})do if owner==row.button then GameTooltip:Hide();break end end end
  A.uiDirty=false;A.uiDay=A.Day(clock());A.uiMinute=math.floor(clock()/60)
  A.uiSyncStatus=A.syncStatus;A.uiRosterStatus=A.rosterStatus
- local now=clock();local period=A.period or 'Lifetime';local me=A.db.owners[A.owner];local kills,deaths=0,0
+ local now=clock();local period=A.period or 'Lifetime';local me=A.db.owners[A.owner];local kills=0
  if A.RefreshTopPostControls then A.RefreshTopPostControls()end
  local viewMembers=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
- for name,r in pairs(A.account and A.account.characters or {[A.owner]=me}) do if viewMembers[name]then local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r;kills=kills+A.Score(effective,period,now);deaths=deaths+A.Score(effective,period,now,'deaths')end end
- local values={tostring(kills),tostring(deaths)}
- for i,v in ipairs(values) do A.statCards[i].value:SetText(v) end
+ for name,r in pairs(A.account and A.account.characters or {[A.owner]=me}) do if viewMembers[name]then local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r;kills=kills+A.Score(effective,period,now)end end
+ A.statCards[1].value:SetText(tostring(kills))
  A.summary:SetText('YOUR ACCOUNT: '..A.account.alias..' | '..period..' | '..(not A.guildKey and viewKey and'cached guild history (read-only)'or'known guild characters'))
  for label,b in pairs(A.navButtons) do style(b,A.mode==label) end
  for i,b in ipairs(A.periodButtons) do style(b,A.frames[i]==period) end
@@ -214,8 +213,8 @@ function A.RefreshUI()
  elseif A.mode=='Settings' then
   A.heading:SetText('SETTINGS | Account identity and local notifications');A.pageLabel:SetText('Account-wide alias');return
  end
- local xs=encounters and{0,54,330,510,640,822}or{0,534,729}
- local widths=encounters and{54,276,180,130,182,102}or{524,185,195}
+ local xs=encounters and{0,54,330,510,640,822}or{0,694}
+ local widths=encounters and{54,276,180,130,182,102}or{684,230}
  for j=1,6 do
   local header=A.headers[j]
   if widths[j]then header:ClearAllPoints();header:SetPoint('TOPLEFT',xs[j],0);header:SetWidth(widths[j]);header:Show()else header:Hide()end
@@ -239,12 +238,12 @@ function A.RefreshUI()
   end)
  else
   A.heading:SetText('GUILD LEADERBOARD | Click [+] to expand | [observed] = guildmate witnessed in your party/raid')
-  local labels={'Alias / character','Kills','Deaths'};for i,label in ipairs(labels) do A.headers[i]:SetText(label) end
-  if A.sort~='name'and A.sort~='kills'and A.sort~='deaths'then A.sort='kills'end
+  local labels={'Alias / character','Kills'};for i,label in ipairs(labels) do A.headers[i]:SetText(label) end
+  if A.sort~='name'and A.sort~='kills'then A.sort='kills'end
   data=A.LeaderboardGroups(period,now)
   table.sort(data,function(a,b)
    if A.sort=='name' then if a.name~=b.name then return a.name<b.name end;return a.id<b.id end
-   local key=A.sort=='deaths' and 'd' or 'k'
+   local key='k'
    if a[key]~=b[key] then return a[key]>b[key] end;if a.name~=b.name then return a.name<b.name end;return a.id<b.id
   end)
  end
@@ -262,7 +261,7 @@ function A.RefreshUI()
    if encounters then targetName=r.targetName elseif r.isGroup then if #r.children==1 then targetName=r.children[1].name end else targetName=r.name end
    A.BindTargetButton(row.button,targetName);row[1]:SetText(color..label..'|r');row.button:Show()
    if encounters then local level,class=A.NearbyIdentityText(r);row[1]:SetText(color..level..'|r');row[2]:SetText(color..label..'|r');row[3]:SetText(color..class..'|r');row[4]:SetText(color..r.race..'|r');row[5]:SetText(date('!%m-%d %H:%M',r.last));row[6]:SetText(tostring(r.daysSeen))
-   else row[2]:SetText(tostring(r.k));row[3]:SetText(tostring(r.d))end
+   else row[2]:SetText(tostring(r.k))end
   else row.data=nil;A.BindTargetButton(row.button,nil);row.button:Hide();for _,cell in ipairs(row) do cell:SetText('') end end
  end
 end
@@ -320,11 +319,11 @@ function A.CreateUI()
  for _,entry in ipairs(modes) do local mode=entry[1];A.navButtons[mode]=button(w,entry[2],entry[3],-44,entry[4],function()A.OpenView(mode,false)end,'Switch the content area; this does not sync or post to chat.') end
  local filter=panel(w,18,-84,924,52);text(filter,'small',12,-19,75):SetText('PERIOD UTC')
  A.periodButtons={};for i,label in ipairs(A.frames) do local period=label;A.periodButtons[i]=button(filter,label,92+(i-1)*116,-13,110,function()A.SelectPeriod(period)end,'Applies to statistics, ranking, chart and Top 10 report. Days are UTC calendar days.')end
- A.statCards={};local labels={'YOUR GNOME KILLS','DEATHS TO GNOMES'}
- for i,label in ipairs(labels) do local card=panel(w,18+(i-1)*468,-149,456,64);text(card,'small',12,-10,432):SetText(label);A.statCards[i]={value=text(card,'large',12,-32,430)} end
+ A.statCards={};local card=panel(w,18,-149,924,64)
+ text(card,'small',12,-10,900):SetText('YOUR GNOME KILLS');A.statCards[1]={value=text(card,'large',12,-32,898)}
  A.summary=text(w,'small',20,-227,920);A.heading=text(w,'small',20,-255,920)
  A.tablePane=CreateFrame('Frame',nil,w);A.tablePane:SetPoint('TOPLEFT',18,-276);A.tablePane:SetSize(924,320)
- A.headers={};local xs={0,54,330,510,640,822};local widths={54,276,180,130,182,102};local sorts={'name','kills','deaths','last','last','last'}
+ A.headers={};local xs={0,54,330,510,640,822};local widths={54,276,180,130,182,102};local sorts={'name','kills','name','last','last','last'}
  for i=1,6 do local idx=i;A.headers[i]=button(A.tablePane,'',xs[i],0,widths[i],function()if A.mode=='Encounters'then return end;local sort=sorts[idx];if A.sort==sort then A.ascending=not A.ascending else A.sort=sort;A.ascending=false end;A.page=1;A.RefreshUI()end,'Leaderboard: click to sort; click again to reverse. Encounter history is always newest first.')end
  A.rows={};A.expanded={}
  for i=1,12 do
@@ -476,7 +475,7 @@ SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'
 SlashCmdList.BIHGGKT=function(msg)
  msg=(msg or ''):lower():match('^%s*(.-)%s*$')
  if msg=='killverbose'then A.db.options.killVerbose=false;A.LocalNotice('Kill diagnostics are debug-only. Use /gkt debug to view them.')
-  elseif msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG '..A.VERSION..' | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' recap='..tostring(c.recap or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end;for _,line in ipairs(A.DeathDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end;for _,line in ipairs(A.KillDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
+  elseif msg=='debug' then local c=A.coverage or {};DEFAULT_CHAT_FRAME:AddMessage('BIHG '..A.VERSION..' | coverage log='..tostring(c.log or false)..' CC='..tostring(c.cc or false)..' | runtime callback error: '..(A.lastError or'none recorded'));for _,line in ipairs(A.ReportDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end;for _,line in ipairs(A.KillDebugLines())do DEFAULT_CHAT_FRAME:AddMessage(line)end
  elseif msg=='sync' then A.RequestFullSync()
  elseif msg=='alerts' then A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()
  elseif msg=='top' then A.OpenView('Leaderboard',false);A.ShowTopPreview()

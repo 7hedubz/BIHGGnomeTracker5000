@@ -38,7 +38,7 @@ for i=1,2205 do local g=string.format('Player-1-%08X',i);local e=entry(now-i);ac
 local stale=clone(db);local started=os.clock();local A=addon(db,account);local initCPU=os.clock()-started
 assert(count(A.KnownEncounters())==2000,'account-wide union must retain only 2000 newest players')
 assert(count(A.db.seen)==2000 and count(A.account.characters.Alt.seen)==2000,'every persisted personal copy intersects shared keepers')
-assert(A.account.characters.Alt.total==41 and A.db.owners[A.owner].total==17 and A.db.owners[A.owner].deaths==3,'retention cannot erase kill/death totals')
+assert(A.account.characters.Alt.total==41 and A.db.owners[A.owner].total==17 and A.db.owners[A.owner].deaths==nil and A.account.characters.Alt.deaths==nil,'retention preserves kills while retired death data is removed')
 local B=addon(stale,clone(A.account))
 assert(count(B.KnownEncounters())==2000 and not B.db.seen['Player-1-0000089D'],'serialized stale character cannot resurrect evicted oldest')
 local e=B.KnownEncounters()['Player-1-00000001'];assert(e.level==70 and e.class=='Mage'and e.first==now-101,'retained metadata remains intact')
@@ -71,7 +71,7 @@ local I=addon();I.db.owners[I.owner].characterGUID='Player-owner';I.Encounter('P
 I.account.characters.Legacy={characterGUID='Player-owner',total=8,deaths=4,days={},deathDays={},seen={['Player-shared']={first='broken',last=now-1,days={}},['Player-dead-history']=entry(now-age)}}
 assert(I.BindLocalCharacter('Player-owner',now))
 assert(not I.KnownEncounters()['Player-dead-history']and not I.account.identityArchives['Player-owner'].Legacy.seen['Player-dead-history'],'identity reconciliation also prunes archived persisted copies')
-assert(I.db.owners[I.owner].total==8 and I.db.owners[I.owner].deaths==4 and I.db.seen['Player-shared'].level==70,'identity merge retains credit and metadata')
+assert(I.db.owners[I.owner].total==8 and I.db.owners[I.owner].deaths==nil and I.db.seen['Player-shared'].level==70,'identity merge retains credit and metadata')
 print('PASS identity merge/archive retention')
 -- Disjoint alt histories share ONE cap, not a separate allowance per child.
 local disjoint={characters={One={total=20,deaths=5,days={},deathDays={},seen={}},Two={total=30,deaths=6,days={},deathDays={},seen={}}},guildObservations={Guild={events={credit={kind='K',actor='Player-owner',time=now-100,opponent='Player-ledger-only'}}}}}
@@ -80,7 +80,7 @@ local ledger=clone(disjoint.guildObservations)
 disjoint.characters.One.guildBase={since=now-10,total=20,deaths=5,days={[math.floor(now/86400)]=20},deathDays={[math.floor(now/86400)]=5}}
 disjoint.characters.One.encounterScores={Lifetime=9000};disjoint.characters.One.encounterStamp=now-1
 disjoint.characters.One.accountEncounterScores={Lifetime=15000};disjoint.characters.One.accountEncounterStamp=now-1
-local preservedCredit=clone(disjoint.characters.One)
+local preservedCredit=clone(disjoint.characters.One);A.RemoveDeathData(preservedCredit)
 local G=addon({},disjoint)
 assert(count(G.KnownEncounters())==2000 and count(G.account.characters.One.seen)==1000 and count(G.account.characters.Two.seen)==1000,'disjoint alt histories cannot grow account union past 2000')
 local function serialize(t)
@@ -90,11 +90,11 @@ local function serialize(t)
 end
 assert(serialize(ledger)==serialize(G.account.guildObservations),'all ledger bytes remain equivalent through retention')
 local ledgerBefore=serialize(G.account.guildObservations)
-local totalsBefore=serialize({G.account.characters.One.total,G.account.characters.One.deaths,G.account.characters.Two.total,G.account.characters.Two.deaths})
+local totalsBefore=serialize({G.account.characters.One.total,G.account.characters.Two.total})
 G.PruneEncounters(now+age,true)
 assert(next(G.KnownEncounters())==nil and ledgerBefore==serialize(G.account.guildObservations),'full expiration leaves credit ledger unchanged')
-assert(totalsBefore==serialize({G.account.characters.One.total,G.account.characters.One.deaths,G.account.characters.Two.total,G.account.characters.Two.deaths}),'full expiration leaves all alt kill/death totals unchanged')
-for _,key in ipairs({'total','deaths','days','deathDays','guildBase','encounterScores','encounterStamp','accountEncounterScores','accountEncounterStamp'})do assert(serialize(preservedCredit[key])==serialize(G.account.characters.One[key]),'credit/transport field preserved byte-for-byte: '..key)end
+assert(totalsBefore==serialize({G.account.characters.One.total,G.account.characters.Two.total}),'full expiration leaves all alt kill totals unchanged')
+for _,key in ipairs({'total','days','guildBase','encounterScores','encounterStamp','accountEncounterScores','accountEncounterStamp'})do assert(serialize(preservedCredit[key])==serialize(G.account.characters.One[key]),'credit/transport field preserved byte-for-byte: '..key)end
 local J=addon(clone(B.db),clone(B.account),now+2);local sorts=0;local sort=table.sort;table.sort=function(...)sorts=sorts+1;return sort(...)end
 started=os.clock();for i=1,10000 do J.Encounter('Player-1-00000001',nil,nil,'Alliance',now+2,nil,nil)end
 local updateCPU=os.clock()-started;table.sort=sort

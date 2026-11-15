@@ -8,7 +8,7 @@ end
 local function record(n,d,since)local r={total=n,deaths=0,days={[d]=n},deathDays={}};if since then r.guildBase={since=since,total=n,deaths=0,days={[d]=n},deathDays={}}end;return r end
 -- Init prunes expired buckets before a first baseline is captured. Lifetime
 -- credit without retained dates can overlap old witnesses; it is not zero.
-for _,kind in ipairs({'K','D'})do
+for _,kind in ipairs({'K'})do
  local A=addon();local owner='Hero Heal-Realm';local expired=now-401*86400;local day=A.Day(expired)
  local r={total=kind=='K'and 5 or 0,deaths=kind=='D'and 5 or 0,days=kind=='K'and{[day]=5}or{},deathDays=kind=='D'and{[day]=5}or{}}
  local db={owners={[owner]=r}};local account={}
@@ -31,7 +31,7 @@ end
 -- Known dates prove disjoint credit; only the unallocated part of lifetime
 -- history may absorb extra old witnesses. This must not become a global max.
 for _,case in ipairs({{5,1,7},{7,1,8},{7,3,9}})do
- for _,kind in ipairs({'K','D'})do
+ for _,kind in ipairs({'K'})do
   local A=addon();A.Init({},'Viewer-Realm',now);A.InitAccount({},'viewer',now);A.guildKey='Guild-Realm';A.members={['Hero-Realm']=true,['Mage-Realm']=true};A.InitGroupTracking(now)
   local key=kind=='K'and'total'or'deaths';local days=kind=='K'and'days'or'deathDays';local day=A.Day(now)
   local r={total=0,deaths=0,days={},deathDays={},guildBase={since=now,total=0,deaths=0,days={},deathDays={}}};r.guildBase[key]=case[1];r.guildBase[days][day]=5;A.PeerRecords()['Hero-Realm']=r

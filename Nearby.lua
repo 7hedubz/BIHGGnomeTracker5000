@@ -182,7 +182,7 @@ function A.CreateNearbyUI()
  local toggle=CreateFrame('CheckButton',nil,head,'UICheckButtonTemplate');A.nearbyEnableCheck=toggle;toggle:SetSize(20,20);toggle:SetPoint('TOPLEFT',92,-2)
  A.nearbyEnableLabel=label(head,116,-6,28)
  toggle:SetScript('OnClick',function(self)A.SetNearbyEnabled(self:GetChecked())end)
- toggle:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText('Nearby detection: '..(A.db.options.nearbyEnabled~=false and'ON'or'OFF'));GameTooltip:AddLine('Pause/resume the Nearby list and automatic sighting alerts. Kill/death recording, history and guild sync continue.',0.85,0.9,0.95,true);GameTooltip:Show()end end)
+ toggle:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText('Nearby detection: '..(A.db.options.nearbyEnabled~=false and'ON'or'OFF'));GameTooltip:AddLine('Pause/resume the Nearby list and automatic sighting alerts. Kill recording, history and guild sync continue.',0.85,0.9,0.95,true);GameTooltip:Show()end end)
  toggle:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
  local b=A.nearbyButtons
  b.clear=tiny(head,'Clear',148,function()A.ClearNearby()end,'Clear nearby contacts and queued sounds, not saved history or statistics. Visible players return on the next scan without repeating their alert.');b.clear:SetWidth(38)

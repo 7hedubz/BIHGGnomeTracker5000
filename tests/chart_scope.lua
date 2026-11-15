@@ -1,7 +1,7 @@
 local root=arg[1]or'.';date=os.date
 local function eq(a,b,msg)assert(a==b,(msg or'')..' expected '..tostring(b)..', got '..tostring(a))end
 local function test(name,fn)fn();print('PASS chart scope: '..name)end
-local function record(day,k,d)return{total=k,deaths=d,days={[day]=k},deathDays={[day]=d},seen={}}end
+local function record(day,k)return{total=k,days={[day]=k},seen={}}end
 local function clone(v)if type(v)~='table'then return v end;local out={};for k,x in pairs(v)do out[k]=clone(x)end;return out end
 local function same(a,b,path)
  path=path or'';eq(type(a),type(b),path)
@@ -14,16 +14,15 @@ local function setup()
  local today=20000;local now=today*86400+123
  A.Init({},'Me-Realm',now);A.InitAccount({},'mine',now)
  A.guildKey='Guild-Realm';A.members={['Me-Realm']=true,['Alt-Realm']=true,['Peer-Realm']=true,['Observed-Realm']=true}
- local own=A.account.characters['Me-Realm'];own.total=2;own.deaths=1;own.days[today]=2;own.deathDays[today]=1
+ local own=A.account.characters['Me-Realm'];own.total=2;own.days[today]=2
  A.account.characters['Alt-Realm']=record(today,3,2)
  A.account.characters['Departed-Realm']=record(today,100,100)
  local peers=A.PeerRecords();peers['Me-Realm']=record(today,900,900);peers['Alt-Realm']=record(today,800,800)
  peers['Peer-Realm']=record(today,7,4);peers['Departed-Realm']=record(today,200,200)
- peers['Observed-Realm']={total=0,deaths=0,days={},deathDays={},observerOnly=true}
+ peers['Observed-Realm']={total=0,days={},observerOnly=true}
  -- Same target, separate member credit: do not deduplicate across members.
  A.account.guildObservations={['Guild-Realm']={events={
   one={kind='K',name='Observed-Realm',actor='Player-observed',target='Player-target',time=now,contribution=now-1},
-  two={kind='D',name='Observed-Realm',actor='Player-observed',target='Player-enemy',time=now,contribution=now-1},
   three={kind='K',name='Peer-Realm',actor='Player-peer',target='Player-target',time=now,contribution=now-1},
  }}}
  return A,today,now,own,peers
@@ -31,9 +30,9 @@ end
 
 test('Guild daily buckets union peers and authoritative local characters with effective witness credit',function()
  local A,today,now=setup()
- local personal=A.ActivityTrend('Today',now);eq(personal[1].kills,5);eq(personal[1].deaths,3)
+ local personal=A.ActivityTrend('Today',now);eq(personal[1].kills,5);eq(personal[1].deaths,nil)
  local guild=A.ActivityTrend('Today',now,nil,nil,'Guild')
- eq(guild[1].kills,13,'guild member kill credit');eq(guild[1].deaths,8)
+ eq(guild[1].kills,13,'guild member kill credit');eq(guild[1].deaths,nil)
  eq(A.ActivityTrend('Today',now,nil,nil,'Personal')[1].kills,5)
  A.chartScope='Guild';eq(A.ActivityTrend('Today',now)[1].kills,13)
  eq(A.ActivityTrend('Today',now,nil,nil,'unknown')[1].kills,5)
@@ -42,10 +41,10 @@ end)
 
 test('Lifetime bounds and complete series follow selected scope without distributing lifetime totals',function()
  local A,today,now,own,peers=setup()
- own.days[today-40]=2;peers['Peer-Realm'].deathDays[today-90]=1
+ own.days[today-40]=2;peers['Peer-Realm'].days[today-90]=1
  eq(A.ChartBounds('Lifetime',now,'Personal'),today-40)
  eq(A.ChartBounds('Lifetime',now,'Guild'),today-90)
- local all=A.ActivityTrend('Lifetime',now,nil,nil,'Guild');eq(#all,91);eq(all[1].deaths,1)
+ local all=A.ActivityTrend('Lifetime',now,nil,nil,'Guild');eq(#all,91);eq(all[1].kills,1);eq(all[1].deaths,nil)
  local selected=A.ActivityTrend('Lifetime',now,today-90,today-89,'Guild');eq(#selected,2);eq(selected[2].kills,0)
  eq(#A.ActivityTrend('Lifetime',now,today-90,today-89,'Personal'),0)
  peers['Peer-Realm'].days[today-399]=1;peers['Peer-Realm'].days[today-400]=99;peers['Peer-Realm'].days[today+1]=99
@@ -56,8 +55,8 @@ test('Lifetime bounds and complete series follow selected scope without distribu
  eq(#line.points,1);eq(line.points[1].kills,1);eq(line.points[1].x,150)
  eq(A.KillsLine('Today',now,300,100,nil,nil,'Guild').peak,13)
  -- Lifetime counters without daily evidence must not invent activity.
- local B,d,t,localRecord,p=setup();localRecord.days={};localRecord.deathDays={};localRecord.total=999999
- B.account.characters['Alt-Realm'].days={};B.account.characters['Alt-Realm'].deathDays={}
+ local B,d,t,localRecord,p=setup();localRecord.days={};localRecord.total=999999
+ B.account.characters['Alt-Realm'].days={}
  eq(B.ChartBounds('Lifetime',t,'Personal'),d)
  eq(B.ActivityTrend('Lifetime',t,nil,nil,'Personal')[1].kills,0)
 end)

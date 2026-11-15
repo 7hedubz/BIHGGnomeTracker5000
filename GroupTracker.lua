@@ -10,8 +10,8 @@ local function room(records,key)
  if count>=64 then records[oldest]=nil;return false,oldest end
  return true
 end
-local function record()return {total=0,deaths=0,days={},deathDays={}}end
-local function eventPair(kind,actor,target)return kind..':'..actor..':'..(kind=='D'and'death'or target)end
+local function record()return {total=0,days={}}end
+local function eventPair(kind,actor,target)return kind..':'..actor..':'..target end
 local function number(s,max)local n=type(s)=='string' and s:match('^%d+$') and tonumber(s);if n and n<=max then return n end end
 local function store(guildKey)
  guildKey=guildKey or A.guildKey;if not guildKey then return nil end
@@ -36,8 +36,8 @@ function A.InitKillPolicy(now)
 end
 function A.InitGroupTracking(now)
  local r=A.db.owners[A.owner]
- if not r.guildBase then r.guildBase={since=now,total=r.total or 0,deaths=r.deaths or 0,days=copy(r.days),deathDays=copy(r.deathDays)} end
- A.groupTargets={};A.groupSources={};A.groupOwners={};A.groupPending=A.groupPending or {};A.groupIncoming={}
+ if not r.guildBase then r.guildBase={since=now,total=r.total or 0,days=copy(r.days)} end
+ A.groupTargets={};A.groupSources={};A.groupOwners={};A.groupPending=A.groupPending or {}
  local s=store();if s then s.killPolicySince=s.killPolicySince or now end
  if A.ResetHonorEvidence then A.ResetHonorEvidence(now)end
 end
@@ -46,53 +46,6 @@ local function unitName(unit)
  if not ok or A.Secret(n) or A.Secret(realm) or type(n)~='string' then return nil end
  if type(realm)=='string' and realm~='' then n=n..'-'..realm:gsub('%s','')end
  return A.Name(n)
-end
-function A.UpdateDeathCombat(guid,unit,t)
- A.groupIncoming=A.groupIncoming or{};local state=A.groupIncoming[guid]
- local dead=A.Safe(UnitIsDeadOrGhost,unit)
- if dead~=false then return state end
- if state and state.dead then state=nil;A.groupIncoming[guid]=nil end
- local fighting=A.Safe(UnitAffectingCombat,unit);local hp=A.Safe(UnitHealthMax,unit)
- if fighting==true then
-  if not state or state.ended then state={started=t,events={},health=0};A.groupIncoming[guid]=state end
-  state.combat=true
- elseif fighting==false and state and state.combat and not state.ended then state.ended=t end
- if state and type(hp)=='number'and hp>0 and hp<math.huge then state.health=math.max(state.health,hp)end
- return state
-end
-function A.IncomingDeathEvidence(guid,t)
- local state=(A.groupIncoming or{})[guid]
- if not state or state.dead or(state.ended and t-state.ended>2)then return end
- local health,start=state.health,state.started
- if guid==A.Safe(UnitGUID,'player')and A.deathFight then
-  health=math.max(health,A.deathFight.health or 0)
-  start=math.max(start,A.deathFight.started or start)
- end
- local harmful=state.harmful
- if harmful and harmful.time>=start and harmful.time<=t and t-harmful.time<=A.WINDOW then
-  return {damage=0,maxHealth=health,source=harmful.source,time=t,harmful=true}
- end
- return A.GnomeDeathEvidence(state.events,health,t,start)
-end
--- Store the latest validated living harmful observation (one bounded proof).
--- Reinspection is positive current evidence; cache age/failed scans are not.
--- Native combat is optional for this proof, never for collector damage.
-function A.IncomingHarmful(guid,source,spell,t,event,auraType,sourceRace,hideCaster,victimUnit)
- local actor=(A.groupOwners or{})[guid]
- local unit=victimUnit or(actor and actor.unit)
- if not actor or A.Safe(UnitExists,unit)~=true or(victimUnit and A.Safe(UnitIsPlayer,unit)~=true)
-  or A.Safe(UnitGUID,unit)~=guid or A.Safe(UnitIsDeadOrGhost,unit)~=false then return false end
- local state=A.UpdateDeathCombat(guid,unit,t)
- local row={event=event or 'SPELL_AURA_APPLIED',sourceGUID=source,spellId=spell,timestamp=t,auraType=auraType,hideCaster=hideCaster}
- local proof=A.GnomeHarmfulEvidence(row,t,state and not state.ended and state.started or t,sourceRace)
- if not proof then return false end
- if not state or state.ended then
-  state={started=t,events={},health=0};A.groupIncoming[guid]=state
-  local hp=A.Safe(UnitHealthMax,unit);if type(hp)=='number'and hp>0 and hp<math.huge then state.health=hp end
- end
- if not state.harmful or proof.time>state.harmful.time then state.harmful=proof end
- if A.EstablishOwnHarmfulContext then A.EstablishOwnHarmfulContext(guid,state)end
- return true
 end
 function A.RefreshGroupActors()
  A.groupSources={};A.groupOwners={};A.groupUnits={}
@@ -111,7 +64,6 @@ function A.RefreshGroupActors()
   if name~=A.owner and not(A.account and A.account.characters[name])and not peers[name]then peers[name]=record();peers[name].observerOnly=true end
   if peers[name]then if peers[name].characterGUID and peers[name].characterGUID~=guid then return end;peers[name].characterGUID=guid end
   local actor={name=name,guid=guid,unit=unit};A.groupOwners[guid]=actor;A.groupSources[guid]=actor;A.groupUnits[#A.groupUnits+1]=unit
-  A.UpdateDeathCombat(guid,unit,A.Safe(GetServerTime)or A.now)
   local petGUID=A.Safe(UnitGUID,pet);if type(petGUID)=='string' then A.groupSources[petGUID]=actor end
  end
  add('player','pet')
@@ -121,21 +73,19 @@ function A.RefreshGroupActors()
   local n=A.Safe(GetNumSubgroupMembers)or math.max(0,(A.Safe(GetNumGroupMembers)or 1)-1)
   for i=1,math.min(n,4)do add('party'..i,'partypet'..i)end
  end
- -- Departed/untracked victims cannot retain session proof for a later visit.
- -- Pending own-death contexts contain independent frozen values.
- for guid in pairs(A.groupIncoming or{})do if not A.groupOwners[guid]then A.groupIncoming[guid]=nil end end
+
 end
 function A.GuildEffectiveRecord(name,r,now,guildKey)
  r=r or record();local s,index=store(guildKey);if not s then return r end
  local base=r.guildBase
- local b=base or {since=r.observerOnly and 0 or now+1,total=r.total or 0,deaths=r.deaths or 0,days=r.days or {},deathDays=r.deathDays or {}}
- local result={total=b.total or 0,deaths=b.deaths or 0,days=copy(b.days),deathDays=copy(b.deathDays)}
- local preK,preD,postK,postD={},{},{},{}
+ local b=base or {since=r.observerOnly and 0 or now+1,total=r.total or 0,days=r.days or {}}
+ local result={total=b.total or 0,days=copy(b.days)}
+ local preK,postK={},{}
  for _,e in ipairs(index.names[name]or {})do
-  local day=A.Day(e.time);local t=e.kind=='K' and (e.time<b.since and preK or postK)or(e.time<b.since and preD or postD)
+  local day=A.Day(e.time);local t=e.time<b.since and preK or postK
   t[day]=(t[day]or 0)+1
  end
- for _,set in ipairs({{preK,postK,'days','total'},{preD,postD,'deathDays','deaths'}})do
+ for _,set in ipairs({{preK,postK,'days','total'}})do
   local pre,post,key,total=set[1],set[2],set[3],set[4]
   -- The lifetime baseline may contain history whose daily buckets expired
   -- before initialization. Allocate that unknown budget against pre-cutoff
@@ -148,18 +98,18 @@ function A.GuildEffectiveRecord(name,r,now,guildKey)
   for day,n in pairs(post)do result[key][day]=(result[key][day]or 0)+n;result[total]=result[total]+n end
  end
  local first=A.Day(now)-A.RETENTION+1
- for _,key in ipairs({'days','deathDays'})do for day in pairs(result[key])do if day<first then result[key][day]=nil end end end
+ for _,key in ipairs({'days'})do for day in pairs(result[key])do if day<first then result[key][day]=nil end end end
  return result
 end
 function A.RebuildOwnGuildTotals(now)
  if not A.guildKey or not A.members[A.owner]then return end
  local r=A.db.owners[A.owner];local effective=A.GuildEffectiveRecord(A.owner,r,now)
- r.total=effective.total;r.deaths=effective.deaths;r.days=effective.days;r.deathDays=effective.deathDays
+ r.total=effective.total;r.days=effective.days
 end
 function A.AddGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter,claim,provenance)
  if A.guildUnverified then return false end
  if A.CanonicalCharacterName then name=A.CanonicalCharacterName(name,actor)end
- if not A.guildKey or not A.members[name] or not player(actor)or not player(target)or(kind~='K'and kind~='D')then return false end
+ if not A.guildKey or not A.members[name] or not player(actor)or not player(target)or kind~='K'then return false end
  at=math.floor(at);contribution=math.floor(contribution)
  if at>now+5 or at<1000000000 or contribution>at+1 or contribution<at-A.WINDOW then return false end
  local s,index=store();local pair=eventPair(kind,actor,target)
@@ -190,7 +140,7 @@ function A.AddGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter,cl
  end
  for _,old in ipairs(claim and {}or index.pairs[pair]or {})do
   local newLocalLife=kind=='K' and lifeAfter==old.time and contribution>old.time
-  if not newLocalLife and math.abs(old.time-at)<=3 and (kind=='D' or (contribution<=old.time+1 and old.contribution<=at+1))then
+  if not newLocalLife and math.abs(old.time-at)<=3 and (contribution<=old.time+1 and old.contribution<=at+1)then
    local life=old.claim and s.killLives and s.killLives[old.claim]
    if not claim and kind=='K'and life and life.parent=='root'and at<(s.killPolicySince or now)
     and(type(old.legacyTime)~='number'or at<old.legacyTime)then
@@ -292,44 +242,18 @@ function A.GroupDeath(g,now,corpseConfirmed,deathConfirmed,nativePK)
  if A.HonorProgress then A.HonorProgress(now)end
  return false
 end
-function A.GroupOwnDeath(id,race,now,killer,proof)
- if type(id)~='string'or not A.ValidGnomeDeathEvidence(proof,now)or killer~=proof.source or not A.guildKey or not A.members[A.owner]then return false end
- A.db.recaps=A.db.recaps or {};if A.db.recaps[id]then return false end;A.db.recaps[id]=now
- for key,stamp in pairs(A.db.recaps)do if now-stamp>86400 then A.db.recaps[key]=nil end end
- local guid=A.Safe(UnitGUID,'player');local added=A.AddGuildEvent('D',A.owner,guid,killer,now,now,now)
- if added then A.CreditNotice('D',killer)end
- return added
-end
 function A.GroupCombat(v,now)
  local event,source,target=v[2],v[4],v[8]
  if event=='UNIT_DIED'or event=='UNIT_DESTROYED'then
-  A.GroupDeath(target,now,nil,true)
-  local dead=A.groupOwners[target];local proof=A.IncomingDeathEvidence(target,now)
-  if dead and proof then
-   local added=A.AddGuildEvent('D',dead.name,dead.guid,proof.source,now,now,now)
-   if added and dead.name==A.owner then A.CreditNotice('D',proof.source)end
-  end
-  A.groupIncoming[target]=nil;return
+  A.GroupDeath(target,now,nil,true);return
  end
  local amount,overkill
  if event=='SWING_DAMAGE'then amount,overkill=v[12],v[13]
  elseif event=='SPELL_DAMAGE'or event=='SPELL_PERIODIC_DAMAGE'or event=='RANGE_DAMAGE'or event=='DAMAGE_SHIELD'then amount,overkill=v[15],v[16]
  elseif event=='ENVIRONMENTAL_DAMAGE'then amount,overkill=v[13],v[14]end
- if amount then
-  A.GroupDamage(target,amount,overkill,source,now)
-  if A.groupOwners[target]then
-   local actor=A.groupOwners[target];local state=A.UpdateDeathCombat(target,actor.unit,now)
-   if state and state.combat and not state.dead and(not state.ended or now-state.ended<=2)then
-    local index=event=='SWING_DAMAGE'and 12 or 15
-    state.events[#state.events+1]={event=event,sourceGUID=source,amount=amount,overkill=overkill,timestamp=now,
-     hideCaster=v[3],resisted=v[index+3],blocked=v[index+4],absorbed=v[index+5]}
-    if #state.events>2000 then table.remove(state.events,1)end
-   end
-  end
- elseif event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'or event=='SPELL_AURA_APPLIED_DOSE'then if v[15]=='DEBUFF'then
+ if amount then A.GroupDamage(target,amount,overkill,source,now)
+ elseif (event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'or event=='SPELL_AURA_APPLIED_DOSE')and v[15]=='DEBUFF'then
   A.GroupCC(target,v[12],source,now,true)
-  A.IncomingHarmful(target,source,v[12],now,event,v[15],nil,v[3])
- end
  end
 end
 local function claimToken(v)
@@ -513,7 +437,7 @@ end
 function A.PriorityGroupPacket()
  local s=store();if not s then return end
  local pending=A.groupPending[A.guildKey]or {};local chosen
- for id in pairs(pending)do local e=s.events[id];if e and A.members[e.name]and(not chosen or e.time>s.events[chosen].time)then chosen=id end end
+ for id in pairs(pending)do local e=s.events[id];if e and e.kind=='K'and A.members[e.name]and(not chosen or e.time>s.events[chosen].time)then chosen=id end end
  if chosen then
   local e=s.events[chosen];local life=e.claim and s.killLives[e.claim]
   A.groupLifeSent=A.groupLifeSent or{};A.groupLifeSent[A.guildKey]=A.groupLifeSent[A.guildKey]or{}
@@ -532,12 +456,12 @@ function A.GroupPackets(full,now)
  local s=store();local out={};if not s then return out end
  if A.account then for name,r in pairs(A.account.characters)do
   if A.members[name]and r.guildBase then
-   local b=r.guildBase;local days={[A.Day(now)]=true};if full then for d in pairs(b.days)do days[d]=true end;for d in pairs(b.deathDays)do days[d]=true end end
-   for day in pairs(days)do if day<=A.Day(now)then out[#out+1]=table.concat({'5','B',A.EncodeAlias(name),b.since,b.total,b.deaths,day,b.days[day]or 0,b.deathDays[day]or 0},'|')end end
+   local b=r.guildBase;local days={[A.Day(now)]=true};if full then for d in pairs(b.days)do days[d]=true end end
+   for day in pairs(days)do if day<=A.Day(now)then out[#out+1]=table.concat({'5','B',A.EncodeAlias(name),b.since,b.total,0,day,b.days[day]or 0,0},'|')end end
   end
  end end
  local pending=A.groupPending[A.guildKey]or {};local ids={}
- for id,e in pairs(s.events)do if A.members[e.name]and(full or pending[id])then ids[#ids+1]=id end end
+ for id,e in pairs(s.events)do if e.kind=='K'and A.members[e.name]and(full or pending[id])then ids[#ids+1]=id end end
  table.sort(ids,function(a,b)if s.events[a].time~=s.events[b].time then return s.events[a].time>s.events[b].time end;return a<b end)
  local emitted={}
  for _,id in ipairs(ids)do
@@ -558,7 +482,7 @@ function A.ReceiveGroup(msg,sender,now)
   return A.AddHonorClaim(name,f[4],f[5],at,contribution,now,f[8],f[9],f[10])
  elseif f[2]=='E'and #f==8 then
   local name=A.DecodeAlias(f[4]);local at=number(f[7],4102444800);local contribution=number(f[8],4102444800)
-  if not name or not at or not contribution then return false end
+  if f[3]~='K'or not name or not at or not contribution then return false end
   local s=store()
   if f[3]=='K'and at>=(s.killPolicySince or now)then return false end
   local ok=A.AddGuildEvent(f[3],name,f[5],f[6],at,contribution,now)
@@ -567,16 +491,17 @@ function A.ReceiveGroup(msg,sender,now)
   return ok
  elseif f[2]=='B'and #f==9 then
   local name=A.DecodeAlias(f[3]);if name and A.CanonicalCharacterName then local old=A.PeerRecords()[name];name=A.CanonicalCharacterName(name,old and old.characterGUID)end
-  local since=number(f[4],4102444800);local total=number(f[5],1000000000);local deaths=number(f[6],1000000000)
-  local day=number(f[7],1000000);local kills=number(f[8],1000000000);local dd=number(f[9],1000000000)
-  if not name or not A.members[name]or not since or since>now+5 or not total or not deaths or not day or day>A.Day(now)or not kills or kills>total or not dd or dd>deaths then return false end
+  local since=number(f[4],4102444800);local total=number(f[5],1000000000)
+  local day=number(f[7],1000000);local kills=number(f[8],1000000000)
+  -- Slots 6 and 9 exist only for old-peer framing; never consume death data.
+  if not name or not A.members[name]or not since or since>now+5 or not total or not day or day>A.Day(now)or not kills or kills>total then return false end
   local peers=A.PeerRecords();local source=peers[sender];local target=peers[name]
   if name~=sender and not(source and target and source.accountID and source.accountID==target.accountID)then return false end
   if A.account and A.account.characters[name]then return false end
   target=target or record();peers[name]=target
   local b=target.guildBase
-  if not b then b={since=since,total=0,deaths=0,days={},deathDays={}};target.guildBase=b end
-  b.since=math.min(b.since,since);b.total=math.max(b.total,total);b.deaths=math.max(b.deaths,deaths);b.days[day]=math.max(b.days[day]or 0,kills);b.deathDays[day]=math.max(b.deathDays[day]or 0,dd)
+  if not b then b={since=since,total=0,days={}};target.guildBase=b end
+  b.since=math.min(b.since,since);b.total=math.max(b.total,total);b.days[day]=math.max(b.days[day]or 0,kills)
   target.observerOnly=false;A.RebuildOwnGuildTotals(now);if A.RequestUIRefresh then A.RequestUIRefresh()elseif A.RefreshUI then A.RefreshUI()end;return true
  end
  return false

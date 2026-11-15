@@ -39,26 +39,11 @@ local function make(owner)
  end
  return A
 end
-for _,kind in ipairs({'SWING_DAMAGE','SPELL_DAMAGE','SPELL_PERIODIC_DAMAGE','RANGE_DAMAGE','DAMAGE_SHIELD'})do
- local T=make('Me-Realm');local first=kind=='SWING_DAMAGE'and 12 or 15
- local hit={[2]=kind,[4]='Player-gnome',[8]='Player-friend'}
- hit[first]=11;hit[first+1]=10;hit[first+4]=1
- T.GroupCombat(hit,now)
- assert(not T.IncomingDeathEvidence('Player-friend',now),'incoming effective damage must subtract blocked mitigation: '..kind)
- hit[first+4]=0;hit[3]=true;T.groupIncoming={};T.GroupCombat(hit,now)
- assert(not T.IncomingDeathEvidence('Player-friend',now),'hidden caster must not prove incoming damage')
-end
-for _,event in ipairs({'SPELL_AURA_APPLIED','SPELL_AURA_REFRESH','SPELL_AURA_APPLIED_DOSE'})do
- local T=make('Me-Realm')
- local aura={[2]=event,[4]='Player-gnome',[8]='Player-friend',[12]=172,[15]='DEBUFF',[3]=true}
- T.GroupCombat(aura,now+200)
- assert(not T.IncomingDeathEvidence('Player-friend',now+200),'hidden harmful caster is not proof')
- aura[3]=false;T.GroupCombat(aura,now+200)
- assert(T.IncomingDeathEvidence('Player-friend',now+200),'explicit synthetic '..event..' must collect incoming harmful proof')
- T.GroupCombat({[2]='UNIT_DIED',[8]='Player-friend'},now+201)
- assert(T.GuildEffectiveRecord('Friend-Realm',T.PeerRecords()['Friend-Realm'],now+201).deaths==1,'harmful contribution plus actual death counts')
-end
 local A=make('Me-Realm')
+local baseline=make('Me-Realm')
+assert(baseline.ReceiveGroup('5|B|'..baseline.EncodeAlias('Friend-Realm')..'|'..now..'|4|retired|'..baseline.Day(now)..'|2|ignored','Friend-Realm',now),'legacy baseline death slots are ignored rather than validated')
+local preserved=baseline.PeerRecords()['Friend-Realm'].guildBase
+assert(preserved.total==4 and preserved.days[baseline.Day(now)]==2 and preserved.deaths==nil and preserved.deathDays==nil,'legacy baseline preserves only kill evidence')
 assert(A.PeerRecords()['Friend-Realm'].observerOnly,'guild group member is discovered before earning any credit')
 assert(A.groupSources['Player-friend'] and A.groupSources['Pet-friend'],'guild group players and their pets resolve to character')
 assert(not A.groupSources['Player-guest'],'non-guild group member excluded')
@@ -107,38 +92,12 @@ for _,p in ipairs(packets)do L.Receive(p,'GUILD','Me-Realm',now+22)end
 assert(L.GuildEffectiveRecord('Friend-Realm',L.PeerRecords()['Friend-Realm'],now+22).total==5,'legacy overlap does not sum twice')
 L.AddGuildEvent('K','Friend-Realm','Player-friend','Player-new-victim',now+110,now+109,now+110)
 assert(L.GuildEffectiveRecord('Friend-Realm',L.PeerRecords()['Friend-Realm'],now+110).total==6,'post-upgrade contributions add to preserved legacy history')
--- Other players' deaths require readable lethal damage plus confirmed death.
-local damage={};damage[2]='SWING_DAMAGE';damage[4]='Player-gnome';damage[8]='Player-friend';damage[12]=1000;damage[13]=0
-A.GroupCombat(damage,now+35)
-local died={};died[2]='UNIT_DIED';died[8]='Player-friend';A.GroupCombat(died,now+35)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+35).deaths==1,'confirmed Gnome killing blow records group death')
-A.GroupCombat(died,now+36)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+36).deaths==1,'a corpse alone does not assign another killer')
-damage[12]=19;A.GroupCombat(damage,now+38)
-local human={};human[2]='SWING_DAMAGE';human[4]='Player-human';human[8]='Player-friend';human[12]=1000;human[13]=0
-A.GroupCombat(human,now+39);A.GroupCombat(died,now+39)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+39).deaths==2,'any positive Gnome damage is sufficient despite another final blow')
-damage[12]=20;A.GroupCombat(damage,now+43);A.GroupCombat(human,now+44);A.GroupCombat(died,now+44)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+44).deaths==3,'positive Gnome contribution counts despite a Human final blow')
-local oldCombat=UnitAffectingCombat;local fighting=true;UnitAffectingCombat=function()return fighting end
-A.GroupCombat(damage,now+50);fighting=false;A.UpdateDeathCombat('Player-friend','party1',now+51)
-fighting=true;A.UpdateDeathCombat('Player-friend','party1',now+52);A.GroupCombat(human,now+53);A.GroupCombat(died,now+53)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+53).deaths==3,'a new combat cannot reuse Gnome damage from the prior fight');UnitAffectingCombat=oldCombat
-local D=make('Me-Realm')
-assert(D.AddGuildEvent('D','Friend-Realm','Player-friend','Player-gnome-a',now+60,now+60,now+60))
-assert(not D.AddGuildEvent('D','Friend-Realm','Player-friend','Player-gnome-b',now+60,now+60,now+60),'different qualifying contributors cannot duplicate one victim death')
-assert(D.GuildEffectiveRecord('Friend-Realm',D.PeerRecords()['Friend-Realm'],now+60).deaths==1,'death witness deduplication remains one per victim event')
--- Confirmed incoming Gnome kills only; merely seeing a guildmate dead must not invent a killer.
-local proof={damage=600,maxHealth=1000,source='Player-gnome',time=now+40}
-A.GroupOwnDeath('recap1','Gnome',now+40,'Player-gnome',proof)
-A.GroupOwnDeath('recap1','Gnome',now+40,'Player-gnome',proof)
-assert(A.db.owners[A.owner].deaths==1,'own confirmed Gnome death deduplicates')
 local oldRaid=IsInRaid;IsInRaid=function()return true end;units.raid1=units.party1;units.raidpet1=units.partypet1;units.raid2=units.party2
 A.RefreshGroupActors();assert(A.groupSources['Pet-friend']and not A.groupSources['Player-guest'],'raid pets retain guild-only ownership')
 IsInRaid=oldRaid
 -- Moving guild preserves one's own history, without importing unrelated old guild members.
 local oldGuild=A.guildKey;A.guildKey='NewGuild-Realm';A.CarryOwnGuildHistory(now+45);A.RebuildOwnGuildTotals(now+45)
-assert(A.db.owners[A.owner].total==3 and A.db.owners[A.owner].deaths==1,'own lifetime history survives guild change')
+assert(A.db.owners[A.owner].total==3 and A.db.owners[A.owner].deaths==nil,'own lifetime history survives guild change')
 assert(A.GuildEffectiveRecord('Friend-Realm',nil,now+45).total==0,'old guild peer history is not carried as personal history')
 A.guildKey=oldGuild
 local sentPacket
@@ -153,4 +112,4 @@ for _,g in ipairs(A.LeaderboardGroups('Lifetime',now+50))do for _,r in ipairs(g.
 A.guildKey=nil;A.members={};A.RefreshGroupActors()
 assert(not next(A.groupSources),'unguilded player cannot observe/award group statistics')
 assert(#A.LeaderboardGroups('Lifetime',now+50)==0,'only guildmates are tallied, including self')
-print('PASS group tracker: guild-only party/pets, HK-confirmed harmful assists, non-addon characters, corpse and multi-observer dedup, alias adoption, confirmed deaths, departed/unguilded filtering')
+print('PASS group tracker: guild-only party/pets, HK-confirmed harmful assists, non-addon characters, corpse and multi-observer dedup, alias adoption, retired death counters, departed/unguilded filtering')

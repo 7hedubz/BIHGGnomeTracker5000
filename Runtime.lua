@@ -406,6 +406,36 @@ end
 local deathReasons={['pending recap']=true,['counted']=true,['insufficient confirmed Gnome damage']=true,
  ['unreadable/missing attribution']=true,['stale/unavailable recap']=true,['membership rejection']=true,
  ['credit rejected (deduplication or validation)']=true}
+-- Only these fixed labels may cross the persisted/manual diagnostic boundary.
+local deathDetails={
+ recap={['API missing']=true,['link call failed']=true,['link unreadable']=true,['link absent']=true,['link malformed']=true,
+  ['events call failed']=true,['events unreadable']=true,['events unavailable']=true,['events malformed']=true,
+  ['events empty']=true,['timestamps unavailable']=true,['life/time mismatch']=true,['already consumed']=true,
+  ['excluded by life/context']=true,['readable candidate']=true},
+ lifecycle={pending=true,expired=true,resolved=true,['combat context ended']=true,['interrupted by reload']=true,['evicted (pending limit)']=true},
+ eligibility={eligible=true,ineligible=true},
+ incoming={['no sufficient proof']=true,['sufficient proof']=true,['API missing']=true,['collector absent']=true},
+}
+local evidenceLabels={'events unreadable','events empty','life/time mismatch','missing/unreadable source GUID',
+ 'missing/unreadable source race','readable non-Gnome source','no positive effective damage','missing harmful caster proof',
+ 'unreadable/malformed damage','unreadable/malformed mitigation','hidden/unreadable caster',
+ 'no supported damage/harmful event','damage accumulation overflow','positive Gnome damage','confirmed harmful Gnome application'}
+local function cleanEvidence(value)
+ if A.Secret(value)or type(value)~='table'or(issecrettable and issecrettable(value))then return end
+ local clean={}
+ for _,label in ipairs(evidenceLabels)do
+  local v=value[label];if not A.Secret(v)and v==true then clean[label]=true end
+ end
+ if next(clean)then return clean end
+end
+local function copyDeathDetails(to,from)
+ for field,allowed in pairs(deathDetails)do
+  local v=from[field]
+  if not A.Secret(v) and type(v)=='string' and allowed[v]then to[field]=v end
+ end
+ for _,field in ipairs({'evidence','incomingEvidence'})do to[field]=cleanEvidence(from[field])end
+ return to
+end
 local function deathRecord(e)
  if A.Secret(e) or type(e)~='table' or (issecrettable and issecrettable(e)) then return end
  local at,reason=e.time,e.reason
@@ -417,7 +447,11 @@ function A.InitDeathOutcomes()
  if not A.Secret(list) and type(list)=='table' and not(issecrettable and issecrettable(list)) then
   for i=math.max(1,#list-31),#list do
    local at,reason=deathRecord(list[i])
-   if at then clean[#clean+1]={time=at,reason=reason=='pending recap' and 'stale/unavailable recap' or reason}end
+   if at then
+    local e=copyDeathDetails({time=at,reason=reason=='pending recap' and 'stale/unavailable recap' or reason},list[i])
+    if e.lifecycle=='pending'then e.lifecycle='interrupted by reload'end
+    clean[#clean+1]=e
+   end
   end
  end
  A.db.deathOutcomes=clean
@@ -430,6 +464,9 @@ local function deathOutcome(p,reason)
   while #list>32 do table.remove(list,1)end
  end
  p.outcome.reason=reason
+ copyDeathDetails(p.outcome,p)
+ p.outcome.eligibility=p.memberEligible and 'eligible' or 'ineligible'
+ p.outcome.incoming=p.incomingStatus or(p.incoming and 'sufficient proof' or 'no sufficient proof')
 end
 function A.DeathDebugLines()
  local lines={'BIHG own death outcomes (local; last 32 attempts):'}
@@ -437,24 +474,46 @@ function A.DeathDebugLines()
  if A.Secret(list) or type(list)~='table' or (issecrettable and issecrettable(list)) then return lines end
  for i=math.max(1,#list-31),#list do
   local at,reason=deathRecord(list[i])
-  if at then lines[#lines+1]='BIHG death '..at..': '..reason end
+  if at then
+   local e=copyDeathDetails({},list[i]);local line='BIHG death '..at..': '..reason
+   for _,field in ipairs({'recap','eligibility','incoming','lifecycle'})do if e[field]then line=line..'; '..field..'='..e[field]end end
+   for _,field in ipairs({'evidence','incomingEvidence'})do
+    local labels={};for _,label in ipairs(evidenceLabels)do if e[field]and e[field][label]then labels[#labels+1]=label end end
+    if #labels>0 then line=line..'; '..field..'='..table.concat(labels,', ')end
+   end
+   if not next(e)then line=line..'; details=not recorded (older outcome)'end
+   lines[#lines+1]=line..'; coverage=not established'
+  end
  end
  return lines
+end
+local function deathCall(fn,prefix,...)
+ if A.Secret(fn) or type(fn)~='function' then return nil,'API missing' end
+ local ok,v=pcall(fn,...)
+ if not ok then return nil,prefix..' call failed' end
+ if A.Secret(v) or (type(v)=='table' and issecrettable and issecrettable(v))then return nil,prefix..' unreadable' end
+ if v==nil then return nil,prefix=='link' and 'link absent' or 'events unavailable' end
+ return v
 end
 local function recapPending(pending)
  local t=now()
  local clock=A.Safe(GetTime)
  local age=t-pending.time
  if type(clock)=='number' and clock==clock and clock<math.huge and type(pending.clock)=='number' and clock>=pending.clock then age=clock-pending.clock end
- if age>8 then deathOutcome(pending,pending.reason or 'stale/unavailable recap');return true end
+ if age>8 then pending.lifecycle='expired';deathOutcome(pending,pending.reason or 'stale/unavailable recap');return true end
  local fight=pending.fight
- if fight and fight.ended and pending.time-fight.ended>2 then deathOutcome(pending,'stale/unavailable recap');return true end
+ if fight and fight.ended and pending.time-fight.ended>2 then pending.lifecycle='combat context ended';deathOutcome(pending,'stale/unavailable recap');return true end
+ pending.lifecycle='pending'
  local proof,provenRecap;local recap=C_DeathRecap
- if recap and recap.GetRecapEvents then
-  local link=A.Safe(recap.GetRecapLink)
+ pending.recap='API missing'
+ pending.evidence=nil -- Evidence describes this retry only; incomingEvidence stays frozen.
+ if not A.Secret(recap) and type(recap)=='table' and not(issecrettable and issecrettable(recap))then
+  local link,linkStatus=deathCall(recap.GetRecapLink,'link')
   local id=type(link)=='string' and link:match('death:(%d+)')
-  local events=A.Safe(recap.GetRecapEvents,id and tonumber(id))
+  local events,eventStatus=deathCall(recap.GetRecapEvents,'events',id and tonumber(id))
+  pending.recap=linkStatus or (not id and 'link malformed') or eventStatus or(type(events)~='table' and 'events malformed')or 'timestamps unavailable'
   if type(events)=='table' and not (issecrettable and issecrettable(events)) then
+   if not next(events) and id and not linkStatus and not eventStatus then pending.recap='events empty' end
    local stamp,first
    for _,e in ipairs(events)do if not A.Secret(e)and type(e)=='table'and not(issecrettable and issecrettable(e))then
     local v=readable(e.timestamp);if type(v)=='number'and v==v and v<math.huge then stamp=math.max(stamp or v,v);first=math.min(first or v,v)end
@@ -475,11 +534,16 @@ local function recapPending(pending)
     and(not previous or first>previous or(first==previous and pending.excludedRecap and id~=pending.excludedRecap))
     and(not following or following>diedAt)
    A.db.deathRecapsSeen=A.db.deathRecapsSeen or{}
+   if id and not linkStatus and not eventStatus and next(events)then
+    pending.recap=id==pending.excludedRecap and 'excluded by life/context'
+     or (pending.recapID~=id and A.db.deathRecapsSeen[id] and 'already consumed')
+     or (not stamp and 'timestamps unavailable') or (not fresh and 'life/time mismatch') or 'readable candidate'
+   end
    if id and id~=pending.excludedRecap and fresh and(pending.recapID==id or not A.db.deathRecapsSeen[id])then
     pending.recapID=id
     local hp=A.Safe(recap.GetRecapMaxHealth,tonumber(id));if type(hp)~='number'or hp<=0 or hp>=math.huge then hp=pending.health end
     if type(hp)=='number'then hp=math.max(hp,pending.health or 0,fight and fight.health or 0)end
-    proof,pending.reason=A.GnomeDeathEvidence(events,hp,diedAt,start)
+    proof,pending.reason,pending.evidence=A.GnomeDeathEvidence(events,hp,diedAt,start)
     pending.reason=pending.reason or 'unreadable/missing attribution'
     A.coverage.recap=true
     if proof then proof.time=pending.time;provenRecap=id end
@@ -496,6 +560,7 @@ local function recapPending(pending)
    A.db.deathRecapsSeen[provenRecap]=pending.time
    for key,at in pairs(A.db.deathRecapsSeen)do if t-at>86400 then A.db.deathRecapsSeen[key]=nil end end
   end
+  pending.lifecycle='resolved'
   deathOutcome(pending,counted and 'counted' or (membership and 'membership rejection' or 'credit rejected (deduplication or validation)'))
   return true
  else deathOutcome(pending,pending.reason or 'pending recap')
@@ -590,9 +655,12 @@ local function handler(_,event,...)
  elseif event=='PLAYER_DEAD' then
   if A.deathActive then return end
   A.ObserveOwnDeathHealth();A.deathActive=true
-  local f=A.deathFight;local diedAt=now();local incoming,reason
-  if A.IncomingDeathEvidence then incoming,reason=A.IncomingDeathEvidence(A.Safe(UnitGUID,'player'),diedAt)end
+  local f=A.deathFight;local diedAt=now();local incoming,reason,incomingEvidence,incomingStatus
+  if A.IncomingDeathEvidence then incoming,reason,incomingEvidence=A.IncomingDeathEvidence(A.Safe(UnitGUID,'player'),diedAt)
+  else incomingStatus='API missing'end
+  if not incomingStatus and not incoming and not(A.groupIncoming and A.groupIncoming[A.Safe(UnitGUID,'player')])then incomingStatus='collector absent'end
   A.pendingDeath={time=diedAt,clock=A.Safe(GetTime),health=A.ownHealth,incoming=incoming,reason=reason,excludedRecap=A.deathExcludedRecap,
+   incomingEvidence=cleanEvidence(incomingEvidence),incomingStatus=incomingStatus,
    guildKey=A.guildKey,owner=A.owner,ownerGUID=A.Safe(UnitGUID,'player'),
    memberEligible=not not(A.guildKey and not A.guildUnverified and A.members and A.members[A.owner]),
    fight=f and {started=f.started,clockStart=f.clockStart,health=f.health,ended=f.ended}}
@@ -603,7 +671,10 @@ local function handler(_,event,...)
   end
   A.lastDeathContext=A.pendingDeath
   A.pendingDeaths=A.pendingDeaths or {};table.insert(A.pendingDeaths,A.pendingDeath)
-  if #A.pendingDeaths>4 then local old=table.remove(A.pendingDeaths,1);deathOutcome(old,old.reason or 'stale/unavailable recap')end
+  while #A.pendingDeaths>4 do
+   local old=A.pendingDeaths[1];old.lifecycle='evicted (pending limit)'
+   deathOutcome(old,old.reason or 'stale/unavailable recap');table.remove(A.pendingDeaths,1)
+  end
   A.Recap(); if C_Timer then C_Timer.After(0.5,A.Recap);C_Timer.After(2,A.Recap) end
  elseif event=='PLAYER_ALIVE' or event=='PLAYER_UNGHOST' then
   A.killingBlow=nil;A.deathActive=false;A.ownHealth=nil

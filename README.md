@@ -4,6 +4,12 @@
 
 Gnome PvP kills, deaths to Gnomes, persistent Alliance encounter memory, and automatic guild leaderboards.
 
+## Detailed death-attribution diagnostics (1.9.2)
+
+`/gkt debug` now expands each retained own-death attempt with fixed-label recap retrieval, eligibility, frozen incoming-proof and lifecycle details. Recap diagnostics distinguish missing APIs, failed calls, missing/unreadable/malformed links, unavailable/unreadable/empty events, consumed or excluded recaps and life/time mismatches. Readable evidence can explain missing attacker GUID/race, non-Gnome sources, ineffective damage and unproven harmful casters. These diagnostics do not establish complete fight coverage.
+
+The last 32 attempts remain locally persisted and sanitized; diagnostics never print automatically or synchronize. Older attempts explicitly say that detailed causes were not recorded, rather than inventing them. Interrupted pending attempts are marked on reload. This is instrumentation only: qualification, attribution, timing, credit and historical statistics are unchanged. Apply with `/reload` out of combat; new detail requires a new attempt.
+
 ## Quiet kill notifications (1.9.1)
 
 Automatic chat shows committed personal kill/death credit, not pending, ambiguous or rejected kill-detection stages. Diagnostics remain in the bounded local outcome history and are shown only when explicitly requested with `/gkt debug`. Saved legacy verbose settings cannot re-enable automatic diagnostic messages; `/gkt killverbose` now explains the debug-only behavior. Kill qualification, counters, synchronization and saved statistics are unchanged.

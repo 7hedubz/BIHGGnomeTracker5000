@@ -140,4 +140,46 @@ test('explicit harmful application qualifies without damage or known health',fun
   e.event='SPELL_CAST_FAILED';eq(proof({e}),nil)
  end
 end)
+test('evidence diagnostics distinguish missing identities non Gnomes zero damage and harmful caster proof',function()
+ local cases={
+  {row(0),'no positive effective damage'},
+  {row(10,'Player-human'),'readable non-Gnome source'},
+  {row(10,'Player-unknown'),'missing/unreadable source race'},
+  {{event='SPELL_DAMAGE',timestamp=99,amount=10},'missing/unreadable source GUID'},
+  {row(secret),'unreadable/malformed damage'},
+  {row(10,nil,nil,80),'life/time mismatch'},
+  {{event='SPELL_AURA_APPLIED',timestamp=99,spellId=172,auraType='DEBUFF'},'missing harmful caster proof'},
+  {{event='SPELL_CAST_FAILED',timestamp=99,spellId=172,sourceGUID='Player-a'},'no supported damage/harmful event'},
+ }
+ for _,case in ipairs(cases)do
+  local p,reason,details=proof({case[1]})
+  assert(not p,'diagnostics changed qualification')
+  assert(details and details[case[2]]==true,'missing precise detail: '..case[2])
+ end
+ local p,_,details=proof({row(1)})
+ assert(p and details and details['positive Gnome damage'],'positive evidence detail missing')
+ local _,_,empty=proof({});assert(empty['events empty'])
+ local _,_,hidden=proof(secret);assert(hidden['events unreadable'])
+end)
+test('harmful attribution diagnostics identify missing race without treating it as a non Gnome',function()
+ local e={event='SPELL_AURA_APPLIED',timestamp=99,sourceGUID='Player-unknown',auraType='DEBUFF',spellId=172}
+ local p,_,details=proof({e})
+ assert(not p and details['missing harmful caster proof']and details['missing/unreadable source race'],'harmful missing race detail lost')
+ e.sourceGUID='Player-human';p,_,details=proof({e})
+ assert(not p and details['readable non-Gnome source']and not details['missing/unreadable source race'])
+ e.sourceGUID='Player-a';e.timestamp=80;p,_,details=proof({e})
+ assert(not p and details['life/time mismatch'])
+end)
+test('unsupported aura schemas do not claim missing harmful caster proof',function()
+ for _,aura in ipairs({'BUFF','unknown',false,secret})do
+  local e={event='SPELL_AURA_APPLIED',timestamp=99,sourceGUID='Player-a',auraType=aura,spellId=172}
+  local p,_,details=proof({e})
+  assert(not p,'unsupported aura qualified')
+  assert(not details['missing harmful caster proof'],'unsupported aura claimed missing harmful caster proof')
+  assert(details['no supported damage/harmful event'],'unsupported aura detail missing')
+ end
+ local e={event='SPELL_AURA_APPLIED',timestamp=99,sourceGUID='Player-a',spellId=172}
+ local _,_,details=proof({e})
+ assert(not details['missing harmful caster proof']and details['no supported damage/harmful event'],'absent aura schema claimed harmful proof')
+end)
 print(passed..' death policy tests passed')

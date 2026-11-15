@@ -283,4 +283,17 @@ return function(A,event,tick,clock,units,combat)
  clock(clock()+0.5);A.ScanIncomingAuras('player');assert(calls==2)
  local before=deaths();die();assert(deaths()==before,'arbitrary out-of-combat damage cannot qualify actual death')
  print('PASS conflicting/untracked victim rejection, conservative out-of-combat damage gate and bounded one-second aura polling')
+ life();ownAura(nil);C_DeathRecap={GetRecapLink=function()return '|Hdeath:777|h'end,
+  GetRecapEvents=function()return {{event='SPELL_DAMAGE',timestamp=clock(),sourceGUID='Player-gnome',amount=0}}end}
+ local oldChat,oldAddon=SendChatMessage,C_ChatInfo.SendAddonMessage
+ SendChatMessage=function()error('diagnostic attempted public send')end
+ C_ChatInfo.SendAddonMessage=function()error('diagnostic attempted addon send')end
+ local messages=#chat;die();assert(#chat==messages,'rejected death diagnostic printed automatically')
+ local outcome=A.db.deathOutcomes[#A.db.deathOutcomes]
+ assert(outcome.recap=='readable candidate'and outcome.evidence['no positive effective damage'],'actual TOC native death details missing')
+ SlashCmdList.BIHGGKT('debug');assert(not A.lastError,A.lastError)
+ local text=table.concat(chat,' ')
+ assert(text:find('recap=readable candidate',1,true)and text:find('no positive effective damage',1,true),'slash debug omitted persisted precise death details')
+ SendChatMessage=oldChat;C_ChatInfo.SendAddonMessage=oldAddon
+ print('PASS actual TOC PLAYER_DEAD -> persisted fixed diagnostics -> manual /gkt debug only, no public/addon sends')
 end

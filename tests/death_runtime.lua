@@ -336,4 +336,111 @@ test('native recap accepts only explicit harmful schema with matching life clock
   end
  end
 end)
+test('native death freezes diagnostic eligibility and missing recap boundary without chat',function()
+ local A,event=setup();local chat={};DEFAULT_CHAT_FRAME={AddMessage=function(_,s)chat[#chat+1]=s end}
+ event('PLAYER_DEAD')
+ local e=A.db.deathOutcomes[1]
+ assert(e.recap=='API missing','missing recap API must have a precise diagnostic')
+ assert(e.eligibility=='eligible' and e.incoming=='no sufficient proof','frozen diagnostic snapshot missing')
+ A.members={};event('PLAYER_ALIVE');A.Recap()
+ assert(e.eligibility=='eligible','later membership changed death-time diagnostic')
+ assert(#chat==0,'unconfirmed diagnostic must stay silent')
+ local lines=table.concat(A.DeathDebugLines(),' ')
+ assert(lines:find('recap=API missing',1,true)and lines:find('coverage=not established',1,true),'manual diagnostic lacks fixed labels/coverage limit')
+end)
+test('native recap boundary diagnostics distinguish failed restricted missing and stale data',function()
+ local cases={
+  {'API missing',function()C_DeathRecap={}end},
+  {'API missing',function()C_DeathRecap.GetRecapLink=nil end},
+  {'link call failed',function()C_DeathRecap.GetRecapLink=function()error('private payload')end end},
+  {'link unreadable',function()C_DeathRecap.GetRecapLink=function()return secret end end},
+  {'link absent',function()C_DeathRecap.GetRecapLink=function()return nil end end},
+  {'link malformed',function()C_DeathRecap.GetRecapLink=function()return 'private payload'end end},
+  {'events call failed',function()C_DeathRecap.GetRecapEvents=function()error('private payload')end end},
+  {'events unreadable',function()C_DeathRecap.GetRecapEvents=function()return secret end end},
+  {'events unavailable',function()C_DeathRecap.GetRecapEvents=function()return nil end end},
+  {'events malformed',function()C_DeathRecap.GetRecapEvents=function()return 'private payload'end end},
+  {'events empty',function()recap({})end},
+  {'timestamps unavailable',function()recap({{event='SPELL_DAMAGE',amount=1,sourceGUID='Player-a'}})end},
+  {'life/time mismatch',function()recap({row(1,'Player-a',t-30)})end},
+  {'already consumed',function(A)A.db.deathRecapsSeen={['1']=t}end},
+  {'excluded by life/context',function(A)A.deathExcludedRecap='1'end},
+ }
+ for _,case in ipairs(cases)do
+  local A,event=setup();recap({row(0)});case[2](A);event('PLAYER_DEAD')
+  local e=A.db.deathOutcomes[1];assert(e.recap==case[1],case[1]..' got '..tostring(e.recap))
+  t=t+9;clock=clock+9;A.Recap()
+  assert(e.recap==case[1]and e.lifecycle=='expired','expiry erased last attempted boundary')
+  assert(not table.concat(A.DeathDebugLines(),' '):find('private payload',1,true))
+ end
+end)
+test('native callback persists only fixed evidence labels across serialized reload',function()
+ local A,event=setup();recap({row(0),row(1,'Player-human'),row(secret)})
+ event('PLAYER_DEAD');local e=A.db.deathOutcomes[1]
+ assert(e.evidence and e.evidence['no positive effective damage'] and e.evidence['readable non-Gnome source'],'native recap details lost')
+ assert(e.incomingEvidence and e.incomingEvidence['events empty'],'frozen collector availability missing')
+ -- Serialize only supported primitives, then initialize a separate runtime.
+ local function serialize(v)
+  if type(v)=='table'then local s={'{'};for k,x in pairs(v)do s[#s+1]='['..serialize(k)..']='..serialize(x)..','end;s[#s+1]='}';return table.concat(s)end
+  if type(v)=='string'then return string.format('%q',v)end
+  return tostring(v)
+ end
+ local saved=assert(loadstring('return '..serialize(A.db.deathOutcomes)))()
+ local B=setup();B.db.deathOutcomes=saved;B.InitDeathOutcomes()
+ local restored=B.db.deathOutcomes[1]
+ assert(restored.reason=='unreadable/missing attribution'and restored.evidence['no positive effective damage'])
+ assert(restored.lifecycle=='interrupted by reload','reload left a live pending diagnostic')
+ restored.evidence.private='private payload';restored.evidence['positive Gnome damage']=secret
+ restored.incomingEvidence=secret;restored.recap=secret;restored.eligibility='private payload'
+ B.InitDeathOutcomes();local output=table.concat(B.DeathDebugLines(),' ')
+ assert(not output:find('private payload',1,true)and not output:find('positive Gnome damage',1,true))
+ assert(not B.db.deathOutcomes[1].incomingEvidence and not B.db.deathOutcomes[1].evidence.private)
+ B.db.deathOutcomes={{time=t,reason='stale/unavailable recap'}};B.InitDeathOutcomes()
+ output=table.concat(B.DeathDebugLines(),' ')
+ assert(output:find('details=not recorded (older outcome)',1,true),'old outcome invented a cause')
+end)
+test('missing incoming provider and absent collector have explicit frozen availability',function()
+ for _,kind in ipairs({'API missing','collector absent'})do
+  local A,event=setup()
+  if kind=='API missing'then A.IncomingDeathEvidence=nil else A.groupIncoming={}end
+  event('PLAYER_DEAD');assert(A.db.deathOutcomes[1].incoming==kind,'missing incoming availability: '..kind)
+ end
+end)
+test('secret event containers are diagnosed without inspecting or persisting payloads',function()
+ local A,event=setup();local protected=setmetatable({},{__index=function()error('secret container indexed')end})
+ local previous=issecrettable;issecrettable=function(v)return rawequal(v,protected)end
+ recap(protected);event('PLAYER_DEAD')
+ assert(A.db.deathOutcomes[1].recap=='events unreadable')
+ issecrettable=previous
+ local B,callback=setup();recap({row(0)});C_DeathRecap.GetRecapEvents=nil;callback('PLAYER_DEAD')
+ assert(B.db.deathOutcomes[1].recap=='API missing')
+end)
+test('unavailable recap retry clears candidate evidence but preserves frozen incoming evidence',function()
+ local A,event=setup();A.groupIncoming['Player-me']={started=t,health=1000,events={row(0)}}
+ recap({row(0)});event('PLAYER_DEAD')
+ local e=A.db.deathOutcomes[1];local frozen=A.pendingDeath.incomingEvidence
+ assert(e.recap=='readable candidate'and e.evidence['no positive effective damage'])
+ assert(e.incomingEvidence['no positive effective damage'])
+ C_DeathRecap=nil;A.groupIncoming['Player-me']={started=t,health=1000,events=majority()};A.Recap()
+ assert(e.recap=='API missing'and not e.evidence,'unavailable retry retained unlabelled old candidate evidence')
+ assert(A.pendingDeath.incomingEvidence==frozen and e.incomingEvidence['no positive effective damage'],'retry rewrote frozen incoming evidence')
+ assert(e.reason=='insufficient confirmed Gnome damage'and deaths(A)==0,'retry changed historical coarse outcome or counting')
+ local lines=table.concat(A.DeathDebugLines(),' ')
+ assert(not lines:find('; evidence=',1,true)and lines:find('; incomingEvidence=no positive effective damage',1,true),'manual debug conflated current recap and frozen evidence')
+end)
+test('pending limit eviction persists a terminal lifecycle without changing capacity or counting',function()
+ local A,event=setup()
+ for i=1,5 do
+  event('PLAYER_DEAD')
+  if i<5 then event('PLAYER_ALIVE');t=t+1;clock=clock+1;event('PLAYER_REGEN_DISABLED')end
+ end
+ local e=A.db.deathOutcomes[1]
+ assert(#A.pendingDeaths==4 and #A.db.deathOutcomes==5 and deaths(A)==0,'eviction changed capacity or credit')
+ assert(e.lifecycle=='evicted (pending limit)','evicted attempt still claims to be pending')
+ assert(e.reason=='stale/unavailable recap','eviction changed compatible coarse reason')
+ for i=2,5 do assert(A.db.deathOutcomes[i].lifecycle=='pending','eviction terminated a retained attempt')end
+ assert(table.concat(A.DeathDebugLines(),' '):find('lifecycle=evicted (pending limit)',1,true),'terminal eviction not rendered')
+ A.InitDeathOutcomes()
+ assert(A.db.deathOutcomes[1].lifecycle=='evicted (pending limit)','allowlist lost terminal eviction on reload')
+end)
 print('ALL '..passed..' DEATH RUNTIME TESTS PASSED')

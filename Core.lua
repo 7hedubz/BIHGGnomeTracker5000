@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.9.1'
+A.VERSION='1.9.2'
 -- Local-only feedback; a broken chat widget must never invalidate credit.
 function A.LocalNotice(text)
  if DEFAULT_CHAT_FRAME and type(DEFAULT_CHAT_FRAME.AddMessage)=='function'then pcall(DEFAULT_CHAT_FRAME.AddMessage,DEFAULT_CHAT_FRAME,'|cffffb347BIHG:|r '..text)end
@@ -118,36 +118,41 @@ local function deathMitigation(v,overkill)
  return math.max(0,v)
 end
 local function deathRow(e,deathTime,combatStart)
- if not deathTable(e) then return end
+ if not deathTable(e) then return nil,nil,nil,'events unreadable' end
  local event,t,g,amount,hidden=e.event,e.timestamp,e.sourceGUID,e.amount,e.hideCaster
- if deathSecret(event) or type(event)~='string' or not deathDamageEvents[event]
-  or not deathNumber(t) or t<combatStart or t>deathTime+1
-  or not deathPlayer(g) or not deathNumber(amount) or amount<0
-  or deathSecret(hidden) or (hidden~=nil and hidden~=false) then return end
+ if deathSecret(event) or type(event)~='string' or not deathDamageEvents[event]then return nil,nil,nil,'no supported damage/harmful event' end
+ if not deathNumber(t) or t<combatStart or t>deathTime+1 then return nil,nil,nil,'life/time mismatch' end
+ if not deathPlayer(g)then return nil,nil,nil,'missing/unreadable source GUID' end
+ if not deathNumber(amount) or amount<0 then return nil,nil,nil,'unreadable/malformed damage' end
+ if deathSecret(hidden) or (hidden~=nil and hidden~=false) then return nil,nil,nil,'hidden/unreadable caster' end
  local overkill=deathMitigation(e.overkill,true)
  local absorbed=deathMitigation(e.absorbed)
  local resisted=deathMitigation(e.resisted)
  local blocked=deathMitigation(e.blocked)
- if not overkill or not absorbed or not resisted or not blocked then return end
- if type(A.Race)~='function' then return end
+ if not overkill or not absorbed or not resisted or not blocked then return nil,nil,nil,'unreadable/malformed mitigation' end
+ if type(A.Race)~='function' then return nil,nil,nil,'missing/unreadable source race' end
  local ok,race=pcall(A.Race,g)
- if not ok or deathSecret(race) or type(race)~='string' or race=='' then return end
- if race~='Gnome' then return nil,0,true end
- return g,math.max(0,amount-overkill-absorbed-resisted-blocked),true
+ if not ok or deathSecret(race) or type(race)~='string' or race=='' then return nil,nil,nil,'missing/unreadable source race' end
+ if race~='Gnome' then return nil,0,true,'readable non-Gnome source' end
+ local effective=math.max(0,amount-overkill-absorbed-resisted-blocked)
+ return g,effective,true,effective>0 and 'positive Gnome damage' or 'no positive effective damage'
 end
 local deathAuraEvents={SPELL_AURA_APPLIED=true,SPELL_AURA_REFRESH=true,SPELL_AURA_APPLIED_DOSE=true}
 local function deathHarmfulRow(e,deathTime,combatStart,sourceRace)
  if not deathTable(e) then return end
  local event,t,g,spell,aura,hidden=e.event,e.timestamp,e.sourceGUID,e.spellId,e.auraType,e.hideCaster
- if deathSecret(event) or type(event)~='string' or not deathAuraEvents[event]
-  or not deathNumber(t) or t<combatStart or t>deathTime+1 or not deathPlayer(g)
-  or not deathNumber(spell) or spell<1 or spell%1~=0 or deathSecret(aura) or aura~='DEBUFF'
-  or deathSecret(hidden) or(hidden~=nil and hidden~=false)then return end
+ if deathSecret(event) or type(event)~='string' or not deathAuraEvents[event]then return end
+ if not deathNumber(t) or t<combatStart or t>deathTime+1 then return nil,'life/time mismatch'end
+ if not deathPlayer(g)then return nil,'missing/unreadable source GUID'end
+ if not deathNumber(spell) or spell<1 or spell%1~=0 or deathSecret(aura) or aura~='DEBUFF'then return end
+ if deathSecret(hidden) or(hidden~=nil and hidden~=false)then return nil,'hidden/unreadable caster'end
  if deathSecret(sourceRace)then return end
  if sourceRace~=nil then if sourceRace=='Gnome'then return g end;return end
- if type(A.Race)~='function'then return end
+ if type(A.Race)~='function'then return nil,'missing/unreadable source race'end
  local ok,race=pcall(A.Race,g)
- if ok and not deathSecret(race)and race=='Gnome'then return g end
+ if not ok or deathSecret(race)or type(race)~='string'or race==''then return nil,'missing/unreadable source race'end
+ if race=='Gnome'then return g end
+ return nil,'readable non-Gnome source'
 end
 function A.GnomeHarmfulEvidence(row,t,start,race)
  if not deathNumber(t)or not deathNumber(start)or start>t then return end
@@ -155,14 +160,22 @@ function A.GnomeHarmfulEvidence(row,t,start,race)
  if source then return {damage=0,source=source,time=t,harmful=true}end
 end
 function A.GnomeDeathEvidence(events,maxHealth,deathTime,combatStart)
- if not deathTable(events)
-  or not deathNumber(deathTime) or not deathNumber(combatStart) or combatStart>deathTime then return nil end
+ local details={}
+ if not deathTable(events)then details['events unreadable']=true;return nil,nil,details end
+ if not deathNumber(deathTime) or not deathNumber(combatStart) or combatStart>deathTime then details['life/time mismatch']=true;return nil,nil,details end
  local health=deathNumber(maxHealth)and maxHealth>0 and maxHealth or nil
  local total,sources,harmful,overflow=0,{},nil,false
  local rows,unreadable=0,false
  for _,e in pairs(events) do
-  local guid,damage,confirmed=deathRow(e,deathTime,combatStart)
-  local applied=deathHarmfulRow(e,deathTime,combatStart)
+  local guid,damage,confirmed,detail=deathRow(e,deathTime,combatStart)
+  local applied,harmfulDetail=deathHarmfulRow(e,deathTime,combatStart)
+  if applied then details['confirmed harmful Gnome application']=true
+  elseif deathTable(e) and not deathSecret(e.event) and type(e.event)=='string' and deathAuraEvents[e.event]
+   and not deathSecret(e.auraType) and e.auraType=='DEBUFF'then
+   details['missing harmful caster proof']=true
+   if harmfulDetail then details[harmfulDetail]=true end
+   if not deathPlayer(e.sourceGUID)then details['missing/unreadable source GUID']=true end
+  elseif detail then details[detail]=true end
   if applied and(not harmful or applied<harmful)then harmful=applied end
   rows=rows+1;if not confirmed and not applied then unreadable=true end
   if guid then
@@ -171,17 +184,17 @@ function A.GnomeDeathEvidence(events,maxHealth,deathTime,combatStart)
    sources[guid]=(sources[guid] or 0)+damage
   end
  end
- if harmful then return {damage=0,maxHealth=health,source=harmful,time=deathTime,harmful=true}end
- if overflow then return nil end
+ if harmful then return {damage=0,maxHealth=health,source=harmful,time=deathTime,harmful=true},nil,details end
+ if overflow then details['damage accumulation overflow']=true;return nil,nil,details end
  if total<=0 then
-  if rows==0 then return nil end
-  return nil,unreadable and 'unreadable/missing attribution' or 'insufficient confirmed Gnome damage'
+  if rows==0 then details['events empty']=true;return nil,nil,details end
+  return nil,unreadable and 'unreadable/missing attribution' or 'insufficient confirmed Gnome damage',details
  end
  local source,best=nil,0
  for guid,damage in pairs(sources) do
   if damage>best or (damage==best and (not source or guid<source)) then source,best=guid,damage end
  end
- return {damage=total,maxHealth=health,source=source,time=deathTime}
+ return {damage=total,maxHealth=health,source=source,time=deathTime},nil,details
 end
 function A.ValidGnomeDeathEvidence(proof,now)
  if not deathTable(proof) or not deathNumber(now) then return false end

@@ -297,7 +297,12 @@ function A.ShowCopyReport()
  if A.TargetingLocked()then return false end
  if not A.window then A.CreateUI()end
  if not A.window then return false end
- A.copyReportLines=A.BuildTopReport(A.period or'Lifetime',clock())
+ local period,t=A.period or'Lifetime',clock()
+ if A.mode=='Charts'then
+  local first,last=A.GetChartRange(period,t,A.chartScope)
+  A.copyReportLines=A.BuildTopReport(period,t,first,last,A.chartScope)
+ else A.copyReportLines=A.BuildTopReport(period,t)end
+ A.copyReportTitle:SetText(A.mode=='Charts'and A.chartScope=='Personal'and'COPY / CUT PERSONAL REPORT'or'COPY / CUT GUILD REPORT')
  A.copyReportEdit:SetText(table.concat(A.copyReportLines,'\n'))
  A.window:Show();A.copyReportFrame:Show();A.copyReportEdit:SetFocus();A.copyReportEdit:HighlightText();A.copyReportScroll:SetVerticalScroll(0)
  return true
@@ -420,7 +425,7 @@ function A.CreateUI()
  A.nextButton=button(w,'Next >',133,-617,85,function()A.page=(A.page or 1)+1;A.RefreshUI()end)
  A.pageLabel=text(w,'small',232,-625,255)
  A.syncButton=button(w,'Refresh data',500,-617,140,function()A.RequestFullSync();A.syncStatus='Manual catchup queued; automatic sync remains on';A.RefreshUI()end,'Request a paced local/remote catchup. Automatic queries remain every minute out of combat without replaying all history each minute. No guild chat messages.')
- A.copyReportButton=button(w,'Copy report...',650,-617,140,A.ShowCopyReport,'Open editable report text for Ctrl+C (copy) or Ctrl+X (cut). One player per line. This never posts to chat.')
+ A.copyReportButton=button(w,'Copy report...',650,-617,140,A.ShowCopyReport,'Copy/Cut an editable report, one player per line. Charts use the selected UTC dates and Personal/Guild scope; other views use PERIOD. Never posts to chat.')
  A.reportButton=button(w,'Post to guild...',800,-617,142,A.ShowTopPreview,'Preview and confirm a guild-chat ranking for the selected period. Separate from silent automatic addon sync.')
  A.status=text(w,'small',20,-653,740);A.membershipStatusLabel=text(w,'small',20,-670,740)
  A.versionLabel=text(w,'small',0,0,140);A.versionLabel:ClearAllPoints();A.versionLabel:SetPoint('BOTTOMRIGHT',w,'BOTTOMRIGHT',-18,12);A.versionLabel:SetJustifyH('RIGHT');A.versionLabel:SetText('v'..A.VERSION)
@@ -438,7 +443,7 @@ function A.CreateUI()
  preview:SetScript('OnHide',function()A.CancelTopPost()end);preview:Hide()
  local copy=panel(w,0,0,680,440);A.copyReportFrame=copy;_G.BIHGGKTCopyReport=copy
  copy:ClearAllPoints();copy:SetPoint('CENTER');copy:SetFrameStrata('FULLSCREEN_DIALOG');copy:EnableMouse(true)
- text(copy,'large',20,-18,640):SetText('COPY / CUT GUILD REPORT')
+ A.copyReportTitle=text(copy,'large',20,-18,640);A.copyReportTitle:SetText('COPY / CUT GUILD REPORT')
  local instructions=text(copy,'small',20,-48,640);instructions:SetWordWrap(true);instructions:SetHeight(48)
  instructions:SetText('Ctrl+C copies; Ctrl+X cuts selected text. One player per line. Nothing is sent automatically. For in-game chat, paste/send one line at a time.')
  panel(copy,18,-104,644,270)

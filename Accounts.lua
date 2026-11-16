@@ -218,11 +218,18 @@ function A.ViewGuildMembers()
  end end
  return members
 end
-function A.LeaderboardGroups(period,now)
+function A.ValidKillReportRange(first,last,now)
+ return type(first)=='number'and type(last)=='number'and first==first and last==last
+  and first%1==0 and last%1==0 and first<=last
+  and first>=A.Day(now)-A.RETENTION+1 and last<=A.Day(now)
+end
+function A.LeaderboardGroups(period,now,first,last,scope)
+ local ranged=first~=nil or last~=nil
+ if ranged and not A.ValidKillReportRange(first,last,now)then return{}end
  if A.account then A.SnapshotAccount(now) end
  local records={}
  local members=A.ViewGuildMembers();local viewKey=A.ViewGuildKey()
- for name,r in pairs(A.ViewPeerRecords()) do if members[name] then records[name]=r end end
+ if scope~='Personal'then for name,r in pairs(A.ViewPeerRecords()) do if members[name] then records[name]=r end end end
  if A.account then for name,r in pairs(A.account.characters) do if members[name] then records[name]=r end end
  elseif A.members and A.members[A.owner] then records[A.owner]=A.db.owners[A.owner] end
  local groups={}
@@ -233,6 +240,7 @@ function A.LeaderboardGroups(period,now)
   if r.alias and (r.aliasRev or 0)>=g.aliasRev then g.name=r.alias;g.aliasRev=r.aliasRev or 0 end
   local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r
   local k=A.Score(effective,period,now)
+  if ranged then k=0;for day=first,last do k=k+((effective.days or{})[day]or 0)end end
   local encountered=name==A.owner and A.EncounterCount(period,now) or A.EncounterScore(r,period,now)
   if A.account and A.account.characters[name] then
    local identities={};local first=A.FirstDay(period,now);local today=A.Day(now)

@@ -88,4 +88,23 @@ guildRank='council of bihg';assert(not A.CanPostTopReport(),'rank matching is ex
 GetGuildInfo=function()error('unavailable')end;assert(not A.CanPostTopReport(),'throwing rank API fails closed')
 local secret={};A.Secret=function(v)return v==secret end;GetGuildInfo=function()return'Guild',secret end
 assert(not A.CanPostTopReport(),'secret rank value fails closed before comparison')
-print('PASS dashboard: top ten, bounded UTF-safe reports, charts, exact allowed ranks, rank-loss cancellation, direct-click sends/cooldown and chat API failures')
+-- Copying a chart selection must rank inclusive UTC buckets, not PERIOD totals.
+A.Secret=function()return false end
+local rangeFirst=A.ParseChartDate('2026-11-09');local rangeLast=A.ParseChartDate('2026-11-15');local reportNow=A.ParseChartDate('2026-11-16')*86400+123
+A.Init({},'Me-Realm',reportNow);A.InitAccount({},'range-account',reportNow)
+A.guildKey='Guild-Realm';A.members={['Me-Realm']=true,['Alt-Realm']=true,['PeerA-Realm']=true,['PeerB-Realm']=true,['Undated-Realm']=true}
+local own=A.db.owners[A.owner];own.total=999;own.days={[rangeFirst]=2,[rangeLast]=3,[rangeFirst-1]=400,[rangeLast+1]=500}
+A.account.characters['Alt-Realm']={total=4,days={[rangeFirst+1]=4},accountID=A.account.id,alias=A.account.alias,aliasRev=reportNow,seen={}}
+local peers=A.PeerRecords()
+peers['PeerA-Realm']={total=1000,days={[rangeFirst]=1,[rangeLast]=1,[rangeFirst-1]=998},alias='PeriodLeader'}
+peers['PeerB-Realm']={total=20,days={[rangeFirst]=10,[rangeLast]=10},alias='RangeLeader'}
+peers['Undated-Realm']={total=9000,days={},alias='Undated'}
+local selected=A.BuildTopReport('30 days',reportNow,rangeFirst,rangeLast,'Guild');local copy=table.concat(selected,'\n')
+assert(selected[1]:find('2026-11-09',1,true)and selected[1]:find('2026-11-15',1,true)and selected[1]:find('UTC',1,true),'chart report must label the exact inclusive UTC dates')
+assert(selected[2]=='#1 RangeLeader: 20 kills','range report reranks by selected days, not full-period totals')
+assert(copy:find(': 9 kills',1,true)and copy:find('PeriodLeader: 2 kills',1,true)and not copy:find('Undated',1,true),'date report includes both boundary days, account alts, and no undated totals')
+local personal=table.concat(A.BuildTopReport('30 days',reportNow,rangeFirst,rangeLast,'Personal'),'\n')
+assert(personal:find(': 9 kills',1,true)and not personal:find('RangeLeader',1,true),'Personal chart export excludes other accounts')
+assert(A.TopKillers('30 days',reportNow)[1].name=='PeriodLeader','ordinary period report remains unchanged')
+assert(own.total==999 and own.days[rangeFirst-1]==400 and peers['PeerA-Realm'].total==1000,'export never rewrites saved scores')
+print('PASS dashboard: top ten, bounded UTF-safe reports, charts, exact allowed ranks, rank-loss cancellation, direct-click sends/cooldown and selected chart date exports')

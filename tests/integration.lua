@@ -376,6 +376,19 @@ assert(A.copyReportFrame:IsShown()and A.copyReportEdit:GetText()==originalReport
 assert(#chat==0 and not A.postJob and A.db.options.lastTopPost==beforeCopyCooldown,'copying does not send chat, create posting progress or consume the post cooldown')
 A.copyReportEdit:SetText('');assert(table.concat(A.BuildTopReport(A.period,now),'\n')==originalReport,'cutting/editing export text never modifies underlying scores or report data')
 A.copyReportFrame:Hide();assert(not A.copyReportEdit.focused,'closing export releases keyboard focus')
+do
+ local copyState={period=A.period,scope=A.chartScope,first=today-6,last=today-1,sends=#sent}
+ A.OpenView('Charts',false);A.SelectPeriod('30 days')
+ for _,scope in ipairs({'Guild','Personal'})do
+  A.chartScope=scope;assert(A.SetChartRange(A.period,now,copyState.first,copyState.last,scope));A.RefreshUI()
+  copyState.expected=table.concat(A.BuildTopReport(A.period,now,copyState.first,copyState.last,scope),'\n')
+  A.copyReportButton.scripts.OnClick()
+  assert(A.copyReportEdit:GetText()==copyState.expected and A.copyReportEdit:GetText():find(date('!%Y-%m-%d',copyState.first*86400),1,true),'actual Copy Report click must use chart dates and scope, not PERIOD')
+  assert(#chat==0 and #sent==copyState.sends and not A.postJob and A.db.options.lastTopPost==beforeCopyCooldown,'chart copy must remain local and independent of public posting')
+  A.copyReportFrame:Hide()
+ end
+ A.chartScope=copyState.scope;A.SelectPeriod(copyState.period);A.OpenView('Leaderboard',false)
+end
 A.reportButton.scripts.OnClick();assert(A.preview:IsShown() and #chat==0 and not A.postJob,'preview never posts automatically')
 clicking=true;A.confirmPostButton.scripts.OnClick();clicking=false
 assert(#chat==1 and chat[1][1]==A.previewLines[1]and A.preview:IsShown()and A.postJob,'first confirmation sends only the heading and keeps progress visible')
@@ -585,7 +598,7 @@ DEFAULT_CHAT_FRAME.AddMessage=function(_,text)debugOutput[#debugOutput+1]=text e
 local publicBefore=#partyMessages;local addonBefore=#sent
 event('ADDON_ACTION_BLOCKED','BIHGGnomeKillTracker5000','SendChatMessage()');SlashCmdList.BIHGGKT('debug')
 local debugText=table.concat(debugOutput,' ')
-assert(A.VERSION=='1.10.0'and tocVersion==A.VERSION,'release metadata matches actual TOC')
+assert(A.VERSION=='1.10.1'and tocVersion==A.VERSION,'release metadata matches actual TOC')
 assert(not debugText:find('BIHG own death outcomes',1,true),'actual slash must not expose retired death diagnostics')
 assert(debugText:find('BIHG report status:',1,true)and debugText:find('ADDON_ACTION_BLOCKED',1,true)and debugText:find('SendChatMessage()',1,true),'actual event and slash wiring expose protected-send diagnostics')
 assert(#partyMessages==publicBefore and #sent==addonBefore,'debug command is local-only and never posts a test message')

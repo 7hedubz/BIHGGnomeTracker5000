@@ -1,15 +1,20 @@
 local _,A=...
-function A.TopKillers(period,now)
+function A.TopKillers(period,now,first,last,scope)
  local ranked={}
- for _,g in ipairs(A.LeaderboardGroups(period,now)) do if g.k>0 then ranked[#ranked+1]=g end end
+ for _,g in ipairs(A.LeaderboardGroups(period,now,first,last,scope)) do if g.k>0 then ranked[#ranked+1]=g end end
  table.sort(ranked,function(a,b)if a.k~=b.k then return a.k>b.k end;if a.name~=b.name then return a.name<b.name end;return a.id<b.id end)
  while #ranked>10 do table.remove(ranked) end
  return ranked
 end
-function A.BuildTopReport(period,now)
- local ranked=A.TopKillers(period,now)
- if #ranked==0 then return {'BIHG: No recorded Gnome kills for '..period..' (cached addon reports).'} end
- local lines={string.format('BIHG Top %d Gnome killers - %s (cached addon reports)',#ranked,period)}
+function A.BuildTopReport(period,now,first,last,scope)
+ local label=period
+ if first~=nil or last~=nil then
+  if not A.ValidKillReportRange(first,last,now)then return{'BIHG: Invalid report date range.'}end
+  label=date('!%Y-%m-%d',first*86400)..' to '..date('!%Y-%m-%d',last*86400)..' UTC | '..(scope=='Personal'and'Personal'or'Guild')
+ end
+ local ranked=A.TopKillers(period,now,first,last,scope)
+ if #ranked==0 then return {'BIHG: No recorded Gnome kills for '..label..' (cached addon reports).'} end
+ local lines={string.format('BIHG Top %d Gnome killers - %s (cached addon reports)',#ranked,label)}
  for i,g in ipairs(ranked) do
   local name=(g.name or 'Unknown'):gsub('[%c|]','')
   lines[#lines+1]=string.format('#%d %s: %d kills',i,name,g.k)

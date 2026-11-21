@@ -11,8 +11,11 @@ function A.DisplayName(name)
  return name:match('^([^-]+)') or name
 end
 function A.Name(name)
- if type(name)~='string' or A.Secret(name) or name=='' then return nil end
- if not name:find('-',1,true) then name=name..'-'..(A.Safe(GetNormalizedRealmName) or (A.Safe(GetRealmName) or ''):gsub('%s','')) end
+ if A.Secret(name)or type(name)~='string'or name==''then return nil end
+ if not name:find('-',1,true)then
+  local realm=A.Safe(GetNormalizedRealmName)
+  if type(realm)=='string'and realm~=''then name=name..'-'..realm end
+ end
  return name
 end
 function A.Race(g)
@@ -216,9 +219,19 @@ function A.Roster(confirmed)
  local guild=A.Safe(GetGuildInfo,'player');local old=A.guildKey
  local realm=A.Safe(GetNormalizedRealmName);local last=A.db.lastGuild
  A.guildUnverified=false
- if type(guild)=='string'and guild~=''and type(realm)=='string'and realm~=''then
-  A.guildName=guild;A.guildKey=guild..'-'..realm;A.db.lastGuild={name=guild,key=A.guildKey}
-  if A.account then A.account.viewGuilds=A.account.viewGuilds or{};A.account.viewGuilds[realm]=A.guildKey end
+ local membership=A.Safe(IsInGuild)
+ if type(guild)=='string'and guild~=''and not guild:find('[%c|]')and type(realm)=='string'and membership~=false then
+  A.guildName=guild
+  local guid=A.Safe(UnitGUID,'player');local r=A.account or A.db
+  local historical,conflict
+  if realm==''and A.HistoricalGuildKey then historical,conflict=A.HistoricalGuildKey(guild,guid,last)end
+  A.guildKey=not conflict and(realm~=''and(guild..'-'..realm)or historical or guild)or nil
+  A.guildUnverified=conflict==true
+  if A.guildKey then
+   A.db.lastGuild={name=guild,key=A.guildKey}
+   r.guildScopesByGUID=r.guildScopesByGUID or{};if guid then r.guildScopesByGUID[guid]={name=guild,key=A.guildKey}end
+  end
+  if A.account and realm~=''then A.account.viewGuilds=A.account.viewGuilds or{};A.account.viewGuilds[realm]=A.guildKey end
  elseif A.Safe(IsInGuild)==true and last and type(last.name)=='string'and type(last.key)=='string'and(guild==nil or guild==last.name)then
   A.guildName=last.name;A.guildKey=last.key;A.guildUnverified=true;confirmed=false
  else A.guildName=nil;A.guildKey=nil end

@@ -192,6 +192,14 @@ function A.ViewGuildKey()
  if A.guildKey then return A.guildKey end
  if not A.account then return end
  local realm=A.Safe and A.Safe(GetNormalizedRealmName)or nil
+ if realm==''then
+  -- Historical namespace only: never parse a realm from an owner key and
+  -- never promote a display selection into live membership or transport.
+  local guid=A.localCharacterGUID
+  local saved=guid and(A.account.guildScopesByGUID or{})[guid]
+  if saved and type(saved.key)=='string'and(A.account.guilds or{})[saved.key]then return saved.key end
+  return
+ end
  realm=realm or(type(A.owner)=='string'and A.owner:match('%-(.+)$'))
  if type(realm)~='string'or realm==''then return end
  local suffix='-'..realm;local guilds=A.account.guilds or{}

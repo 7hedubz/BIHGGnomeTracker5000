@@ -1,14 +1,52 @@
 local _,A=...
--- Forever's second UnitName return is the surname, not the realm. Do not
--- trim/repair tokens or fall back to a short name when identity is unreadable.
+-- Forever's second UnitName return is the surname, not the realm. A hidden
+-- realm is not an identity failure: retain GUID-proven opaque saved keys or
+-- use the actual full readable name. Never recover a hidden realm elsewhere.
 function A.LocalCharacterName()
  A.localCharacterGUID=nil;A.localCharacterName=nil
  if type(UnitName)~='function'or type(UnitGUID)~='function'or type(GetNormalizedRealmName)~='function'then return end
  local ok,first,last=pcall(UnitName,'player');local good,guid=pcall(UnitGUID,'player');local realmOK,realm=pcall(GetNormalizedRealmName)
  local function text(v)return not(A.Secret and A.Secret(v))and type(v)=='string'and v~=''and not v:find('[%c|%-]')and not v:match('^%s')and not v:match('%s$')end
- if not ok or not good or not realmOK or not text(first)or not text(last)or not text(realm)or(A.Secret and A.Secret(guid))or type(guid)~='string'or not guid:match('^Player%-[%w%-]+$')then return end
- A.localCharacterGUID=guid;A.localCharacterName=first..' '..last..'-'..realm
- return A.localCharacterName
+ if not ok or not good or not realmOK or not text(first)or not text(last)or(A.Secret and A.Secret(realm))or type(realm)~='string'or(realm~=''and not text(realm))or(A.Secret and A.Secret(guid))or type(guid)~='string'or not guid:match('^Player%-[%w%-]+$')then return end
+ local canonical=first..' '..last..(realm~=''and('-'..realm)or'')
+ -- Saved suffixes are opaque historical keys, not recovered realm data.
+ -- Resolve before Init exposes A.db/A.account; never infer from a short name.
+ local db,account=BIHGGKTDB or{},BIHGGKTAccountDB or{}
+ local candidates={};local preferred=(account.characterNamesByGUID or{})[guid]
+ local function proven(name)
+  if type(name)~='string'or name==''or name:find('[%c|]')then return false end
+  local a,b=(account.characters or{})[name],(db.owners or{})[name]
+  local mapped=(account.characterGUIDs or{})[name]
+  if mapped and mapped~=guid or a and a.characterGUID and a.characterGUID~=guid or b and b.characterGUID and b.characterGUID~=guid then return false end
+  return mapped==guid or a and a.characterGUID==guid or b and b.characterGUID==guid
+ end
+ for name in pairs(account.characters or{})do if proven(name)then candidates[name]=true end end
+ for name in pairs(db.owners or{})do if proven(name)then candidates[name]=true end end
+ if preferred and proven(preferred)then candidates[preferred]=true end
+ if realm==''then
+  if preferred and candidates[preferred]then canonical=preferred else
+   local names={};for name in pairs(candidates)do names[#names+1]=name end;table.sort(names)
+   if #names>0 then canonical=names[1]end
+  end
+ end
+ local rawName,rawCount
+ rawCount=0;for name in pairs(db.owners or{})do rawName=name;rawCount=rawCount+1 end
+ local rawProven=false
+ if realm==''and not next(candidates)and rawCount==1 then
+  local record=db.owners[rawName];local other=(account.characters or{})[rawName];local mapped=(account.characterGUIDs or{})[rawName]
+  if not record.characterGUID and(not other or not other.characterGUID or other.characterGUID==guid)and(not mapped or mapped==guid)and not(account.ambiguousCharacterNames or{})[rawName]then
+   canonical=rawName;rawProven=true
+  end
+ end
+ local a,b=(account.characters or{})[canonical],(db.owners or{})[canonical]
+ local mapped=(account.characterGUIDs or{})[canonical]
+ if mapped and mapped~=guid or a and a.characterGUID and a.characterGUID~=guid or b and b.characterGUID and b.characterGUID~=guid then
+  A.identityConflict=true;return
+ end
+ A.realmHidden=realm==''
+ A.localIdentityProven=rawProven or(proven(canonical)and true or false)
+ A.localCharacterGUID=guid;A.localCharacterName=canonical
+ return canonical
 end
 local function player(g)return type(g)=='string'and g:match('^Player%-[%w%-]+$')~=nil end
 local function clone(t,seen)
@@ -58,6 +96,19 @@ local function scope()
  r.guildIdentities=r.guildIdentities or {};r.guildIdentities[A.guildKey]=r.guildIdentities[A.guildKey]or {guids={},names={}}
  return r.guildIdentities[A.guildKey]
 end
+function A.HistoricalGuildKey(guild,guid,last)
+ local r=A.account or A.db
+ local function valid(key)return type(key)=='string'and not key:find('[%c|]')and(key==guild or key:sub(1,#guild+1)==guild..'-')end
+ local saved=(r.guildScopesByGUID or{})[guid]
+ if saved and saved.name==guild and valid(saved.key)then return saved.key end
+ if A.localIdentityProven and last and last.name==guild and valid(last.key)then return last.key end
+ local keys={}
+ for key,s in pairs(r.guildIdentities or{})do if valid(key)and(s.guids or{})[guid]then keys[key]=true end end
+ for key,s in pairs(r.guildMembership or{})do if valid(key)then for _,g in pairs(s.guids or{})do if g==guid then keys[key]=true end end end end
+ for key,records in pairs(r.guilds or{})do if valid(key)then for _,record in pairs(records)do if record.characterGUID==guid then keys[key]=true end end end end
+ local chosen;for key in pairs(keys)do if chosen then return nil,true end;chosen=key end
+ return chosen
+end
 function A.CanonicalCharacterName(name,guid)
  local r=root();if not r then return name end
  local s=scope()
@@ -100,7 +151,7 @@ function A.BindLocalCharacter(guid,now)
  local r=A.account;local canonical=A.owner;local target=A.db.owners[canonical];if not target or(target.characterGUID and target.characterGUID~=guid)then return false end
  r.characterGUIDs=r.characterGUIDs or {};r.characterNamesByGUID=r.characterNamesByGUID or {}
  local aliases=rewriteEvents(r,guid,canonical)
- for name,record in pairs(A.db.owners)do if not record.characterGUID or record.characterGUID==guid then aliases[name]=true end end
+ for name,record in pairs(A.db.owners)do if record.characterGUID==guid or(not A.realmHidden and not record.characterGUID)then aliases[name]=true end end
  for name,record in pairs(r.characters)do if record.characterGUID==guid or r.characterGUIDs[name]==guid then aliases[name]=true end end
  for _,s in pairs(r.guildIdentities or {})do for name,g in pairs(s.names or {})do if g==guid then aliases[name]=true end end end
  aliases[canonical]=true
@@ -108,6 +159,16 @@ function A.BindLocalCharacter(guid,now)
   -- Inspect both copies: the same legacy key may denote distinct GUIDs in
   -- independently serialized character/account files.
   local copies={r.characters[name],A.db.owners[name]}
+  local conflict=r.characterGUIDs[name]and r.characterGUIDs[name]~=guid
+  for i=1,2 do local own=copies[i]
+   if own and own.characterGUID and own.characterGUID~=guid then conflict=true end
+  end
+  -- A claim on either serialized copy or its map vetoes the whole alias,
+  -- including GUID-less rows and peer copies. PrepareLocalIdentity already
+  -- archives/quarantines contradictory personal history; never undo that here.
+  if conflict then
+   r.ambiguousCharacterNames=r.ambiguousCharacterNames or {};r.ambiguousCharacterNames[name]=true
+  else
   for i=1,2 do local own=copies[i]
    if own and(not own.characterGUID or own.characterGUID==guid)then
     if name~=canonical then
@@ -126,6 +187,7 @@ function A.BindLocalCharacter(guid,now)
     if name~=canonical then archive(r,guid,name,peer);merge(target,peer,now,true);peers[name]=nil end
     peers[canonical]=target;r.characterGUIDs[name]=guid
    end
+  end
   end
  end
  r.characterNamesByGUID[guid]=canonical;r.characterGUIDs[canonical]=guid
@@ -214,12 +276,13 @@ function A.ResolveGuildSender(msg,channel,sender,now)
  if A.members[canonical]then return canonical end
  local s=scope();local guid=msg:match('^6|C|(Player%-[%w%-]+)$')
  local roster=guid and A.rosterGUIDs and(A.rosterGUIDs[A.guildKey]or{})[guid]
- if roster and A.members[roster]then
+ if roster and(A.members[roster]or A.members[A.CanonicalCharacterName(roster,guid)])then
   -- The exact two-component Forever spelling is deterministic, not a search
   -- over first names/nicknames. Never link a conflicting existing GUID.
   local first,last=roster:match('^([^%s%-]+) ([^%-]+)%-[^%-]+$')
+  if not first then first,last=roster:match('^([^%s%-]+) ([^%s%-]+)$')end
   local old=A.PeerRecords()[sender]
-  if first and sender==first..'-'..last and not(old and old.characterGUID and old.characterGUID~=guid)then
+  if first and sender==first..'-'..last and not conflictingClaim(sender,guid)and not(old and old.characterGUID and old.characterGUID~=guid)then
    canonical=A.CanonicalCharacterName(roster,guid)
    if not A.members[canonical]then return sender end
    s.names[sender]=guid

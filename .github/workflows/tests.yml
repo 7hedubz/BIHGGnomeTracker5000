@@ -12,6 +12,7 @@ jobs:
       - run: luajit tests/accounts.lua .
       - run: luajit tests/death_data.lua .
       - run: luajit tests/identity_regressions.lua .
+      - run: luajit tests/realm_hotfix.lua .
       - run: luajit tests/shared_cache.lua .
       - run: luajit tests/encounters.lua .
       - run: luajit tests/encounter_metadata.lua .

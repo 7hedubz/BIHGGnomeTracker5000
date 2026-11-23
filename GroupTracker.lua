@@ -13,21 +13,42 @@ end
 local function record()return {total=0,days={}}end
 local function eventPair(kind,actor,target)return kind..':'..actor..':'..target end
 local function number(s,max)local n=type(s)=='string' and s:match('^%d+$') and tonumber(s);if n and n<=max then return n end end
+local function indexEvent(index,e,id)
+ local pair=eventPair(e.kind,e.actor,e.target)
+ local names=index.names[e.name]or {};index.names[e.name]=names;names[#names+1]=e;index.positions[e]=#names
+ index.pairs[pair]=index.pairs[pair]or {};table.insert(index.pairs[pair],e)
+ index.actors[e.actor]=index.actors[e.actor]or {};table.insert(index.actors[e.actor],e)
+ index.keys[e]=id;index.reconciled[e.actor]=nil
+end
+local function renameEvent(index,e,name)
+ if e.name==name then return end
+ local old=index.names[e.name];local pos=index.positions[e];local last=old[#old]
+ old[pos]=last;index.positions[last]=pos;old[#old]=nil
+ if #old==0 then index.names[e.name]=nil end
+ e.name=name;local names=index.names[name]or {};index.names[name]=names;names[#names+1]=e;index.positions[e]=#names
+end
 local function store(guildKey)
  guildKey=guildKey or A.guildKey;if not guildKey then return nil end
  local root=A.account or A.db;root.guildObservations=root.guildObservations or {}
  root.guildObservations[guildKey]=root.guildObservations[guildKey] or {events={}}
  local s=root.guildObservations[guildKey]
  A.groupIndexes=A.groupIndexes or {};local index=A.groupIndexes[guildKey]
- if not index then
-  index={names={},pairs={}};A.groupIndexes[guildKey]=index
-  for _,e in pairs(s.events)do
-   local pair=eventPair(e.kind,e.actor,e.target)
-   index.names[e.name]=index.names[e.name] or {};table.insert(index.names[e.name],e)
-   index.pairs[pair]=index.pairs[pair] or {};table.insert(index.pairs[pair],e)
-  end
+ if not index or index.events~=s.events then
+  index={names={},pairs={},actors={},positions={},keys={},reconciled={},events=s.events};A.groupIndexes[guildKey]=index
+  for id,e in pairs(s.events)do indexEvent(index,e,id)end
  end
  return s,index
+end
+-- This memo covers history only, never live guild membership or permission.
+-- Insertions invalidate their actor; store replacement/reload rebuilds all buckets.
+function A.RewriteGuildActorEvents(guildKey,guid,canonical)
+ local _,index=store(guildKey);local aliases={}
+ if not index or index.reconciled[guid]==canonical then return aliases end
+ for _,event in ipairs(index.actors[guid]or {})do
+  aliases[event.name]=true;renameEvent(index,event,canonical)
+ end
+ index.reconciled[guid]=canonical
+ return aliases
 end
 function A.InitKillPolicy(now)
  if A.guildKey and not A.guildUnverified and A.members and A.members[A.owner]then
@@ -124,11 +145,11 @@ function A.AddGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter,cl
    local compatible=life and life.parent=='root'and math.abs(old.time-at)<=3
     and contribution<=old.time+1 and old.contribution<=at+1
    if not old.claim and(exact or compatible)then
-    local previous
-    for key,e in pairs(s.events)do if e==old then previous=key;break end end
+    local previous=index.keys[old]
     if previous then
-     s.events[previous]=nil;old.legacyTime=old.time;old.claim=claim;old.provenance=provenance;old.name=name;s.events[id]=old
-     A.groupIndexes[A.guildKey]=nil
+     s.events[previous]=nil;old.legacyTime=old.time;old.claim=claim;old.provenance=provenance
+     renameEvent(index,old,name);index.keys[old]=id;s.events[id]=old
+     index.reconciled[actor]=nil
      A.groupPending[A.guildKey]=A.groupPending[A.guildKey]or{}
      A.groupPending[A.guildKey][previous]=nil;A.groupPending[A.guildKey][id]=true
      if not A.groupBulk then A.RebuildOwnGuildTotals(now);if A.QueueShare then A.QueueShare(false)end end
@@ -163,7 +184,7 @@ function A.AddGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter,cl
   return false
  end
  local e={kind=kind,name=name,actor=actor,target=target,time=at,contribution=contribution,claim=claim,provenance=provenance};s.events[id]=e
- index.names[name]=index.names[name]or {};table.insert(index.names[name],e);index.pairs[pair]=index.pairs[pair]or {};table.insert(index.pairs[pair],e)
+ indexEvent(index,e,id)
  local peers=A.PeerRecords();if name~=A.owner and not peers[name]then peers[name]=record();peers[name].observerOnly=true end
  A.groupPending[A.guildKey]=A.groupPending[A.guildKey]or {};A.groupPending[A.guildKey][id]=true
  if not A.groupBulk then A.RebuildOwnGuildTotals(now);if A.QueueShare then A.QueueShare(false)end end

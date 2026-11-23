@@ -109,17 +109,61 @@ local function hideNearbyTooltip()
  if not owner then return end
  for _,row in ipairs(A.nearbyRows or {})do if owner==row.hitFrame then GameTooltip:Hide();return end end
 end
-function A.RefreshNearby(now)
- if not A.nearbyFrame then return end
+local nearbyRefreshing=false
+local function refreshNearbyAge(row,e,now)
+ if not e then row.nearbyAge=nil;return end
+ local age=math.floor(math.max(0,now-e.seen))
+ if row.nearbyAge~=age then
+  local color=e.race=='Gnome'and '|cffffb347'or'|cffffffff'
+  local race=e.race=='NightElf'and'Night Elf'or(e.race or '?')
+  row.detail:SetText(color..race..'|r  '..age..'s')
+  if row.nearbyAge==nil or(row.nearbyAge>5)~=(age>5)then row.displayFrame:SetAlpha(age>5 and 0.65 or 1)end
+  row.nearbyAge=age
+ end
+end
+local function renderNearby(now)
  local entries,gnomes=A.NearbyList(now);A.nearbyCount=#entries
+ -- Detection, expiry and alert queues are independent of display visibility.
+ -- Only the visibility edge touches widgets; hidden timer ticks do no UI work.
+ if not A.db.options.nearbyShown then
+  if not A.nearbyHidden then
+   if not A.TargetingLocked()and A.nearbyClickLayer then A.nearbyClickLayer:Hide()end
+   hideNearbyTooltip();A.nearbyFrame:Hide();A.nearbyHidden=true
+  end
+  A.nearbyRenderState=nil;return
+ end
+ A.nearbyHidden=nil
  local enabled=A.db.options.nearbyEnabled~=false
- A.nearbyEnableCheck:SetChecked(enabled);A.nearbyEnableLabel:SetText(enabled and'ON'or'OFF')
- if enabled then A.nearbyEnableLabel:SetTextColor(0.25,1,0.35)else A.nearbyEnableLabel:SetTextColor(1,0.25,0.2)end
  local locked=A.TargetingLocked()
- if locked then hideNearbyTooltip()end
+ local opts=A.db.options;local pages=math.max(1,math.ceil(#entries/A.NEARBY_ROWS));A.nearbyPage=math.max(1,math.min(A.nearbyPage or 1,pages))
+ -- Snapshot values, not mutable contact tables: scans update entries in place.
+ -- seen affects ordering/age only, never the target identity or row geometry.
+ local state={enabled,locked,not not opts.nearbyCollapsed,not not opts.nearbyLocked,A.nearbyPage,#entries,gnomes,not not A.nearbyDragging}
+ local function add(v)if v==nil then v=false end;state[#state+1]=v end
+ local w=A.nearbyFrame
+ add(A.Safe(w.GetLeft,w));add(A.Safe(w.GetTop,w));add(A.Safe(w.GetEffectiveScale,w));add(A.Safe(UIParent.GetEffectiveScale,UIParent));add(w:GetHeight())
+ for i,row in ipairs(A.nearbyRows)do
+  local e=not opts.nearbyCollapsed and entries[(A.nearbyPage-1)*A.NEARBY_ROWS+i]or nil
+  add(e and e.guid);add(e and e.name);add(e and e.race)
+  local level,class=A.NearbyIdentityText(e or {});add(level);add(class)
+  add(e and((A.rosterTargetNames and A.rosterTargetNames[e.name])or e.name))
+ end
+ local previous=A.nearbyRenderState;local changed=not previous or #previous~=#state
+ if not changed then for i,v in ipairs(state)do if previous[i]~=v then changed=true;break end end end
+ if not changed then
+  for i,row in ipairs(A.nearbyRows)do
+   row.data=not opts.nearbyCollapsed and entries[(A.nearbyPage-1)*A.NEARBY_ROWS+i]or nil
+   refreshNearbyAge(row,row.data,now)
+  end
+  return
+ end
+ A.nearbyRenderState=state
+ -- Conceal old hardware actions before changing any row identity or widgets.
  local layer=A.nearbyClickLayer
  if not locked and layer then layer:Hide()end
- local opts=A.db.options;local pages=math.max(1,math.ceil(#entries/A.NEARBY_ROWS));A.nearbyPage=math.max(1,math.min(A.nearbyPage or 1,pages))
+ A.nearbyEnableCheck:SetChecked(enabled);A.nearbyEnableLabel:SetText(enabled and'ON'or'OFF')
+ if enabled then A.nearbyEnableLabel:SetTextColor(0.25,1,0.35)else A.nearbyEnableLabel:SetTextColor(1,0.25,0.2)end
+ if locked then hideNearbyTooltip()end
  A.nearbyHeaderText:SetText(enabled and('Nearby |cff00bfff'..#entries..'|r G:|cffffb347'..gnomes..'|r')or'Nearby paused')
  A.nearbyButtons.collapse:SetText(opts.nearbyCollapsed and '+'or'-')
  A.nearbyButtons.lock:SetText(opts.nearbyLocked and 'L'or'U')
@@ -130,14 +174,20 @@ function A.RefreshNearby(now)
  for i,row in ipairs(A.nearbyRows)do
   local e=not opts.nearbyCollapsed and entries[(A.nearbyPage-1)*A.NEARBY_ROWS+i]or nil
   row.data=e
-  if not locked and row.hitFrame then A.BindTargetButton(row.hitFrame,e and e.name)end
+  if not locked and row.hitFrame then
+   local target=e and((A.rosterTargetNames and A.rosterTargetNames[e.name])or e.name)or false
+   if row.nearbyBoundTarget~=target then
+    A.BindTargetButton(row.hitFrame,e and e.name);row.nearbyBoundTarget=target
+   end
+  end
+  row.nearbyAge=nil
   if e then
-   local age=math.max(0,now-e.seen);local color=e.race=='Gnome'and '|cffffb347'or'|cffffffff'
+   local color=e.race=='Gnome'and '|cffffb347'or'|cffffffff'
    local level,class=A.NearbyIdentityText(e)
    row.level:SetText(color..level..'|r');row.class:SetText(color..class..'|r')
    row.name:SetText(color..A.DisplayName(e.name)..'|r')
-   local race=e.race=='NightElf'and'Night Elf'or(e.race or '?');row.detail:SetText(color..race..'|r  '..age..'s')
-   row.displayFrame:SetAlpha(age>5 and 0.65 or 1);row.displayFrame:Show();count=count+1
+   refreshNearbyAge(row,e,now)
+   row.displayFrame:Show();count=count+1
   else row.level:SetText('');row.name:SetText('');row.class:SetText('');row.detail:SetText('');row.displayFrame:Hide()end
  end
  A.nearbyFrame:SetHeight(count>0 and 28+count*22 or 24)
@@ -160,6 +210,24 @@ function A.RefreshNearby(now)
   for _,row in ipairs(A.nearbyRows)do if row.data then row.hitFrame:Show()else row.hitFrame:Hide()end end
   if opts.nearbyShown and count>0 and not A.nearbyDragging then layer:Show()end
  end
+ -- Height/clamping can change actual coordinates during the redraw itself.
+ state[9]=A.Safe(w.GetLeft,w)or false;state[10]=A.Safe(w.GetTop,w)or false;state[13]=w:GetHeight()
+end
+function A.RefreshNearby(now)
+ if not A.nearbyFrame or nearbyRefreshing then return end
+ nearbyRefreshing=true
+ local ok,err=pcall(renderNearby,now)
+ if not ok then
+  -- A partial render (including a partial native binding) is never cached.
+  A.nearbyRenderState=nil;A.nearbyHidden=nil
+  for _,row in ipairs(A.nearbyRows or {})do row.nearbyBoundTarget=nil end
+  -- Best-effort cleanup must not mask the original error. In combat the
+  -- restricted state driver, not insecure code, owns protected visibility.
+  pcall(function()if not A.TargetingLocked()and A.nearbyClickLayer then A.nearbyClickLayer:Hide()end end)
+  pcall(hideNearbyTooltip)
+ end
+ nearbyRefreshing=false
+ if not ok then error(err,0)end
 end
 function A.ToggleNearby(force)
  if not A.nearbyFrame then A.CreateNearbyUI()end
@@ -199,7 +267,12 @@ function A.CreateNearbyUI()
   layer=CreateFrame('Frame',nil,UIParent,'SecureHandlerStateTemplate')
   layer:Hide();layer:SetFrameStrata('MEDIUM');layer:SetFrameLevel(w:GetFrameLevel()+10)
   layer:SetAttribute('_onstate-nearby','if newstate == "closed" then self:Hide() end')
-  layer:SetScript('OnHide',hideNearbyTooltip)
+  layer:SetScript('OnHide',function()
+   hideNearbyTooltip()
+   -- Includes a combat shorter than the runtime timer cadence. The restricted
+   -- driver only hides; the next ordinary refresh restores current bindings.
+   if not nearbyRefreshing then A.nearbyRenderState=nil end
+  end)
   RegisterStateDriver(layer,'nearby','[combat] closed; available');A.nearbyClickLayer=layer
  end
  A.nearbyRows={}
@@ -218,5 +291,8 @@ function A.CreateNearbyUI()
   end)
   hit:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)end;A.nearbyRows[i]=row
  end
+ -- Display-only resize notifications may run in combat; RefreshNearby keeps
+ -- protected writes deferred and ignores callbacks caused by its own layout.
+ w:SetScript('OnSizeChanged',function()A.RefreshNearby(clock())end)
  A.RefreshNearby(clock())
 end

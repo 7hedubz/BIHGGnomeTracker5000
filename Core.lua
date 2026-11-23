@@ -1,5 +1,5 @@
 local _, A = ...
-A.VERSION='1.10.2'
+A.VERSION='1.10.3'
 -- Local-only feedback; a broken chat widget must never invalidate credit.
 function A.LocalNotice(text)
  if DEFAULT_CHAT_FRAME and type(DEFAULT_CHAT_FRAME.AddMessage)=='function'then pcall(DEFAULT_CHAT_FRAME.AddMessage,DEFAULT_CHAT_FRAME,'|cffffb347BIHG:|r '..text)end
@@ -243,6 +243,25 @@ function A.ValidEncounterRecord(g,e)
  return true
 end
 local function newer(a,b)return a.last>b.last or(a.last==b.last and a.guid<b.guid)end
+-- Coalesce sighting-driven maintenance within one synchronous scan. Explicit
+-- migration/snapshot pruning stays immediate: it also sanitizes saved copies.
+function A.RequestEncounterPrune(now)
+ if not encounterNumber(now)or now<0 then return end
+ if (A.encounterBatchDepth or 0)>0 then
+  A.encounterPrunePending=math.max(A.encounterPrunePending or now,now)
+ else A.PruneEncounters(now,true)end
+end
+function A.WithEncounterBatch(fn,...)
+ A.encounterBatchDepth=(A.encounterBatchDepth or 0)+1
+ local ok,result=pcall(fn,...)
+ A.encounterBatchDepth=A.encounterBatchDepth-1
+ if A.encounterBatchDepth==0 and A.encounterPrunePending then
+  local pending=A.encounterPrunePending;A.encounterPrunePending=nil
+  A.PruneEncounters(pending,true)
+ end
+ if not ok then error(result,0)end
+ return result
+end
 function A.PruneEncounters(now,force)
  if not encounterNumber(now)or now<0 then return end
  -- Never move the retention clock backwards on a local clock rollback.
@@ -251,6 +270,7 @@ function A.PruneEncounters(now,force)
  if encounterNumber(previous)and previous<=now+A.ENCOUNTER_AGE then now=math.max(now,previous)end
  state.encounterClock=now;A.encounterNow=now
  if not force and A.encounterDeadline and now<A.encounterDeadline then return end
+ A.encounterPrunePending=nil
  A.encounterDeadline=now+60
  local copies,visited={},{}
  local function add(t)if encounterTable(t)and not visited[t]then visited[t]=true;copies[#copies+1]=t end end
@@ -295,8 +315,7 @@ function A.PruneEncounters(now,force)
  A.encounterSize=math.min(#ranked,A.ENCOUNTER_LIMIT)
  A.knownEncounterSize=0;for _ in pairs(A.account and A.account.knownEncounters or{})do A.knownEncounterSize=A.knownEncounterSize+1 end
 end
-function A.Encounter(g,name,race,faction,now,level,class)
- if not encounterGUID(g)or(A.Secret and A.Secret(faction))or faction~='Alliance'or not encounterNumber(now)or now<0 then return false end
+local function recordEncounter(g,name,race,faction,now,level,class)
  A.PruneEncounters(now,false)
  A.db.seen=A.db.seen or {}; local r=A.db.seen[g]; local fresh=not r
  if not r then r={first=now,days={}}; A.db.seen[g]=r end
@@ -304,8 +323,12 @@ function A.Encounter(g,name,race,faction,now,level,class)
  r.name=name or r.name or g; r.race=race or r.race; r.last=math.max(r.last or now,now); r.days=r.days or {}; r.days[A.Day(now)]=true
  for d in pairs(r.days) do if d<A.Day(now)-A.RETENTION+1 then r.days[d]=nil end end
  if A.RememberKnownEncounter then A.RememberKnownEncounter(g,r)end
- if fresh then A.PruneEncounters(now,true)end
+ if fresh then A.RequestEncounterPrune(now)end
  return fresh and race=='Gnome'
+end
+function A.Encounter(g,name,race,faction,now,level,class)
+ if not encounterGUID(g)or(A.Secret and A.Secret(faction))or faction~='Alliance'or not encounterNumber(now)or now<0 then return false end
+ return A.WithEncounterBatch(recordEncounter,g,name,race,faction,now,level,class)
 end
 function A.EncounterCount(frame,now)
  A.PruneEncounters(now,false)

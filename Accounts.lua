@@ -58,7 +58,7 @@ function A.RememberKnownEncounter(guid,entry)
  if not(A.Secret and A.Secret(days))and type(days)=='table'and not(issecrettable and issecrettable(days))then
   for day in pairs(days)do if not(A.Secret and A.Secret(day))and type(day)=='number'and day==day and day>-math.huge and day<math.huge and day%1==0 then old.days[day]=true end end
  end
- if (A.knownEncounterSize or 0)>A.ENCOUNTER_LIMIT then A.PruneEncounters(A.encounterNow or A.now,true)end
+ if (A.knownEncounterSize or 0)>A.ENCOUNTER_LIMIT then A.RequestEncounterPrune(A.encounterNow or A.now)end
 end
 function A.KnownEncounters()
  if not A.account then return A.db and A.db.seen or{}end

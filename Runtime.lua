@@ -169,7 +169,7 @@ function A.Scan(unit,seen,forceAura)
  elseif encounter then encounter.creditUnknown=true
  end
 end
-function A.ScanVisible()
+local function scanVisible()
  A.RefreshKillLocation(false)
  if A.RefreshGroupActors then A.RefreshGroupActors()end
  local seen={}
@@ -182,6 +182,9 @@ function A.ScanVisible()
  -- Dedup keys describe applications, not timed contributions. Aging a key
  -- would turn an unchanged long-lived aura into a new application. Complete
  -- absence, readable new lives, deaths and location boundaries clear them.
+end
+function A.ScanVisible()
+ return A.WithEncounterBatch(scanVisible)
 end
 function A.GuildMembershipCache()
  if not A.guildKey then return end

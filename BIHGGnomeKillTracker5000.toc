@@ -3,7 +3,7 @@
 ## ExcludeLoadGameType: standard, classic
 ## Title: BIHG GnomeKillTracker 5000
 ## Author: DoHeal
-## Version: 1.10.2
+## Version: 1.10.3
 ## Notes: Gnome PvP kills, Alliance encounters, and synced guild leaderboards. /gkt
 ## SavedVariablesPerCharacter: BIHGGKTDB
 ## SavedVariables: BIHGGKTAccountDB

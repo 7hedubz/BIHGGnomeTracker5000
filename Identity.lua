@@ -141,10 +141,10 @@ function A.PrepareLocalIdentity(r,now)
 end
 local function rewriteEvents(r,guid,canonical,onlyGuild)
  local aliases={}
- for guild,store in pairs(r.guildObservations or {})do if not onlyGuild or guild==onlyGuild then
-  for _,event in pairs(store.events or {})do if event.actor==guid then aliases[event.name]=true;event.name=canonical end end
+ for guild in pairs(r.guildObservations or {})do if not onlyGuild or guild==onlyGuild then
+  for name in pairs(A.RewriteGuildActorEvents(guild,guid,canonical))do aliases[name]=true end
  end end
- A.groupIndexes={};return aliases
+ return aliases
 end
 function A.BindLocalCharacter(guid,now)
  if not player(guid)or not A.account or A.identityConflict then return false end

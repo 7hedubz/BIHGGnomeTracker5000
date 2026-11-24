@@ -307,6 +307,41 @@ function A.ShowCopyReport()
  A.window:Show();A.copyReportFrame:Show();A.copyReportEdit:SetFocus();A.copyReportEdit:HighlightText();A.copyReportScroll:SetVerticalScroll(0)
  return true
 end
+local function minimapNumber(v)
+ return not A.Secret(v)and type(v)=='number'and v==v and v>-math.huge and v<math.huge
+end
+function A.PositionMinimapIcon(angle)
+ local m=A.minimapButton;if not m or A.TargetingLocked()then return end
+ if not minimapNumber(angle)then angle=135 end;angle=angle%360
+ local width,height=A.Safe(Minimap.GetWidth,Minimap),A.Safe(Minimap.GetHeight,Minimap)
+ if not minimapNumber(width)or not minimapNumber(height)or width<=0 or height<=0 then return end
+ A.db.options.minimapAngle=angle
+ local radians=math.rad(angle);m:ClearAllPoints()
+ m:SetPoint('CENTER',Minimap,'CENTER',math.cos(radians)*(width/2+8),math.sin(radians)*(height/2+8))
+end
+function A.StopMinimapDrag()
+ A.minimapDragging=nil
+ if A.minimapButton then A.minimapButton:SetScript('OnUpdate',nil)end
+ if C_Timer and type(C_Timer.After)=='function'then
+  C_Timer.After(0,function()if not A.minimapDragging then A.minimapSuppressClick=nil end end)
+ else A.minimapSuppressClick=nil end
+end
+function A.DragMinimapIcon()
+ if A.TargetingLocked()then A.StopMinimapDrag();return end
+ local ok,x,y=pcall(GetCursorPosition);local good,cx,cy=pcall(Minimap.GetCenter,Minimap)
+ local scale=A.Safe(Minimap.GetEffectiveScale,Minimap)
+ if not ok or not good or not minimapNumber(x)or not minimapNumber(y)or not minimapNumber(cx)or not minimapNumber(cy)or not minimapNumber(scale)or scale<=0 then return end
+ x,y=x/scale-cx,y/scale-cy
+ if x~=0 or y~=0 then A.PositionMinimapIcon(math.deg(math.atan2(y,x)))end
+end
+function A.SetMinimapShown(shown)
+ if not A.db or A.TargetingLocked()then return false end
+ shown=shown==true
+ A.db.options.minimapShown=shown
+ if A.minimapButton then if shown then A.minimapButton:Show()else A.minimapButton:Hide()end end
+ if A.minimapCheck then A.minimapCheck:SetChecked(shown==true)end
+ return true
+end
 function A.CreateUI()
  if A.window or not A.db or A.TargetingLocked()then return end
  local w=panel(UIParent,0,0,960,710,'SecureHandlerStateTemplate');A.window=w;_G.BIHGGKTWindow=w
@@ -402,6 +437,12 @@ function A.CreateUI()
  local input=CreateFrame('EditBox',nil,A.settingsPane,'InputBoxTemplate');A.aliasInput=input;input:SetSize(250,26);input:SetPoint('TOPLEFT',120,-76);input:SetAutoFocus(false);input:SetMaxLetters(32);input:SetText(A.account.alias)
  local function saveAlias()if A.SetAlias(input:GetText(),clock()) then input:SetText(A.account.alias);input:ClearFocus()else DEFAULT_CHAT_FRAME:AddMessage('BIHG: Use a nickname of 1-64 bytes without control characters or |.')end end
  A.aliasSave=button(A.settingsPane,'Save nickname',390,-76,150,saveAlias,'Updates your account alias and queues guild synchronization; does not post to chat.')
+ A.minimapCheck=CreateFrame('CheckButton',nil,A.settingsPane,'UICheckButtonTemplate');A.minimapCheck:SetSize(24,24);A.minimapCheck:SetPoint('TOPLEFT',600,-77)
+ text(A.settingsPane,'small',630,-83,270):SetText('Show minimap icon')
+ A.minimapCheck:SetChecked(A.db.options.minimapShown~=false)
+ A.minimapCheck:SetScript('OnClick',function(self)if not A.SetMinimapShown(self:GetChecked())then self:SetChecked(A.db.options.minimapShown~=false)end end)
+ A.minimapCheck:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText('Show minimap icon');GameTooltip:AddLine('Drag the icon around the minimap. Position is saved. When hidden, use /gkt settings to restore it. Tracking and sync stay active.',0.85,0.9,0.95,true);GameTooltip:Show()end end)
+ A.minimapCheck:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
  input:SetScript('OnEnterPressed',saveAlias);input:SetScript('OnEscapePressed',function()input:SetText(A.account.alias);input:ClearFocus()end)
  text(A.settingsPane,'normal',20,-148,880):SetText('LOCAL NOTIFICATIONS & PARTY ALERTS')
  A.alertButton=button(A.settingsPane,'New-Gnome chat messages',20,-177,290,function()A.db.options.alerts=not (A.db.options.alerts~=false);A.RefreshUI()end,'Only toggles your local new-Gnome chat notification; tracking and guild sync remain active.')
@@ -469,11 +510,18 @@ function A.CreateUI()
   RegisterStateDriver(w,'bihgmenu','[combat] closed; available')
  end
  if Minimap then
-  local m=CreateFrame('Button','BIHGGKTMinimap',Minimap);m:SetSize(30,30);m:SetPoint('TOPLEFT',Minimap,'TOPLEFT',-8,-12);m:SetFrameStrata('MEDIUM')
+  local m=CreateFrame('Button','BIHGGKTMinimap',Minimap);A.minimapButton=m;m:SetSize(30,30);m:SetFrameStrata('MEDIUM');m:EnableMouse(true);m:SetMovable(true)
+  if A.db.options.minimapShown==nil then A.db.options.minimapShown=true end
+  A.PositionMinimapIcon(A.db.options.minimapAngle)
   local icon=m:CreateTexture(nil,'ARTWORK');icon:SetAllPoints();icon:SetTexture('Interface\\Icons\\INV_Misc_Gear_01')
-  m:RegisterForClicks('LeftButtonUp','RightButtonUp');m:SetScript('OnClick',function(_,which)A.OpenView(which=='RightButton' and 'Encounters' or 'Leaderboard',true)end)
-  m:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_LEFT');GameTooltip:SetText('BIHG GnomeKillTracker 5000');GameTooltip:AddLine('Left: leaderboard | Right: Alliance encounters',1,1,1);GameTooltip:Show()end end)
+  m:RegisterForClicks('LeftButtonUp','RightButtonUp');m:RegisterForDrag('LeftButton')
+  m:SetScript('OnClick',function(_,which)if A.minimapDragging or A.minimapSuppressClick then return end;A.OpenView(which=='RightButton' and 'Encounters' or 'Leaderboard',true)end)
+  m:SetScript('OnDragStart',function(self)if A.TargetingLocked()then return end;A.minimapDragging=true;A.minimapSuppressClick=true;if GameTooltip then GameTooltip:Hide()end;self:SetScript('OnUpdate',A.DragMinimapIcon)end)
+  m:SetScript('OnDragStop',A.StopMinimapDrag)
+  m:SetScript('OnHide',function()if A.minimapDragging then A.StopMinimapDrag()end;A.minimapSuppressClick=nil end)
+  m:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_LEFT');GameTooltip:SetText('BIHG GnomeKillTracker 5000');GameTooltip:AddLine('Left: leaderboard | Right: Alliance encounters',1,1,1);GameTooltip:AddLine('Drag: move icon | Settings: hide icon',0.85,0.9,0.95);GameTooltip:Show()end end)
   m:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
+  if A.db.options.minimapShown==false then m:Hide()end
  end
 end
 SLASH_BIHGGKT1='/gkt';SLASH_BIHGGKT2='/gnomekills';SLASH_BIHGGKT3='/bihg'

@@ -9,6 +9,7 @@ jobs:
       - run: for file in *.lua Libs/*.lua tests/*.lua; do luac5.1 -p "$file" || exit; done
       - run: luajit tests/run.lua .
       - run: luajit tests/integration.lua .
+      - run: luajit tests/minimap.lua .
       - run: luajit tests/accounts.lua .
       - run: luajit tests/death_data.lua .
       - run: luajit tests/identity_regressions.lua .

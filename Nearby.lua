@@ -148,6 +148,7 @@ local function renderNearby(now)
   local level,class=A.NearbyIdentityText(e or {});add(level);add(class)
   add(e and((A.rosterTargetNames and A.rosterTargetNames[e.name])or e.name))
  end
+ add(opts.partyAllianceAlerts==false)
  local previous=A.nearbyRenderState;local changed=not previous or #previous~=#state
  if not changed then for i,v in ipairs(state)do if previous[i]~=v then changed=true;break end end end
  if not changed then
@@ -162,6 +163,7 @@ local function renderNearby(now)
  local layer=A.nearbyClickLayer
  if not locked and layer then layer:Hide()end
  A.nearbyEnableCheck:SetChecked(enabled);A.nearbyEnableLabel:SetText(enabled and'ON'or'OFF')
+ A.nearbySilentCheck:SetChecked(opts.partyAllianceAlerts==false)
  if enabled then A.nearbyEnableLabel:SetTextColor(0.25,1,0.35)else A.nearbyEnableLabel:SetTextColor(1,0.25,0.2)end
  if locked then hideNearbyTooltip()end
  A.nearbyHeaderText:SetText(enabled and('Nearby |cff00bfff'..#entries..'|r G:|cffffb347'..gnomes..'|r')or'Nearby paused')
@@ -248,18 +250,23 @@ function A.CreateNearbyUI()
  head:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
  A.nearbyHeader=head;A.nearbyHeaderText=label(head,8,-6,82);A.nearbyButtons={}
  local toggle=CreateFrame('CheckButton',nil,head,'UICheckButtonTemplate');A.nearbyEnableCheck=toggle;toggle:SetSize(20,20);toggle:SetPoint('TOPLEFT',92,-2)
- A.nearbyEnableLabel=label(head,116,-6,28)
+ A.nearbyEnableLabel=label(head,114,-6,20)
  toggle:SetScript('OnClick',function(self)A.SetNearbyEnabled(self:GetChecked())end)
  toggle:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText('Nearby detection: '..(A.db.options.nearbyEnabled~=false and'ON'or'OFF'));GameTooltip:AddLine('Pause/resume the Nearby list and automatic sighting alerts. Kill recording, history and guild sync continue.',0.85,0.9,0.95,true);GameTooltip:Show()end end)
  toggle:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
+ local silent=CreateFrame('CheckButton',nil,head,'UICheckButtonTemplate');A.nearbySilentCheck=silent;silent:SetSize(20,20);silent:SetPoint('TOPLEFT',134,-2)
+ A.nearbySilentLabel=label(head,156,-6,32);A.nearbySilentLabel:SetText('Silent')
+ silent:SetScript('OnClick',function(self)A.SetPartyAlertsEnabled(not self:GetChecked())end)
+ silent:SetScript('OnEnter',function(self)if GameTooltip then GameTooltip:SetOwner(self,'ANCHOR_TOP');GameTooltip:SetText('Silent');GameTooltip:AddLine('Checked: no automatic party messages. Local beeps, detections, history, kill tracking and guild sync remain active. Sound settings still apply.',0.85,0.9,0.95,true);GameTooltip:Show()end end)
+ silent:SetScript('OnLeave',function()if GameTooltip then GameTooltip:Hide()end end)
  local b=A.nearbyButtons
- b.clear=tiny(head,'Clear',148,function()A.ClearNearby()end,'Clear nearby contacts and queued sounds, not saved history or statistics. Visible players return on the next scan without repeating their alert.');b.clear:SetWidth(38)
- b.history=tiny(head,'H',190,function()A.OpenView('Encounters',false)end,'Open the historical Alliance encounter log')
- b.lock=tiny(head,'U',212,function()A.db.options.nearbyLocked=not A.db.options.nearbyLocked;A.RefreshNearby(clock())end,function()return A.db.options.nearbyLocked and 'Unlock nearby window position'or'Lock nearby window position'end)
- b.collapse=tiny(head,'-',234,function()A.db.options.nearbyCollapsed=not A.db.options.nearbyCollapsed;A.RefreshNearby(clock())end,'Collapse / expand the nearby list (count stays visible)')
- b.previous=tiny(head,'<',256,function()A.nearbyPage=(A.nearbyPage or 1)-1;A.RefreshNearby(clock())end,'Previous nearby-player page')
- b.next=tiny(head,'>',278,function()A.nearbyPage=(A.nearbyPage or 1)+1;A.RefreshNearby(clock())end,'Next nearby-player page')
- b.close=tiny(head,'X',300,function()A.ToggleNearby(false)end,'Hide nearby window; restore with /gkt nearby or Settings');b.close.label:SetTextColor(1,0.35,0.3)
+ b.clear=tiny(head,'Clear',190,function()A.ClearNearby()end,'Clear nearby contacts and queued sounds, not saved history or statistics. Visible players return on the next scan without repeating their alert.');b.clear:SetWidth(32)
+ b.history=tiny(head,'H',223,function()A.OpenView('Encounters',false)end,'Open the historical Alliance encounter log')
+ b.lock=tiny(head,'U',242,function()A.db.options.nearbyLocked=not A.db.options.nearbyLocked;A.RefreshNearby(clock())end,function()return A.db.options.nearbyLocked and 'Unlock nearby window position'or'Lock nearby window position'end)
+ b.collapse=tiny(head,'-',261,function()A.db.options.nearbyCollapsed=not A.db.options.nearbyCollapsed;A.RefreshNearby(clock())end,'Collapse / expand the nearby list (count stays visible)')
+ b.previous=tiny(head,'<',280,function()A.nearbyPage=(A.nearbyPage or 1)-1;A.RefreshNearby(clock())end,'Previous nearby-player page')
+ b.next=tiny(head,'>',299,function()A.nearbyPage=(A.nearbyPage or 1)+1;A.RefreshNearby(clock())end,'Next nearby-player page')
+ b.close=tiny(head,'X',318,function()A.ToggleNearby(false)end,'Hide nearby window; restore with /gkt nearby or Settings');b.close.label:SetTextColor(1,0.35,0.3)
  -- The protected click tree is a sibling, never a display descendant.
  -- Missing state-driver support fails closed: display only, no secure hits.
  local layer

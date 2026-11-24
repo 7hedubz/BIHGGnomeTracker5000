@@ -114,6 +114,13 @@ function A.InitPartyAlerts()
  A.db.partyAlertContacts=type(A.db.partyAlertContacts)=='table'and A.db.partyAlertContacts or {}
  A.partyAlertPending={};A.partyAlertNext=0
 end
+function A.SetPartyAlertsEnabled(enabled)
+ A.db.options.partyAllianceAlerts=enabled==true
+ A.partyAlertPending={}
+ A.partyAlertStatus=enabled==true and'Party announcements enabled; fresh sightings only'or'Silent: party announcements off; local alerts remain active'
+ if A.RefreshNearby then A.RefreshNearby(A.Safe(GetServerTime)or time())end
+ if A.RequestUIRefresh then A.RequestUIRefresh()end
+end
 function A.PartyAllianceMessage(e,location)
  local name=partyText(e.name,120);if not name then return end
  local realm=A.Safe(GetNormalizedRealmName)

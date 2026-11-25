@@ -7,6 +7,7 @@ local public={};SendChatMessage=function(text,ch)public[#public+1]={text,ch}end
 event('PLAYER_LOGIN');assert(A.db and not A.lastError,A.lastError)
 assert(A.nearbySilentCheck and A.nearbySilentLabel.text=='Silent','tracker must expose second checkbox labeled exactly Silent')
 assert(not A.nearbySilentCheck:GetChecked(),'broadcast-enabled state is unchecked')
+assert(A.nearbyEnableLabel:GetWidth()>=24,'OFF must retain the other thread\'s four-pixel clipping fix')
 local right=0
 local controls={A.nearbyHeaderText,A.nearbyEnableCheck,A.nearbyEnableLabel,A.nearbySilentCheck,A.nearbySilentLabel}
 for _,key in ipairs({'clear','history','lock','collapse','previous','next','close'})do controls[#controls+1]=A.nearbyButtons[key]end

@@ -28,7 +28,8 @@ C.account.guildObservations={['Guild-Realm']={events={one={kind='K',name='Peer-R
 C.members={};C.guildKey=nil
 assert(type(C.ViewGuildKey)=='function'and C.ViewGuildKey()=='Guild-Realm','a fresh alt can select its same-realm shared guild history for read-only display')
 local peer;for _,g in ipairs(C.LeaderboardGroups('Lifetime',now+3))do if g.name=='Peer'then peer=g end end
-assert(peer and peer.k==1,'read-only cache includes ledger-derived observed kills, not just raw zero records')
+assert(not peer,'read-only cache must exclude observed-only rows without erasing historical ledger')
+assert(C.account.guildObservations['Guild-Realm'].events.one and C.account.guilds['Guild-Realm']['Peer-Realm'].observerOnly,'read-only filtering retains historical ledger and stored peer')
 assert(C.guildKey==nil and not C.CanPostTopReport()and not C.SendPacket('2|Q'),'cached display cannot grant active guild identity, report authorization or outgoing sync')
 assert(C.account.guildMembership['Guild-Realm'].members['Third-Realm']==nil,'viewing a cache does not manufacture alt guild membership')
 C.account.guilds['Other-Realm']={};assert(C.ViewGuildKey()==nil,'ambiguous cached guilds do not select an arbitrary scope')

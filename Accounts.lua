@@ -211,8 +211,11 @@ function A.ViewGuildKey()
 end
 function A.ViewPeerRecords()
  local key=A.ViewGuildKey();if not key then return{}end
- if key==A.guildKey then return A.PeerRecords()end
- return(A.account.guilds or{})[key]or{}
+ local records=key==A.guildKey and A.PeerRecords()or(A.account.guilds or{})[key]or{}
+ -- Retain historical witness data in storage, but do not present inferred
+ -- third-party totals as addon-reported guild statistics.
+ local reported={};for name,r in pairs(records)do if not r.observerOnly then reported[name]=r end end
+ return reported
 end
 function A.ViewGuildMembers()
  if A.guildKey then return A.members or{}end
@@ -231,6 +234,13 @@ function A.ValidKillReportRange(first,last,now)
   and first%1==0 and last%1==0 and first<=last
   and first>=A.Day(now)-A.RETENTION+1 and last<=A.Day(now)
 end
+function A.ViewKillRecord(name,r,now,guildKey)
+ -- Local saved history still reconciles its retained life identities. Peer
+ -- rankings use the subject's reported counters, not a partial witness ledger.
+ local own=A.account and A.account.characters[name]or name==A.owner
+ if own and A.GuildEffectiveRecord then return A.GuildEffectiveRecord(name,r,now,guildKey)end
+ return r
+end
 function A.LeaderboardGroups(period,now,first,last,scope)
  local ranged=first~=nil or last~=nil
  if ranged and not A.ValidKillReportRange(first,last,now)then return{}end
@@ -246,7 +256,7 @@ function A.LeaderboardGroups(period,now,first,last,scope)
   local g=groups[key]
   if not g then g={id=key,name=r.alias or short(name),aliasRev=-1,k=0,children={},isGroup=true,encountered=-1};groups[key]=g end
   if r.alias and (r.aliasRev or 0)>=g.aliasRev then g.name=r.alias;g.aliasRev=r.aliasRev or 0 end
-  local effective=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r
+  local effective=A.ViewKillRecord(name,r,now,viewKey)
   local k=A.Score(effective,period,now)
   if ranged then k=0;for day=first,last do k=k+((effective.days or{})[day]or 0)end end
   local encountered=name==A.owner and A.EncounterCount(period,now) or A.EncounterScore(r,period,now)
@@ -257,8 +267,7 @@ function A.LeaderboardGroups(period,now,first,last,scope)
    end end
    encountered=0;for _ in pairs(identities) do encountered=encountered+1 end
   end
-  g.children[#g.children+1]={name=name,k=k,encountered=encountered or -1,isOwn=name==A.owner,observed=r.observerOnly}
-  g.observed=g.observed or r.observerOnly
+  g.children[#g.children+1]={name=name,k=k,encountered=encountered or -1,isOwn=name==A.owner}
   g.k=g.k+k;g.isOwn=g.isOwn or name==A.owner
   if r.accountEncounterScores and (period=='Lifetime' or A.Day(r.accountEncounterStamp)==A.Day(now)) and (not g.encounterStamp or r.accountEncounterStamp>g.encounterStamp) then
    for i,label in ipairs(A.frames) do if label==period then g.encountered=r.accountEncounterScores[i];g.encounterStamp=r.accountEncounterStamp end end

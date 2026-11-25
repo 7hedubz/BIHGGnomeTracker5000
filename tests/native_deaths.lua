@@ -15,8 +15,8 @@ return function(A,event,tick,clock,units)
  assert(not A.lastError,A.lastError)
  assert(reads==0,'no recap API access after retirement')
  assert(not scans.player and not scans.party1,'no own/group victim aura scans')
- assert(scans.target and scans.target>0,'enemy target harmful-aura scans must remain')
- assert(A.groupTargets['Player-gnome'].actors['Player-friend'].cc,'guild caster debuff-assist evidence must remain')
+ assert(not next(scans),'all retired contribution aura scans must be absent')
+ assert(A.groupTargets['Player-gnome'],'enemy victim identity/life tracking must remain')
  for _,name in ipairs({'PlayerDeath','GroupOwnDeath','GnomeDeathEvidence','ValidGnomeDeathEvidence','GnomeHarmfulEvidence','IncomingHarmful','IncomingDeathEvidence','UpdateDeathCombat','ScanIncomingVictim','ScanIncomingAuras','Recap','InitDeathOutcomes','DeathDebugLines'})do
   assert(A[name]==nil,'retired death API remains callable: '..name)
  end
@@ -24,5 +24,5 @@ return function(A,event,tick,clock,units)
  assert(not A.ReceiveGroup(table.concat({'5','E','D',A.EncodeAlias(A.owner),'Player-me','Player-gnome',clock(),clock()},'|'),A.owner,clock()),'legacy received D events must be rejected')
  assert(A.db.owners[A.owner].deaths==nil and A.db.owners[A.owner].deathDays==nil,'runtime must not recreate death counters')
  assert(A.groupIncoming==nil and A.pendingDeaths==nil and A.deathFight==nil,'no retired collector state')
- print('PASS death retirement: native listeners/API/collector removed, D rejected, enemy debuff assist retained')
+ print('PASS death retirement: native listeners/API/collector removed, D rejected, enemy victim identity retained, all contribution aura scans retired')
 end

@@ -54,8 +54,8 @@ test('group and pet credit are independently world-only without receiver filteri
   assert(not A.groupTargets['Player-blocked'],'instance group observation must be discarded')
   -- Even pre-existing entries cannot accept instance contributions or deaths.
   A.groupTargets['Player-blocked']={seen=t,hp=1000,actors={}}
-  assert(not A.GroupDamage('Player-blocked',20,0,'Pet-friend',t))
-  assert(not A.GroupCC('Player-blocked',702,'Pet-me',t,true))
+  assert(A.GroupDamage==nil,'retired damage collector is absent even when instanced')
+  assert(A.GroupCC==nil,'retired harmful collector is absent even when instanced')
   assert(not A.GroupDeath('Player-blocked',t+1))
   assert(not A.db.dead['Player-blocked'])
   -- Remote ledger replay/adoption is not a new local observation.
@@ -66,13 +66,11 @@ test('group and pet credit are independently world-only without receiver filteri
  end
  IsInInstance=function()return false,'none'end
  local A=make(true);A.GroupObserve('Player-world','Gnome',true,1000,t,false)
- A.GroupDamage('Player-world',19,0,'Player-me',t)
- A.GroupCC('Player-world',172,'Pet-friend',t,true)
  assert(A.GroupDeath('Player-world',t+1))
  assert(A.db.owners[A.owner].total==1,'personal HK counts independently of own damage or debuffs')
- assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],t+1).total==1)
+ assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],t+1).total==0,'personal HK does not authorize group credit')
  A.GroupObserve('Player-debuff','Gnome',true,1000,t+10,false)
- assert(A.GroupCC('Player-debuff',702,'Pet-me',t+10,true));assert(A.GroupDeath('Player-debuff',t+11))
+ assert(A.GroupDeath('Player-debuff',t+11))
  assert(A.db.owners[A.owner].total==2,'own HK confirms fresh native world victim')
 end)
 local function runtime(A)
@@ -108,7 +106,7 @@ test('actual runtime transitions isolate lives and clear eligibility before scan
   for _,kind in ipairs({'pvp','arena','party','raid','scenario'})do
    IsInInstance=function()return false,'none'end
    local A=make(true);local units,event=runtime(A)
-   A.ScanVisible();assert(A.groupTargets['Player-same'].actors['Player-me'].cc)
+   A.ScanVisible();assert(A.groupTargets['Player-same'],'readable living victim tracked without contributions')
    IsInInstance=function()return true,kind end
    units.target.dead=true;event(eventName)
    assert(not next(A.groupTargets),'transition must discard world eligibility before instance scans')
@@ -145,7 +143,7 @@ test('automatic policy checks discard stale personal and guild contributions on 
  for _,group in ipairs({false,true})do
   IsInInstance=function()return false,'none'end;local A=make(group)
   local observe=group and A.GroupObserve or A.Observe
-  local cc=function()if group then return A.GroupCC('Player-stale',702,'Player-me',t,true)else return A.CC('Player-stale',702,true,t,true)end end
+  local cc=function()if group then return A.groupTargets['Player-stale']~=nil else return A.CC('Player-stale',702,true,t,true)end end
   local death=group and A.GroupDeath or A.Death
   observe('Player-stale','Gnome',true,1000,t,false);assert(cc())
   IsInInstance=function()return true,'pvp'end
@@ -164,9 +162,9 @@ test('unreadable native state cannot bypass any personal or group lifecycle entr
     local observe=group and A.GroupObserve or A.Observe;observe('Player-boundary','Gnome',true,1000,t,false)
     IsInInstance=fn
     if entry=='damage'then
-     if group then assert(not A.GroupDamage('Player-boundary',1000,0,'Player-me',t))else A.Damage('Player-boundary',1000,0,true,t)end
+     if group then assert(A.GroupDamage==nil);A.RefreshKillLocation(false)else A.Damage('Player-boundary',1000,0,true,t)end
     elseif entry=='cc'then
-     if group then assert(not A.GroupCC('Player-boundary',702,'Player-me',t,true))else assert(not A.CC('Player-boundary',702,true,t,true))end
+     if group then assert(A.GroupCC==nil);A.RefreshKillLocation(false)else assert(not A.CC('Player-boundary',702,true,t,true))end
     elseif entry=='death'then assert(not (group and A.GroupDeath or A.Death)('Player-boundary',t))
     else observe('Player-boundary','Gnome',true,1000,t,false)end
     IsInInstance=function()return false,'none'end
@@ -189,7 +187,7 @@ test('legacy death reserves corpse before Changed can reenter personal or group 
    A.Observe(g,'Gnome',true,1000,t,false);A.CC(g,770,true,t,true)
    nested=A.Death(g,t)
    if group then
-    A.GroupObserve(g,'Gnome',true,1000,t,false);A.GroupCC(g,770,'Player-me',t,true)
+    A.GroupObserve(g,'Gnome',true,1000,t,false)
     assert(not A.GroupDeath(g,t),'group fallback cannot credit an in-flight personal death')
    end
   end

@@ -7,8 +7,16 @@ local function make(db,account)
  A.guildKey='Guild-Realm';A.members={['Me-Realm']=true};A.InitGroupTracking(t)
  return A
 end
+-- Simulate pre-retirement serialized A history, never a new ingress.
+local function savedAssist(A,name,actor,target,at,contribution,now,token)
+ local s=A.account.guildObservations[A.guildKey]
+ s.killLives=s.killLives or{};s.killAliases=s.killAliases or{};s.killRoots=s.killRoots or{}
+ s.killLives[token]={target=target,parent='root'};s.killAliases[token]=token;s.killRoots[target]=token
+ s.events['H:'..actor..':'..token]={kind='K',name=name,actor=actor,target=target,time=at,contribution=contribution,claim=token,provenance='A'}
+ A.groupIndexes=nil;A.RebuildOwnGuildTotals(now);return true
+end
 local A=make()
-assert(A.AddHonorClaim('Me-Realm','Player-me','Player-victim',t,t,t,'Player-one:1','root','A'))
+assert(savedAssist(A,'Me-Realm','Player-me','Player-victim',t,t,t,'Player-one:1'))
 assert(not A.AddHonorClaim('Me-Realm','Player-me','Player-victim',t+4,t+4,t+4,'Player-two:1','root','H'))
 assert(not A.AddHonorClaim('Me-Realm','Player-me','Player-victim',t-4,t-4,t+4,'Player-three:1','root','A'))
 assert(A.db.owners[A.owner].total==1,'three observers with four-second skew merge one actor/victim life')
@@ -30,7 +38,7 @@ local observers={make(),make(),make()};local viewer=make()
 viewer.members['Witness-Realm']=true
 for i,observer in ipairs(observers)do
  local offset=({0,4,-4})[i]
- assert(observer.AddHonorClaim('Me-Realm','Player-me','Player-shared',t+offset,t+offset,t+4,'Player-observer-'..i..':1','root',i==2 and'H'or'A'))
+ assert(observer.AddHonorClaim('Me-Realm','Player-me','Player-shared',t+offset,t+offset,t+4,'Player-observer-'..i..':1','root','H'))
 end
 for _,i in ipairs({3,1,2,2,3,1})do for _,packet in ipairs(observers[i].GroupPackets(true,t+4))do viewer.Receive(packet,'GUILD','Witness-Realm',t+4)end end
 assert(viewer.db.owners[viewer.owner].total==1,'three real observer stores and reordered +4/-4 wire replay merge one actor/life')
@@ -64,7 +72,7 @@ for _,typedFirst in ipairs({false,true})do
  local M=make(db);M.members['Witness-Realm']=true
  local when=t-1
  local legacy=table.concat({'5','E','K',M.EncodeAlias('Me-Realm'),'Player-me','Player-history',when,when},'|')
- local typed=table.concat({'5','H',M.EncodeAlias('Me-Realm'),'Player-me','Player-history',when,when,'Player-history:1','root','A'},'|')
+ local typed=table.concat({'5','H',M.EncodeAlias('Me-Realm'),'Player-me','Player-history',when,when,'Player-history:1','root','H'},'|')
  local first,second=typedFirst and typed or legacy,typedFirst and legacy or typed
  M.Receive(first,'GUILD','Witness-Realm',t);M.Receive(second,'GUILD','Witness-Realm',t)
  assert(M.db.owners[M.owner].total==1,'legacy/typed historical kill must count once in either wire order')

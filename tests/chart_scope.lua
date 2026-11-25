@@ -28,13 +28,13 @@ local function setup()
  return A,today,now,own,peers
 end
 
-test('Guild daily buckets union peers and authoritative local characters with effective witness credit',function()
+test('Guild daily buckets union reported peers and authoritative local characters, excluding observed-only rows',function()
  local A,today,now=setup()
  local personal=A.ActivityTrend('Today',now);eq(personal[1].kills,5);eq(personal[1].deaths,nil)
  local guild=A.ActivityTrend('Today',now,nil,nil,'Guild')
- eq(guild[1].kills,13,'guild member kill credit');eq(guild[1].deaths,nil)
+ eq(guild[1].kills,12,'reported guild member kill credit');eq(guild[1].deaths,nil)
  eq(A.ActivityTrend('Today',now,nil,nil,'Personal')[1].kills,5)
- A.chartScope='Guild';eq(A.ActivityTrend('Today',now)[1].kills,13)
+ A.chartScope='Guild';eq(A.ActivityTrend('Today',now)[1].kills,12)
  eq(A.ActivityTrend('Today',now,nil,nil,'unknown')[1].kills,5)
  A.chartScope='unknown';eq(A.ActivityTrend('Today',now)[1].kills,5)
 end)
@@ -53,7 +53,7 @@ test('Lifetime bounds and complete series follow selected scope without distribu
  A.chartScope='Guild';eq(A.ChartBounds('Lifetime',now),today-399)
  local line=A.KillsLine('Lifetime',now,300,100,today-399,today-399,'Guild')
  eq(#line.points,1);eq(line.points[1].kills,1);eq(line.points[1].x,150)
- eq(A.KillsLine('Today',now,300,100,nil,nil,'Guild').peak,13)
+ eq(A.KillsLine('Today',now,300,100,nil,nil,'Guild').peak,12)
  -- Lifetime counters without daily evidence must not invent activity.
  local B,d,t,localRecord,p=setup();localRecord.days={};localRecord.total=999999
  B.account.characters['Alt-Realm'].days={}
@@ -94,7 +94,7 @@ test('cached guild uses selected witness ledger without statistics, report, perm
  A.QueueShare=function()sends=sends+1;error('chart must not queue')end
  local permission=A.CanPostTopReport();local job={lines={'frozen'},index=1};A.postJob=job;A.postStatus='unchanged'
  for _,scope in ipairs({'Personal','Guild'})do
-  local expected=scope=='Guild'and 13 or 5
+  local expected=scope=='Guild'and 12 or 5
   eq(A.ActivityTrend('Today',now,nil,nil,scope)[1].kills,expected)
   eq(A.KillsLine('Today',now,300,100,nil,nil,scope).peak,expected)
   A.GetChartRange('Lifetime',now,scope)

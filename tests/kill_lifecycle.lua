@@ -27,23 +27,24 @@ local function setup(group)
  function IsInRaid()return false end
  C_UnitAuras={GetAuraDataByIndex=function(_,i)if aura=='error'then error('unreadable')end;if aura==secret then return secret end;if aura and i==1 then return{spellId=770,sourceUnit=actorUnit}end end}
  local A={}
- for _,f in ipairs({'Core.lua','Accounts.lua','Sync.lua',group and'GroupTracker.lua'or'Core.lua','Runtime.lua'})do assert(loadfile(root..'/'..f))('BIHGGnomeKillTracker5000',A)end
+ for _,f in ipairs({'Core.lua','Accounts.lua','Sync.lua','GroupTracker.lua','Runtime.lua'})do assert(loadfile(root..'/'..f))('BIHGGnomeKillTracker5000',A)end
  A.Init({},'Me-Realm',t);A.guildName='Guild';A.guildKey='Guild-Realm';A.members={[A.owner]=true,['Friend-Realm']=true}
- if group then A.InitGroupTracking(t);A.RefreshGroupActors();A.honorLifecycle=true end
+ A.InitGroupTracking(t);A.RefreshGroupActors();A.honorLifecycle=true
  A.plates={};A.auras={};A.coverage={}
  local function event(e,...)
   A.eventFrame.scripts.OnEvent(A.eventFrame,e,...);assert(not A.lastError,A.lastError)
-  if group then for _,c in pairs(A.killCandidates or{})do if not c.confirmed then A.ConfirmHonorCandidate(c,t)end end end
+  for _,c in pairs(A.killCandidates or{})do if not c.confirmed then A.ConfirmHonorCandidate(c,t)end end
  end
  return A,event
 end
--- Core-only cases preserve the legacy helper contract, not native HK policy.
--- Group cases inject personal HK proof at this seam and assert actual witnessed
--- guildmate credit; real honor event delivery is covered in honor_kills.lua.
+-- Both solo and party cases inject personal HK proof at the death seam.
+-- Native event delivery is tested by honor_kills and observed_retirement.
+-- Harmful/caster fixtures must never gate or award credit after retirement.
 local function count(A)
  if A.honorLifecycle then
   for _,c in pairs(A.killCandidates or{})do if not c.confirmed then A.ConfirmHonorCandidate(c,t)end end
-  return A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],t).total
+  assert(A.GuildEffectiveRecord('Friend-Realm',nil,t).total==0,'synthetic personal HK must not award guildmate credit')
+  return A.db.owners[A.owner].total
  end
  return A.db.owners[A.owner].total
 end
@@ -58,7 +59,7 @@ for _,group in ipairs({false,true})do
  end
 end
 for _,group in ipairs({false,true})do
- test('readable absence rearms metadata-free debuff '..tostring(group),function()
+ test('personal HK ignores removed aura and later reapplication '..tostring(group),function()
   local A,event=setup(group);event('UNIT_AURA','target');aura=false;t=t+1;event('UNIT_AURA','target')
   aura=true;t=t+99;event('UNIT_AURA','target');t=t+21;dead=true;event('UNIT_HEALTH','target')
   assert(count(A)==1,'new application after confirmed absence kept stale dedup key')
@@ -73,9 +74,9 @@ for _,group in ipairs({false,true})do
  end)
 end
 for _,group in ipairs({false,true})do
- test('continuous aura never renews contribution after cache maintenance '..tostring(group),function()
+ test('personal HK ignores continuous aura after cache maintenance '..tostring(group),function()
   local A,event=setup(group);event('UNIT_AURA','target');t=t+601;A.ScanVisible();t=t+1;event('UNIT_AURA','target')
-  dead=true;event('UNIT_HEALTH','target');assert(count(A)==0,'continuous old aura renewed after key TTL')
+  dead=true;event('UNIT_HEALTH','target');assert(count(A)==1,'personal HK is independent of retired continuous aura evidence')
  end)
 end
 for _,group in ipairs({false,true})do
@@ -88,7 +89,7 @@ for _,group in ipairs({false,true})do
 end
 for _,group in ipairs({false,true})do
  for _,mode in ipairs({'error','secret row','secret field','cap','continuous'})do
-  test('unproven aura absence retains application '..tostring(group)..' '..mode,function()
+  test('personal HK ignores retired aura enumeration '..tostring(group)..' '..mode,function()
    local A,event=setup(group);event('UNIT_AURA','target');local original=C_UnitAuras.GetAuraDataByIndex
    t=t+1
    C_UnitAuras.GetAuraDataByIndex=function(_,i)
@@ -98,7 +99,7 @@ for _,group in ipairs({false,true})do
    end
    event('UNIT_AURA','target');C_UnitAuras.GetAuraDataByIndex=original
    t=t+99;event('UNIT_AURA','target');t=t+21;dead=true;event('UNIT_HEALTH','target')
-   assert(count(A)==0,'failed/incomplete/continuous enumeration manufactured fresh application')
+   assert(count(A)==1,'retired enumeration cannot gate uniquely confirmed personal HK')
   end)
  end
  for _,state in ipairs({'alive','missing','secret death'})do
@@ -109,7 +110,7 @@ for _,group in ipairs({false,true})do
    event('NAME_PLATE_UNIT_REMOVED','nameplate1');assert(count(A)==0)
   end)
  end
- test('readable changed refresh metadata renews contribution '..tostring(group),function()
+ test('personal HK ignores changed aura metadata '..tostring(group),function()
   local A,event=setup(group);local expires=200
   C_UnitAuras.GetAuraDataByIndex=function(_,i)if i==1 then return{spellId=770,sourceUnit=actorUnit,auraInstanceID=1,expirationTime=expires}end end
   event('UNIT_AURA','target');t=t+100;expires=300;event('UNIT_AURA','target');t=t+21;dead=true;event('UNIT_HEALTH','target')
@@ -117,22 +118,22 @@ for _,group in ipairs({false,true})do
  end)
 end
 for _,group in ipairs({false,true})do
- test('unreadable caster GUID cannot prove application absence '..tostring(group),function()
+ test('personal HK ignores retired caster GUID evidence '..tostring(group),function()
   local A,event=setup(group);event('UNIT_AURA','target');local guid=UnitGUID
   t=t+1;UnitGUID=function(u)if u=='player'then return secret end;return guid(u)end;event('UNIT_AURA','target');UnitGUID=guid
   t=t+99;event('UNIT_AURA','target');t=t+21;dead=true;event('UNIT_HEALTH','target')
-  assert(count(A)==0,'protected caster GUID cleared or forked the same application key')
+  assert(count(A)==1,'retired caster evidence cannot gate uniquely confirmed personal HK')
  end)
 end
 for _,group in ipairs({false,true})do
- test('unreadable unrelated aura cannot hide later readable own debuff '..tostring(group),function()
+ test('personal HK ignores unreadable unrelated aura '..tostring(group),function()
   local A,event=setup(group)
   C_UnitAuras.GetAuraDataByIndex=function(_,i)if i==1 then return secret elseif i==2 then return{spellId=770,sourceUnit=actorUnit}end end
   event('UNIT_AURA','target');dead=true;event('UNIT_HEALTH','target');assert(count(A)==1,'unrelated hidden aura gated fresh readable own Faerie Fire')
  end)
 end
 for _,group in ipairs({false,true})do
- test('GUID dedup retries readable aura alias after incomplete scan '..tostring(group),function()
+ test('GUID identity remains readable despite retired aura provider errors '..tostring(group),function()
   local A,event=setup(group);A.plates.nameplate1=true
   C_UnitAuras.GetAuraDataByIndex=function(u,i)if u=='target'then error('unreadable target aura')elseif i==1 then return{spellId=770,sourceUnit=actorUnit}end end
   A.ScanVisible();dead=true;event('UNIT_HEALTH','nameplate1');assert(count(A)==1,'GUID dedup discarded the only readable own debuff exposure')
@@ -156,7 +157,7 @@ for _,group in ipairs({false,true})do
   local attack=UnitCanAttack
   UnitCanAttack=function(source,u)if u=='target'then return secret end;return attack(source,u)end
   A.ScanVisible();dead=true;event('UNIT_HEALTH','nameplate1')
-  assert(count(A)==1,'protected target hostility hid readable hostile alias and its own debuff')
+  assert(count(A)==1,'protected target hostility hid readable hostile alias for personal HK')
  end)
 end
 for _,group in ipairs({false,true})do
@@ -166,7 +167,7 @@ for _,group in ipairs({false,true})do
   local life=UnitIsDeadOrGhost
   UnitIsDeadOrGhost=function(u)if u=='target'then return secret end;return life(u)end
   A.ScanVisible();dead=true;event('UNIT_HEALTH','nameplate1')
-  assert(count(A)==2,'protected target life hid readable resurrection and fresh own debuff')
+  assert(count(A)==2,'protected target life hid readable resurrection and fresh personal HK')
   event('UNIT_FLAGS','nameplate1');event('PARTY_KILL','Player-me','Player-enemy');assert(count(A)==2,'corpse replay duplicated readable-alias life')
  end)
 end

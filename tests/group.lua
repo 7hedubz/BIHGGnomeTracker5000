@@ -44,28 +44,28 @@ local baseline=make('Me-Realm')
 assert(baseline.ReceiveGroup('5|B|'..baseline.EncodeAlias('Friend-Realm')..'|'..now..'|4|retired|'..baseline.Day(now)..'|2|ignored','Friend-Realm',now),'legacy baseline death slots are ignored rather than validated')
 local preserved=baseline.PeerRecords()['Friend-Realm'].guildBase
 assert(preserved.total==4 and preserved.days[baseline.Day(now)]==2 and preserved.deaths==nil and preserved.deathDays==nil,'legacy baseline preserves only kill evidence')
-assert(A.PeerRecords()['Friend-Realm'].observerOnly,'guild group member is discovered before earning any credit')
+assert(not A.PeerRecords()['Friend-Realm'],'group discovery creates no observed-only peer row')
 assert(A.groupSources['Player-friend'] and A.groupSources['Pet-friend'],'guild group players and their pets resolve to character')
 assert(not A.groupSources['Player-guest'],'non-guild group member excluded')
 A.GroupObserve('Player-gnome','Gnome',true,1000,now,false)
-A.GroupCC('Player-gnome',172,'Player-friend',now,true)
-A.GroupDamage('Player-gnome',1000,0,'Player-guest',now)
-A.GroupCC('Player-gnome',118,'Player-me',now)
-assert(A.GroupDeath('Player-gnome',now+1),'eligible guild contributions awarded on death')
+assert(A.GroupDeath('Player-gnome',now+1),'injected personal HK confirms local corpse credit')
+assert(A.GuildEffectiveRecord('Friend-Realm',nil,now+1).total==0,'own HK does not award a guild group assist')
+assert(A.AddHonorClaim('Friend-Realm','Player-friend','Player-gnome',now+1,now+1,now+1,'Player-friend:1','root','H'),'guildmate independently reported H remains accepted')
 local friend=A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+1)
-assert(friend.total==1 and A.db.owners[A.owner].total==1,'own and non-addon guildmate credited independently')
+assert(friend.total==1 and A.db.owners[A.owner].total==1,'own HK and independent peer H are credited separately')
 assert(not A.PeerRecords()['Guest-Realm'],'guest never gets a statistics record')
 assert(not A.GroupDeath('Player-gnome',now+1),'duplicate corpse ignored')
 A.GroupObserve('Player-gnome','Gnome',true,1000,now+10,false)
-A.GroupDamage('Player-gnome',19,0,'Player-friend',now+10)
 A.GroupDeath('Player-gnome',now+11,true)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+11).total==1,'under two percent is not credit')
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+11).total==1,'another personal HK does not add to the guildmate reported history')
 A.GroupObserve('Player-gnome','Gnome',true,nil,now+20,false)
-A.GroupCC('Player-gnome',118,'Pet-friend',now+20);A.GroupDeath('Player-gnome',now+21,true)
-assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+21).total==2,'confirmed guildmate pet CC qualifies without guessed max HP')
+A.GroupDeath('Player-gnome',now+21,true)
+assert(A.AddHonorClaim('Friend-Realm','Player-friend','Player-friend-next',now+21,now+21,now+21,'Player-friend:2','root','H'))
+assert(A.GuildEffectiveRecord('Friend-Realm',A.PeerRecords()['Friend-Realm'],now+21).total==2,'independent reported H credits count without contribution collectors')
 local packets=A.GroupPackets(true,now+22);assert(#packets>0)
 for _,p in ipairs(packets)do assert(#p<=255,'observer protocol exceeds packet bound')end
 local C=make('Viewer-Realm')
+C.Receive('2|S|2|0|'..A.Day(now)..'|2|0','GUILD','Friend-Realm',now+22)
 for _,p in ipairs(packets)do C.Receive(p,'GUILD','Me-Realm',now+22)end
 for _,p in ipairs(packets)do C.Receive(p,'GUILD','Witness-Realm',now+22)end
 for _,p in ipairs(packets)do if p:match('^5|E|')then local f={};for x in p:gmatch('[^|]+')do f[#f+1]=x end;f[7]=tostring(tonumber(f[7])+1);C.Receive(table.concat(f,'|'),'GUILD','Witness-Realm',now+23)end end
@@ -91,7 +91,7 @@ L.PeerRecords()['Friend-Realm']={total=5,deaths=0,days={[day]=5},deathDays={},gu
 for _,p in ipairs(packets)do L.Receive(p,'GUILD','Me-Realm',now+22)end
 assert(L.GuildEffectiveRecord('Friend-Realm',L.PeerRecords()['Friend-Realm'],now+22).total==5,'legacy overlap does not sum twice')
 L.AddGuildEvent('K','Friend-Realm','Player-friend','Player-new-victim',now+110,now+109,now+110)
-assert(L.GuildEffectiveRecord('Friend-Realm',L.PeerRecords()['Friend-Realm'],now+110).total==6,'post-upgrade contributions add to preserved legacy history')
+assert(L.GuildEffectiveRecord('Friend-Realm',L.PeerRecords()['Friend-Realm'],now+110).total==6,'post-cutoff history adds above preserved legacy counters')
 local oldRaid=IsInRaid;IsInRaid=function()return true end;units.raid1=units.party1;units.raidpet1=units.partypet1;units.raid2=units.party2
 A.RefreshGroupActors();assert(A.groupSources['Pet-friend']and not A.groupSources['Player-guest'],'raid pets retain guild-only ownership')
 IsInRaid=oldRaid
@@ -112,4 +112,4 @@ for _,g in ipairs(A.LeaderboardGroups('Lifetime',now+50))do for _,r in ipairs(g.
 A.guildKey=nil;A.members={};A.RefreshGroupActors()
 assert(not next(A.groupSources),'unguilded player cannot observe/award group statistics')
 assert(#A.LeaderboardGroups('Lifetime',now+50)==0,'only guildmates are tallied, including self')
-print('PASS group tracker: guild-only party/pets, HK-confirmed harmful assists, non-addon characters, corpse and multi-observer dedup, alias adoption, retired death counters, departed/unguilded filtering')
+print('PASS group tracker: guild-only party/pets, independent H reports, no discovery-only score rows, corpse and multi-observer dedup, alias adoption, retired death counters, departed/unguilded filtering')

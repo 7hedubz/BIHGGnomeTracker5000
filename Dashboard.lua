@@ -42,7 +42,7 @@ local function chartRecords(now,scope)
  -- not a count of unique enemy deaths across the guild.
  for name,r in pairs(A.account and A.account.characters or {[A.owner]=A.db.owners[A.owner]})do source[name]=r end
  for name,r in pairs(source)do
-  if members[name]then records[#records+1]=A.GuildEffectiveRecord and A.GuildEffectiveRecord(name,r,now,viewKey)or r end
+  if members[name]then records[#records+1]=A.ViewKillRecord(name,r,now,viewKey)end
  end
  return records
 end

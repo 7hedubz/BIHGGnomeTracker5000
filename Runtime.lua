@@ -27,29 +27,6 @@ function A.Race(g)
   if ok and not A.Secret(race) then return race end
  end
 end
-local function own(unit)
- return unit and (A.Safe(UnitIsUnit,unit,'player')==true or A.Safe(UnitIsUnit,unit,'pet')==true)
-end
--- Corpse auras can complete negative-feedback evidence, but are never new
--- contributions. Do not touch polling, application dedup or eligibility here.
-local function corpseAurasComplete(unit)
- local provider=C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
- if type(provider)~='function'then return false end
- for i=1,80 do
-  local ok,a=pcall(provider,unit,i,'HARMFUL')
-  if not ok or A.Secret(a)then return false end
-  if a==nil then return true end
-  if type(a)~='table'or(issecrettable and issecrettable(a))then return false end
-  local good,readableRow=pcall(function()
-   for _,key in ipairs({'spellId','sourceUnit','auraInstanceID','expirationTime','isHelpful','isHarmful'})do
-    if A.Secret(a[key])then return false end
-   end
-   return type(a.spellId)=='number'and type(a.sourceUnit)=='string'and A.Safe(UnitGUID,a.sourceUnit)~=nil
-  end)
-  if not good or not readableRow then return false end
- end
- return false
-end
 -- A GUID-only callback after rearming can replay the previous life forever.
 -- Only an actually exposed, readable corpse can correlate it to the new life.
 function A.ReadableKillCorpse(g)
@@ -61,10 +38,6 @@ function A.ReadableKillCorpse(g)
  for _,unit in ipairs(units)do
   if A.Safe(UnitExists,unit)==true and A.Safe(UnitIsPlayer,unit)==true
    and A.Safe(UnitGUID,unit)==g and A.Safe(UnitIsDeadOrGhost,unit)==true then
-   if not corpseAurasComplete(unit)then
-    local e=A.encounters and A.encounters[g];if e then e.creditUnknown=true end
-    e=A.groupTargets and A.groupTargets[g];if e then e.creditUnknown=true end
-   end
    return true
   end
  end
@@ -115,8 +88,6 @@ function A.Scan(unit,seen,forceAura)
  if type(hostile)~='boolean' then scanState.complete=false end
  local hp=A.Safe(UnitHealthMax,unit)
  local prior=A.GroupObserve and A.groupTargets[g]or A.encounters[g]
- -- GroupObserve may finalize immediately, so completeness must precede it.
- if dead==true and prior and not corpseAurasComplete(unit)then scanState.complete=false end
  if prior and not scanState.complete then prior.creditUnknown=true end
  if A.GroupObserve then A.GroupObserve(g,race,hostile,hp,t,dead)else A.Observe(g,race,hostile,hp,t,dead)end
  -- Corpses and mind-controlled targets may no longer be attackable. Preserve
@@ -125,49 +96,6 @@ function A.Scan(unit,seen,forceAura)
  if encounter and not scanState.complete then encounter.creditUnknown=true end
  if race~='Gnome' or not (hostile or (encounter and encounter.hostile)) then return end
  if dead then if A.GroupDeath then A.GroupDeath(g,t,true)else A.Death(g,t,true)end;return end
- if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
-  local clock=A.Safe(GetTime)or t
-  A.auraPoll=A.auraPoll or {};local last=A.auraPoll[g]
-  if not forceAura and not(previous and not previous.complete)and last and clock>=last and clock-last<1 then return end
-  A.auraPoll[g]=clock
-  local present,complete,unreadableRow={},false,false
-  for i=1,80 do
-   local ok,a=pcall(C_UnitAuras.GetAuraDataByIndex,unit,i,'HARMFUL')
-   if not ok then break end
-   if A.Secret(a) or (type(a)=='table' and issecrettable and issecrettable(a))then unreadableRow=true
-   elseif a==nil then complete=not unreadableRow;break
-   elseif type(a)~='table' then unreadableRow=true
-   elseif A.Secret(a.spellId)or A.Secret(a.sourceUnit)or A.Secret(a.auraInstanceID)or A.Secret(a.expirationTime)or A.Secret(a.isHelpful)or A.Secret(a.isHarmful)then unreadableRow=true
-   else
-   local id,source=a.spellId,a.sourceUnit
-   local instance,expires=a.auraInstanceID,a.expirationTime
-   local sourceGUID=type(source)=='string'and A.Safe(UnitGUID,source)
-   if type(id)~='number'or type(source)~='string'or not sourceGUID then
-    unreadableRow=true;if A.KillOutcome then A.KillOutcome('participant debuff unknown',t,g)end
-   end
-   local eligible=sourceGUID and ((A.GroupCC and A.groupSources[sourceGUID])or(not A.GroupCC and own(source)))
-   local helpful,harmful=a.isHelpful,a.isHarmful
-   if A.Secret(helpful)or A.Secret(harmful)then break end
-   local explicitBuff=helpful==true or harmful==false
-   if type(id)=='number'and id>0 and not explicitBuff and type(source)=='string' and eligible then
-    local key=tostring(id)..':'..tostring(sourceGUID or '')..':'..tostring(instance or '')..':'..tostring(expires or '')
-    present[key]=true
-    A.auras[g]=A.auras[g] or {}
-    if not A.auras[g][key]then
-     local accepted;if A.GroupCC then accepted=A.GroupCC(g,id,sourceGUID,t,true)else accepted=A.CC(g,id,true,t,true)end
-     if accepted then A.auras[g][key]=t end
-    end
-    A.coverage.cc=true
-   end
-   end
-  end
-  -- Errors, secret rows and the enumeration cap never prove absence.
-  -- A readable aura list cannot complete missing identity/life/hostility evidence.
-  scanState.complete=scanState.complete and complete
-  if encounter and not complete then encounter.creditUnknown=true;if A.KillOutcome then A.KillOutcome('participant debuff unknown',t,g)end end
-  if complete then for key in pairs(A.auras[g]or {})do if not present[key]then A.auras[g][key]=nil end end end
- elseif encounter then encounter.creditUnknown=true
- end
 end
 local function scanVisible()
  A.RefreshKillLocation(false)
@@ -179,9 +107,6 @@ local function scanVisible()
  local t=now()
  for g,e in pairs(A.encounters) do if t-(e.last or e.seen or 0)>A.WINDOW then A.encounters[g]=nil end end
  for g,e in pairs(A.groupTargets or {})do if t-e.seen>A.WINDOW then A.groupTargets[g]=nil end end
- -- Dedup keys describe applications, not timed contributions. Aging a key
- -- would turn an unchanged long-lived aura into a new application. Complete
- -- absence, readable new lives, deaths and location boundaries clear them.
 end
 function A.ScanVisible()
  return A.WithEncounterBatch(scanVisible)

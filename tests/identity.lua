@@ -27,7 +27,10 @@ assert(B.Receive('3|I|my-account|'..B.EncodeAlias('Hero')..'|'..now,'GUILD',cano
 assert(B.Receive('6|C|Player-self','GUILD',canonical,now),'direct guild character GUID binding accepted')
 local remote
 for _,g in ipairs(B.LeaderboardGroups('Lifetime',now))do if g.id=='account:my-account'then remote=g end end
-assert(remote and remote.k==1 and #remote.children==1 and not B.PeerRecords()[observed],'remote witnessed kill follows account identity with no duplicate row')
+assert(remote and remote.k==0 and #remote.children==1 and not B.PeerRecords()[observed],'identity link alone must not promote a witnessed counter into reported statistics')
+assert(B.Receive('2|S|1|0|'..day..'|1|0','GUILD',canonical,now),'subject reports its actual kill total')
+for _,g in ipairs(B.LeaderboardGroups('Lifetime',now))do if g.id=='account:my-account'then remote=g end end
+assert(remote.k==1 and #remote.children==1,'reported kill follows reconciled identity without a duplicate row')
 assert(not B.Receive('6|C|not-a-guid','GUILD',canonical,now),'malformed GUID rejected')
 assert(not B.Receive('6|C|Player-unrelated','GUILD',canonical,now),'an established character GUID cannot silently change')
 B.members['Stranger-Realm']=true;assert(B.Receive('3|I|other-owner|'..B.EncodeAlias('Other')..'|'..now,'GUILD','Stranger-Realm',now))

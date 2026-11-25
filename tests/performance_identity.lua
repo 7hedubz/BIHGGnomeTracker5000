@@ -46,7 +46,7 @@ local victim='Player-convert';local at=now-20
 assert(A.AddGuildEvent('K',canonical,actor,victim,at,at-1,now))
 index=A.groupIndexes[A.guildKey];passes=0
 pairs=function(t)if t==events then passes=passes+1 end;return rawpairs(t)end
-assert(not A.AddHonorClaim(canonical,actor,victim,at,at-1,now,'Player-observer:1','root','A'))
+assert(not A.AddHonorClaim(canonical,actor,victim,at,at-1,now,'Player-observer:1','root','H'))
 pairs=rawpairs
 assert(passes==0,'legacy-to-typed conversion must use event key index, not scan ledger: '..passes)
 assert(A.groupIndexes[A.guildKey]==index,'typed conversion must update indexes without rebuilding')
@@ -70,7 +70,7 @@ A.account.guildObservations[A.guildKey].killPolicySince=now
 assert(not A.AddGuildEvent('K',canonical,actor,victim,at-1,at-2,now))
 assert(typed.time==at-1,'reverse legacy arrival retimes the indexed typed event')
 assert(not A.AddHonorClaim(canonical,actor,victim,at,at-1,now,'Player-observer:1','root','H'))
-assert(typed.provenance=='H','own honor upgrades indexed assist provenance')
+assert(typed.provenance=='H','own honor preserves indexed typed provenance')
 assert(A.GuildEffectiveRecord(canonical,{observerOnly=true},now).total==3,'retiming and provenance do not duplicate credits')
 -- Replacing serialized history must invalidate cached buckets even without a Runtime hook.
 local saved=events;events={}

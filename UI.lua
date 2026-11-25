@@ -237,7 +237,7 @@ function A.RefreshUI()
    if a.last~=b.last then return a.last>b.last end;return a.name<b.name
   end)
  else
-  A.heading:SetText('GUILD LEADERBOARD | Click [+] to expand | [observed] = guildmate witnessed in your party/raid')
+  A.heading:SetText('GUILD LEADERBOARD | Click [+] to expand')
   local labels={'Alias / character','Kills'};for i,label in ipairs(labels) do A.headers[i]:SetText(label) end
   if A.sort~='name'and A.sort~='kills'then A.sort='kills'end
   data=A.LeaderboardGroups(period,now)
@@ -256,7 +256,7 @@ function A.RefreshUI()
   if r then
    local color=(encounters and r.race=='Gnome') and '|cffffb347' or ((r.isOwn or r.name==A.owner) and '|cff66ddff' or '|cffffffff')
    local label=r.isGroup and ((A.expanded[r.id] and '[-] ' or '[+] ')..r.name..' ('..#r.children..')') or ((r.child and '   ' or '')..A.DisplayName(r.name))
-   if r.observed then label=label..' [observed]'end
+
    row.data=r;local targetName
    if encounters then targetName=r.targetName elseif r.isGroup then if #r.children==1 then targetName=r.children[1].name end else targetName=r.name end
    A.BindTargetButton(row.button,targetName);row[1]:SetText(color..label..'|r');row.button:Show()

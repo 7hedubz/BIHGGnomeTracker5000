@@ -82,7 +82,6 @@ function A.RefreshGroupActors()
   if A.ObserveGuildCharacter then name=A.ObserveGuildCharacter(rawName,guid,A.Safe(GetServerTime)or 0)end
   if A.RememberGuildMember then A.RememberGuildMember(name,guid)else A.members[name]=true end
   local peers=A.PeerRecords()
-  if name~=A.owner and not(A.account and A.account.characters[name])and not peers[name]then peers[name]=record();peers[name].observerOnly=true end
   if peers[name]then if peers[name].characterGUID and peers[name].characterGUID~=guid then return end;peers[name].characterGUID=guid end
   local actor={name=name,guid=guid,unit=unit};A.groupOwners[guid]=actor;A.groupSources[guid]=actor;A.groupUnits[#A.groupUnits+1]=unit
   local petGUID=A.Safe(UnitGUID,pet);if type(petGUID)=='string' then A.groupSources[petGUID]=actor end
@@ -127,7 +126,8 @@ function A.RebuildOwnGuildTotals(now)
  local r=A.db.owners[A.owner];local effective=A.GuildEffectiveRecord(A.owner,r,now)
  r.total=effective.total;r.days=effective.days
 end
-function A.AddGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter,claim,provenance)
+local addHonorClaim
+local function addGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter,claim,provenance)
  if A.guildUnverified then return false end
  if A.CanonicalCharacterName then name=A.CanonicalCharacterName(name,actor)end
  if not A.guildKey or not A.members[name] or not player(actor)or not player(target)or kind~='K'then return false end
@@ -191,6 +191,10 @@ function A.AddGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter,cl
  if A.RequestUIRefresh then A.RequestUIRefresh()end
  return true
 end
+function A.AddGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter,claim,provenance)
+ if not public(provenance)or provenance=='A'then return false end
+ return addGuildEvent(kind,name,actor,target,at,contribution,now,lifeAfter,claim,provenance)
+end
 function A.CarryOwnGuildHistory(now)
  if not A.guildKey or not A.account then return end
  local root=A.account.guildObservations or {};local current=store();if not current then return end
@@ -200,7 +204,7 @@ function A.CarryOwnGuildHistory(now)
    local added
    if e.claim and s.killLives and s.killLives[e.claim]then
     if A.ImportHonorLineage then A.ImportHonorLineage(s,s.killLives[e.claim].parent)end
-    added=A.AddHonorClaim(e.name,e.actor,e.target,e.time,e.contribution,now,e.claim,s.killLives[e.claim].parent,e.provenance)
+    added=addHonorClaim(e.name,e.actor,e.target,e.time,e.contribution,now,e.claim,s.killLives[e.claim].parent,e.provenance,true)
    else added=A.AddGuildEvent(e.kind,e.name,e.actor,e.target,e.time,e.contribution,now)end
    if added then changed=true end
   end
@@ -213,33 +217,11 @@ function A.GroupObserve(g,race,hostile,hp,now,dead)
  A.ObserveKillLife(g,dead,now)
  if A.db.dead[g]then return end
  local e=A.groupTargets[g]
- if not e and hostile==true and not dead then e={actors={},seen=now};A.groupTargets[g]=e end
+ if not e and hostile==true and not dead then e={seen=now};A.groupTargets[g]=e end
  if not e then return end
  if dead==false then e.living=now end
- local active=false;for _,p in pairs(e.actors)do if now-p.last<=A.WINDOW then active=true;break end end
- if not active then e.actors={};e.hp=nil end
  e.seen=now;if type(hp)=='number'and hp>0 then e.hp=math.max(e.hp or 0,hp)end
  if dead then return A.GroupDeath(g,now,true)end
-end
-local function participant(g,source,now)
- local e=A.groupTargets[g];local actor=A.groupSources[source]
- if not e or not actor or not A.members[actor.name]or A.db.dead[g]then return end
- local p=e.actors[actor.guid]
- if not p or now-(p.last or now)>A.WINDOW then p={name=actor.name,guid=actor.guid,damage=0};e.actors[actor.guid]=p end
- p.last=now;return p
-end
-function A.GroupDamage(g,amount,overkill,source,now)
- if not A.OpenWorldKillsAllowed() then return false end
- if type(amount)~='number'or amount<0 then return false end
- local p=participant(g,source,now);if not p then return false end
- p.damage=p.damage+math.max(0,amount-math.max(0,tonumber(overkill)or 0));return true
-end
-function A.GroupCC(g,spell,source,now,harmful)
- if not A.OpenWorldKillsAllowed() then return false end
- if type(spell)~='number'or spell<1 or spell%1~=0 or harmful==false or(not A.CCSpells[spell]and harmful~=true)then return false end
- local p=participant(g,source,now);if not p then return false end
- if not p.cc and A.KillOutcome then A.KillOutcome('participant debuff accepted',now,g)end
- p.cc=true;p.harmfulAt=now;return true
 end
 function A.GroupDeath(g,now,corpseConfirmed,deathConfirmed,nativePK)
  if not A.OpenWorldKillsAllowed() or not player(g)then return false end
@@ -254,7 +236,7 @@ function A.GroupDeath(g,now,corpseConfirmed,deathConfirmed,nativePK)
  local race=s and now>=s.time and now-s.time<=8 and s.race or nil
  if not race and deathConfirmed==true and A.FreshHonorRace then race=A.FreshHonorRace(g)end
  if not room(A.killCandidates,g)and A.honorState then A.honorState.overflow=true end
- A.killCandidates[g]={guid=g,time=now,actors=e and e.actors or{},guild=A.guildKey,
+ A.killCandidates[g]={guid=g,time=now,guild=A.guildKey,
   race=race,parent=(A.honorParents or{})[g]or'root',
   eligible=not A.guildUnverified and A.members and A.members[A.owner]==true,owner=A.owner,ownerGUID=A.Safe and A.Safe(UnitGUID,'player')}
  A.groupTargets[g]=nil;A.encounters[g]=nil;A.db.dead[g]=now
@@ -264,17 +246,9 @@ function A.GroupDeath(g,now,corpseConfirmed,deathConfirmed,nativePK)
  return false
 end
 function A.GroupCombat(v,now)
- local event,source,target=v[2],v[4],v[8]
+ local event,target=v[2],v[8]
  if event=='UNIT_DIED'or event=='UNIT_DESTROYED'then
   A.GroupDeath(target,now,nil,true);return
- end
- local amount,overkill
- if event=='SWING_DAMAGE'then amount,overkill=v[12],v[13]
- elseif event=='SPELL_DAMAGE'or event=='SPELL_PERIODIC_DAMAGE'or event=='RANGE_DAMAGE'or event=='DAMAGE_SHIELD'then amount,overkill=v[15],v[16]
- elseif event=='ENVIRONMENTAL_DAMAGE'then amount,overkill=v[13],v[14]end
- if amount then A.GroupDamage(target,amount,overkill,source,now)
- elseif (event=='SPELL_AURA_APPLIED'or event=='SPELL_AURA_REFRESH'or event=='SPELL_AURA_APPLIED_DOSE')and v[15]=='DEBUFF'then
-  A.GroupCC(target,v[12],source,now,true)
  end
 end
 local function claimToken(v)
@@ -305,10 +279,11 @@ function A.ImportHonorLineage(origin,id)
  end
  return true
 end
-function A.AddHonorClaim(name,actor,target,at,contribution,now,token,parent,provenance)
+addHonorClaim=function(name,actor,target,at,contribution,now,token,parent,provenance,historical)
  if not A.guildKey or not public(name)or type(name)~='string'or #name>128 or name:find('[%c|]')
   or not public(actor)or not public(target)or not public(token)or not public(parent)or not public(provenance)
   or not public(at)or not public(contribution)or not public(now)or type(now)~='number'or now~=now or now>=math.huge then return false end
+ if provenance~='H'and not(historical and provenance=='A')then return false end
  -- Check the literal submitted character before following a claimed GUID.
  local root=A.account or A.db
  local identities=(root.guildIdentities or{})[A.guildKey]
@@ -323,7 +298,7 @@ function A.AddHonorClaim(name,actor,target,at,contribution,now,token,parent,prov
  end
  if A.guildUnverified or not A.guildKey or not A.members[name]or not player(actor)or not player(target)
   or not claimToken(token)or(parent~='root'and not claimToken(parent))or token==parent
-  or(provenance~='H'and provenance~='A')or type(at)~='number'or type(contribution)~='number'
+  or(provenance~='H'and not(historical and provenance=='A'))or type(at)~='number'or type(contribution)~='number'
   or at%1~=0 or contribution%1~=0 or at<1000000000 or at>now+5 or contribution>at+1 or contribution<at-A.WINDOW then return false end
  local s=store();s.killLives=s.killLives or{};s.killAliases=s.killAliases or{};s.killRoots=s.killRoots or{}
  local ancestor=parent~='root'and s.killAliases[parent]or nil
@@ -348,7 +323,7 @@ function A.AddHonorClaim(name,actor,target,at,contribution,now,token,parent,prov
   life.aliasCount=life.aliasCount+1;life.aliasTokens=life.aliasTokens or{};life.aliasTokens[#life.aliasTokens+1]=token
  end
  s.killAliases[token]=id;s.killAliases[id]=id
- local added=A.AddGuildEvent('K',name,actor,target,at,contribution,now,nil,id,provenance)
+ local added=addGuildEvent('K',name,actor,target,at,contribution,now,nil,id,provenance)
  local ancestorID=id;local retained={}
  while ancestorID~='root'and s.killLives[ancestorID]and not retained[ancestorID]do
   retained[ancestorID]=true;s.killLives[ancestorID].contextOnly=nil
@@ -359,6 +334,11 @@ function A.AddHonorClaim(name,actor,target,at,contribution,now,token,parent,prov
  -- receipt time, clock proximity or a new observer's root as resurrection proof.
  A.DrainHonorClaims(now)
  return added,id
+end
+-- Saved local history may be carried unchanged; no public or wire ingress
+-- can request that exception, including a queued claim from an old session.
+function A.AddHonorClaim(name,actor,target,at,contribution,now,token,parent,provenance)
+ return addHonorClaim(name,actor,target,at,contribution,now,token,parent,provenance,false)
 end
 function A.DrainHonorClaims(now)
  if not A.honorClaimDraining then
@@ -458,7 +438,11 @@ end
 function A.PriorityGroupPacket()
  local s=store();if not s then return end
  local pending=A.groupPending[A.guildKey]or {};local chosen
- for id in pairs(pending)do local e=s.events[id];if e and e.kind=='K'and A.members[e.name]and(not chosen or e.time>s.events[chosen].time)then chosen=id end end
+ for id in pairs(pending)do
+  local e=s.events[id]
+  if e and e.provenance=='A'then pending[id]=nil
+  elseif e and e.kind=='K'and A.members[e.name]and(not chosen or e.time>s.events[chosen].time)then chosen=id end
+ end
  if chosen then
   local e=s.events[chosen];local life=e.claim and s.killLives[e.claim]
   A.groupLifeSent=A.groupLifeSent or{};A.groupLifeSent[A.guildKey]=A.groupLifeSent[A.guildKey]or{}
@@ -482,7 +466,10 @@ function A.GroupPackets(full,now)
   end
  end end
  local pending=A.groupPending[A.guildKey]or {};local ids={}
- for id,e in pairs(s.events)do if e.kind=='K'and A.members[e.name]and(full or pending[id])then ids[#ids+1]=id end end
+ for id,e in pairs(s.events)do
+  if e.provenance=='A'then pending[id]=nil
+  elseif e.kind=='K'and A.members[e.name]and(full or pending[id])then ids[#ids+1]=id end
+ end
  table.sort(ids,function(a,b)if s.events[a].time~=s.events[b].time then return s.events[a].time>s.events[b].time end;return a<b end)
  local emitted={}
  for _,id in ipairs(ids)do
@@ -642,11 +629,6 @@ function A.ConfirmHonorCandidate(c,t)
  local s=store();s.killLocal=s.killLocal or{};s.killLocal[c.guid]=id or c.claim
  A.KillOutcome(added and'credit committed'or'credit deduplicated',t,c.guid)
  if added then A.CreditNotice('K',c.guid)end
- for _,p in pairs(c.actors or{})do
-  if p.guid~=guid and p.cc and p.harmfulAt and c.time>=p.harmfulAt and c.time-p.harmfulAt<=A.WINDOW and A.members[p.name]then
-   A.AddHonorClaim(p.name,p.guid,c.guid,c.time,p.harmfulAt,t,c.claim,c.parent,'A')
-  end
- end
  return finish(added)
 end
 function A.HonorMessage(message,t)
@@ -674,9 +656,9 @@ function A.HonorMessage(message,t)
  if c and(t<c.time or t-c.time>8)then A.KillOutcome('rejected life',t,match);return false end
  if not c then
   if A.db.dead[match]then A.KillOutcome('rejected life',t,match);return false end
-  local s=A.honorSightings[match];local e=(A.groupTargets or{})[match]
+  local s=A.honorSightings[match]
   if A.killLifeAfter and A.killLifeAfter[match]and not A.ReadableKillCorpse(match)then A.KillOutcome('rejected life',t,match);return false end
-  c={guid=match,time=t,actors=e and e.actors or{},guild=A.guildKey,race=s.race,
+  c={guid=match,time=t,guild=A.guildKey,race=s.race,
    eligible=not A.guildUnverified and A.members and A.members[A.owner]==true,owner=A.owner,ownerGUID=A.Safe(UnitGUID,'player')}
   A.killCandidates=A.killCandidates or{};if not room(A.killCandidates,match)then A.honorState.overflow=true end;A.killCandidates[match]=c
   A.db.dead[match]=t;A.groupTargets[match]=nil

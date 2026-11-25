@@ -157,10 +157,10 @@ return function(A,event,tick,clock,units,combat,sent)
   C_UnitAuras.GetAuraDataByIndex=function(u,i)calls=calls+1;if u=='target'and i==1 then return{spellId=770,sourceUnit='player',auraInstanceID=9,isHarmful=true}end end
   units.target={guid='Player-scan-benchmark',name='Benchmark',race='Gnome',faction='Alliance',hp=1000,enemy=true}
   units.focus=units.target;units.mouseover=units.target
-  A.ScanVisible();assert(calls==2,'duplicate aliases retain only 2 hostile aura calls; retired incoming sentinel must not run')
+  A.ScanVisible();assert(calls==0,'duplicate aliases must perform zero retired aura reads')
   calls=0;for i=1,100 do event('UNIT_HEALTH','target')end
   assert(calls==0,'100 same-clock health events cause zero aura calls')
   units.target,units.focus,units.mouseover=savedTarget,savedFocus,savedMouse;A.plates=savedPlates
-  print('PASS benchmark: duplicate aliases 6 -> 2 aura calls; 100 health events -> 0')
+  print('PASS benchmark: retired hostile aliases and 100 health events -> 0 aura calls')
  end
 end
